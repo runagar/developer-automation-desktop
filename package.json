@@ -1,0 +1,86 @@
+{
+  "name": "agent-smith",
+  "version": "1.0.0",
+  "description": "Atompunk Copilot CLI session manager",
+  "main": ".webpack/main",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "lint": "eslint --ext .ts,.tsx ."
+  },
+  "keywords": [],
+  "author": "rulu",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.6.0",
+    "@electron-forge/maker-deb": "^7.6.0",
+    "@electron-forge/maker-zip": "^7.6.0",
+    "@electron-forge/plugin-webpack": "^7.6.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "css-loader": "^6.0.0",
+    "electron": "^33.0.0",
+    "eslint": "^8.0.1",
+    "eslint-plugin-import": "^2.25.0",
+    "fork-ts-checker-webpack-plugin": "^7.2.13",
+    "node-loader": "^2.0.0",
+    "style-loader": "^3.0.0",
+    "ts-loader": "^9.2.2",
+    "typescript": "~5.0.4"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "better-sqlite3": "^11.0.0",
+    "electron": "^33.0.0",
+    "node-pty": "^1.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^10.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/uuid": "^10.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "config": {
+    "forge": {
+      "packagerConfig": {
+        "asar": true
+      },
+      "rebuildConfig": {
+        "onlyModules": []
+      },
+      "makers": [
+        {
+          "name": "@electron-forge/maker-zip",
+          "platforms": ["linux"]
+        }
+      ],
+      "plugins": [
+        {
+          "name": "@electron-forge/plugin-webpack",
+          "config": {
+            "mainConfig": "./webpack.main.config.js",
+            "renderer": {
+              "config": "./webpack.renderer.config.js",
+              "entryPoints": [
+                {
+                  "html": "./src/renderer/index.html",
+                  "js": "./src/renderer/index.tsx",
+                  "name": "main_window",
+                  "preload": {
+                    "js": "./src/preload/preload.ts"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,69 @@
+/* =========================================================
+   STATE INDICATOR BADGE
+   ========================================================= */
+
+.state-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.state-indicator__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.state-indicator__label {
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+/* Idle — dim */
+.state-indicator--idle .state-indicator__dot {
+  background: var(--c-dim);
+}
+.state-indicator--idle .state-indicator__label {
+  color: var(--c-dim);
+}
+
+/* Running — bright pulsing */
+.state-indicator--running .state-indicator__dot {
+  background: var(--c-bright);
+  box-shadow: 0 0 6px var(--c-bright);
+  animation: pulse-primary 1s ease-in-out infinite;
+}
+.state-indicator--running .state-indicator__label {
+  color: var(--c-bright);
+}
+
+/* Awaiting input — amber alert */
+.state-indicator--awaiting .state-indicator__dot {
+  background: var(--c-amber);
+  box-shadow: 0 0 6px var(--c-amber);
+  animation: pulse-amber 0.6s ease-in-out infinite;
+}
+.state-indicator--awaiting .state-indicator__label {
+  color: var(--c-amber);
+}
+
+/* Dead — red */
+.state-indicator--dead .state-indicator__dot {
+  background: #660000;
+}
+.state-indicator--dead .state-indicator__label {
+  color: var(--c-red);
+}
+
+@keyframes pulse-primary {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--c-bright); }
+  50%       { opacity: 0.5; box-shadow: 0 0 10px var(--c-bright); }
+}
+
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--c-amber); }
+  50%       { opacity: 0.6; box-shadow: 0 0 12px var(--c-amber); }
+}

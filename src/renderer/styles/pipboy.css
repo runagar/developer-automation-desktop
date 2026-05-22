@@ -1,0 +1,178 @@
+/* =========================================================
+   AGENT SMITH — PIP-BOY ATOMPUNK THEME
+   Palette: #00ff00 primary · #006600 secondary · #003300 muted
+            #000000 bg · #001100 panel · #002200 border
+   Font: Roboto Mono (as used by pip-boy.com/3000a/simulator)
+   ========================================================= */
+
+/* --- Variables (Pip-boy 3000 — phosphor green, default) --- */
+:root {
+  --c-bright:       #00ff00;
+  --c-bright-r:     0;
+  --c-bright-g:     255;
+  --c-bright-b:     0;
+  --c-mid:          #00cc00;
+  --c-dim:          #006600;
+  --c-dark:         #003300;
+  --c-panel:        #001100;
+  --c-panel-hover:  #001a00;
+  --c-active:       #002200;
+  --c-bg:           #000000;
+  --c-amber:        #ffcc00;
+  --c-red:          #ff4444;
+
+  --glow:         0 0 6px var(--c-bright), 0 0 12px var(--c-dim);
+  --glow-sm:      0 0 4px var(--c-bright);
+  --glow-amber:   0 0 6px var(--c-amber);
+  --panel-border: 1px solid var(--c-dim);
+  --panel-bg:     var(--c-panel);
+  --font:         'Roboto Mono', 'Courier New', monospace;
+}
+
+/* --- Pip-boy 3000a (amber) --- */
+[data-theme="pipboy-3000a"] {
+  --c-bright:       #ff9f1c;
+  --c-bright-r:     255;
+  --c-bright-g:     159;
+  --c-bright-b:     28;
+  --c-mid:          #cc7f16;
+  --c-dim:          #ff9f1c59;
+  --c-dark:         #ff9f1c26;
+  --c-panel:        #0a0500;
+  --c-panel-hover:  #150b00;
+  --c-active:       #1f1000;
+  --c-bg:           #000000;
+  --c-amber:        #ffe082;
+}
+
+/* --- CRT effect: subtle phosphor center glow --- */
+/* Brighter in the centre, fading toward the edges, like a classic CRT tube.
+   Uses a real DOM element (not a pseudo-element) so it paints above all
+   stacking contexts uniformly across the viewport. */
+.crt-glow {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 80% 70% at 50% 50%,
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.10) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 10001;
+}
+
+/* --- CRT effect: fine scanlines scrolling continuously --- */
+.app-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  /* Two alternating bands per 4px: bright stripe / very dim stripe */
+  /* 4px band: 3.2px bright (80%) then 0.8px dark (20%) */
+  background: linear-gradient(
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.07) 80%,
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.02) 80%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 9999;
+  animation: crt-scanlines 1s linear infinite;
+}
+
+/* --- CRT effect: periodic refresh sweep --- */
+/* A wide translucent band that sweeps top→bottom every ~12s, briefly
+   brightening the scanlines — never fully hiding them between passes */
+.app-shell::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 30vh;
+  pointer-events: none;
+  z-index: 9998;
+  background: linear-gradient(
+    transparent 0%,
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.005) 10%,
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.07) 90%,
+    transparent 100%
+  );
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: crt-sweep 12s linear infinite;
+}
+
+@keyframes crt-scanlines {
+  to { background-position-y: 4px; }
+}
+
+@keyframes crt-sweep {
+  /* Parked above screen, invisible */
+  0%      { transform: translateY(-30vh); opacity: 0; }
+  /* Fade in while still above screen, then sweep down */
+  1%      { transform: translateY(-30vh); opacity: 1; }
+  /* Exit below screen — fade out HERE, while still off-screen at 110vh */
+  24%     { transform: translateY(110vh); opacity: 1; }
+  25%     { transform: translateY(110vh); opacity: 0; }
+  /* Snap back to top instantly while already invisible — no mid-screen flash */
+  25.001% { transform: translateY(-30vh); opacity: 0; }
+  /* Wait above screen until next cycle */
+  100%    { transform: translateY(-30vh); opacity: 0; }
+}
+
+/* --- Generic buttons --- */
+.btn {
+  font-family: var(--font);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  border: var(--panel-border);
+  padding: 4px 10px;
+  background: var(--c-panel);
+  color: var(--c-bright);
+  text-transform: uppercase;
+  transition: background 0.1s, box-shadow 0.1s;
+  outline: none;
+}
+.btn:hover {
+  background: var(--c-dark);
+  box-shadow: var(--glow-sm);
+}
+.btn:active {
+  background: var(--c-dim);
+}
+.btn--primary {
+  border-color: var(--c-bright);
+  font-weight: 700;
+}
+.btn--primary:hover {
+  box-shadow: var(--glow);
+}
+.btn--icon {
+  padding: 4px 8px;
+  border-left: none;
+}
+.btn--micro {
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  border-color: var(--c-dim);
+  color: var(--c-dim);
+}
+.btn--micro:hover {
+  color: var(--c-bright);
+  border-color: var(--c-bright);
+}
+.btn--danger {
+  color: var(--c-red);
+  border-color: #660000;
+}
+.btn--danger:hover {
+  color: #ff6666;
+  border-color: var(--c-red);
+  box-shadow: 0 0 4px var(--c-red);
+  background: #110000;
+}
+
+/* --- Panel decoration --- */
+.panel {
+  border: var(--panel-border);
+  background: var(--panel-bg);
+}

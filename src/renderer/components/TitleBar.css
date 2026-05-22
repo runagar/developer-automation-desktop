@@ -1,0 +1,50 @@
+/* =========================================================
+   CUSTOM TITLEBAR
+   ========================================================= */
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-dark);
+  flex-shrink: 0;
+  /* Full row is draggable; buttons override with no-drag */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar__drag {
+  flex: 1;
+}
+
+.titlebar__controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__btn {
+  width: 44px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 0.75rem;
+  color: var(--c-bright);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar__btn:hover {
+  color: var(--c-bright);
+  background: var(--c-active);
+}
+
+.titlebar__btn--close:hover {
+  color: #ffffff;
+  background: #c42b1c;
+}

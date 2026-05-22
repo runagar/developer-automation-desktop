@@ -1,0 +1,48 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import { initTheme } from './components/ThemeSelector';
+import { initZoom } from './components/ZoomControl';
+import './styles/global.css';
+import './styles/pipboy.css';
+
+// Apply saved theme and zoom before first render
+initTheme();
+initZoom();
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ color: '#ff4040', background: '#000', padding: 20, fontFamily: 'monospace' }}>
+          <h2>RENDER ERROR</h2>
+          <pre>{this.state.error.message}</pre>
+          <pre>{this.state.error.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const container = document.getElementById('root');
+if (!container) {
+  document.body.innerHTML = '<div style="color:#ff4040;font-family:monospace;padding:20px">ERROR: #root element not found</div>';
+} else {
+  const root = createRoot(container);
+  root.render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

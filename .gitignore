@@ -1,0 +1,22 @@
+node_modules/
+.webpack/
+dist/
+out/
+
+# Local config with internal project paths
+projects.json
+
+# Logs & runtime
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Screenshots (dev artifacts)
+Screenshots/
+
+# Secrets
+.env
+.env.*

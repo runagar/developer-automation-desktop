@@ -1,0 +1,54 @@
+/* =========================================================
+   ZOOM CONTROL
+   ========================================================= */
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--c-dim);
+}
+
+.zoom-control__btn {
+  width: 22px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--c-bright);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+  line-height: 1;
+}
+.zoom-control__btn:hover:not(:disabled) {
+  color: var(--c-bright);
+  background: var(--c-dark);
+}
+.zoom-control__btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.zoom-control__value {
+  min-width: 38px;
+  height: 20px;
+  padding: 0 4px;
+  font-family: var(--font);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  color: var(--c-bright);
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--c-dim);
+  border-right: 1px solid var(--c-dim);
+  cursor: pointer;
+  text-align: center;
+  transition: color 0.1s;
+}
+.zoom-control__value:hover {
+  color: var(--c-bright);
+}

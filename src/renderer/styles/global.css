@@ -1,0 +1,65 @@
+/* =========================================================
+   AGENT SMITH — GLOBAL RESET & BASE
+   ========================================================= */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  background: var(--c-bg);
+  color: var(--c-bright);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+ul, li {
+  list-style: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  background: var(--c-panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-dim);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-mid);
+}
+
+::selection {
+  background-color: #00ff00;
+  color: #006600;
+}
+html[data-theme="pipboy-3000a"] ::selection {
+  background-color: #ff9f1c;
+  color: #7a4e00;
+}
+
+/* Override native selection inside xterm's accessibility tree, which has
+   user-select:text and receives native browser selection (shows as OS blue
+   by default). These rules use higher specificity to beat xterm's own rule. */
+.xterm .xterm-accessibility-tree *::selection {
+  background-color: #00ff00 !important;
+  color: transparent !important;
+}
+html[data-theme="pipboy-3000a"] .xterm .xterm-accessibility-tree *::selection {
+  background-color: #ff9f1c !important;
+  color: transparent !important;
+}

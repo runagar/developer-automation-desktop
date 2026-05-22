@@ -1,0 +1,93 @@
+/* =========================================================
+   TERMINAL PANE
+   ========================================================= */
+
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--c-bg);
+}
+
+.terminal-pane__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  height: 28px;
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-dark);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.terminal-pane__name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-bright);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.terminal-pane__name--editable {
+  cursor: text;
+}
+.terminal-pane__name--editable:hover {
+  border-bottom: 1px dashed var(--c-bright);
+}
+.terminal-pane__name-input {
+  font-family: var(--font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-bright);
+  letter-spacing: 0.1em;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--c-bright);
+  outline: none;
+  padding: 0;
+  width: 16ch;
+  max-width: 220px;
+}
+.terminal-pane__project {
+  font-size: 0.65rem;
+  color: var(--c-amber);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.terminal-pane__dir {
+  font-size: 0.6rem;
+  color: var(--c-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-pane__dead-banner {
+  padding: 4px 12px;
+  background: #110000;
+  border-bottom: 1px solid #660000;
+  font-size: 0.68rem;
+  color: var(--c-red);
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+.terminal-pane__terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+}
+
+/* Override xterm.js canvas selection colour */
+.terminal-pane__terminal .xterm-selection div {
+  background-color: rgba(0, 255, 0, 0.4) !important;
+}
+html[data-theme="pipboy-3000a"] .terminal-pane__terminal .xterm-selection div {
+  background-color: rgba(255, 159, 28, 0.4) !important;
+}
+
+.terminal-pane__terminal .xterm {
+  height: 100%;
+}
+.terminal-pane__terminal .xterm-viewport {
+  background: var(--c-bg) !important;
+}
