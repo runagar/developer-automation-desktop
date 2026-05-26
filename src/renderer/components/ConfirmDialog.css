@@ -1,0 +1,75 @@
+/* =========================================================
+   CONFIRM DIALOG — Pip-Boy modal overlay
+   ========================================================= */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.confirm-dialog {
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow), inset 0 0 24px rgba(0, 0, 0, 0.6);
+  padding: 0;
+  min-width: 320px;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+}
+
+.confirm-dialog__header {
+  padding: 8px 14px;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--c-amber);
+  border-bottom: 1px solid var(--c-dim);
+  text-shadow: var(--glow-amber);
+}
+
+.confirm-dialog__message {
+  padding: 16px 14px 4px;
+  font-size: 0.82rem;
+  color: var(--c-bright);
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.confirm-dialog__detail {
+  padding: 4px 14px 12px;
+  font-size: 0.7rem;
+  color: var(--c-dim);
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--c-dim);
+}
+
+.confirm-dialog__btn {
+  flex: 1;
+  padding: 10px;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  border: none;
+  border-right: 1px solid var(--c-dim);
+}
+
+.confirm-dialog__btn:last-child {
+  border-right: none;
+}
+
+.confirm-dialog__btn:focus {
+  outline: 1px solid var(--c-bright);
+  outline-offset: -2px;
+}

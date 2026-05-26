@@ -75,6 +75,7 @@ export default function TerminalPane({ session, isActive, onRename }: Props): Re
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const openedRef = useRef(false); // has term.open() been called yet?
+  const selObsRef = useRef<MutationObserver | null>(null);
   const [editingName, setEditingName] = React.useState(false);
   const [nameValue, setNameValue] = React.useState(session.name);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -109,12 +110,11 @@ export default function TerminalPane({ session, isActive, onRename }: Props): Re
     fitAddonRef.current = fitAddon;
 
     return () => {
-      if (containerRef.current) {
-        (containerRef.current as any).__selObs?.disconnect();
-      }
+      selObsRef.current?.disconnect();
       term.dispose();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Empty deps: terminal is created once per component instance. session.id and
+  // session.name never change for a given instance, so closing over them is safe.
   }, []);
 
   // Open the terminal into the DOM the first time it becomes active.
@@ -140,7 +140,7 @@ export default function TerminalPane({ session, isActive, onRename }: Props): Re
           }
         });
         selObs.observe(selectionContainer, { childList: true });
-        (containerRef.current as any).__selObs = selObs;
+        selObsRef.current = selObs;
       }
     }
 
@@ -164,7 +164,8 @@ export default function TerminalPane({ session, isActive, onRename }: Props): Re
       }
     });
     return unsub;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Empty deps: `id` is captured intentionally. The subscription must be registered
+  // once on mount; re-subscribing on every render would leak listeners.
   }, []);
 
   // Fit terminal whenever the container is resized (covers window resize,

@@ -152,3 +152,9 @@
   padding-left: 18px;
   letter-spacing: 0.08em;
 }
+.session-item__restored {
+  font-size: 0.7rem;
+  color: var(--c-dim);
+  margin-top: 1px;
+  padding-left: 18px;
+}

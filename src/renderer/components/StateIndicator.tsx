@@ -1,7 +1,6 @@
 import React from 'react';
 import { SessionState } from '../../main/types';
 import './StateIndicator.css';
-import './StateIndicator.css';
 
 type DisplayState = SessionState | 'dead';
 

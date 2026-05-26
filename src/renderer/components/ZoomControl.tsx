@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './ZoomControl.css';
 
 const STORAGE_KEY = 'agent-smith-zoom';
@@ -34,6 +34,31 @@ export default function ZoomControl(): React.ReactElement {
     apply(DEFAULT_ZOOM);
   }
 
+  // Always-current ref so the keyboard handler doesn't re-register on every zoom change.
+  const zoomRef = useRef(zoom);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Ctrl+= or Ctrl++ → zoom in, Ctrl+- → zoom out, Ctrl+0 → reset.
+  // preventDefault stops Electron's own Ctrl+=/- window-level zoom from also firing.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return;
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        apply(zoomRef.current + STEP);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        apply(zoomRef.current - STEP);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        apply(DEFAULT_ZOOM);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  // Empty deps: handler registered once; reads fresh zoom from zoomRef.
+  }, []);
+
   const pct = Math.round(zoom * 100);
 
   return (
@@ -42,14 +67,14 @@ export default function ZoomControl(): React.ReactElement {
         className="zoom-control__btn"
         onClick={() => apply(zoom - STEP)}
         disabled={zoom <= MIN_ZOOM}
-        title="Zoom out"
+        title="Zoom out (Ctrl+-)"
       >
         −
       </button>
       <button
         className="zoom-control__value"
         onClick={reset}
-        title="Reset zoom to 100%"
+        title="Reset zoom to 100% (Ctrl+0)"
       >
         {pct}%
       </button>
@@ -57,7 +82,7 @@ export default function ZoomControl(): React.ReactElement {
         className="zoom-control__btn"
         onClick={() => apply(zoom + STEP)}
         disabled={zoom >= MAX_ZOOM}
-        title="Zoom in"
+        title="Zoom in (Ctrl++)"
       >
         +
       </button>

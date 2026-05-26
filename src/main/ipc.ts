@@ -44,9 +44,13 @@ export function registerIpcHandlers(
   });
   ipcMain.handle('window:close', () => getWindow()?.close());
 
-  // Notify session manager of window reference whenever renderer is ready
+  // Notify session manager of window reference whenever renderer is ready,
+  // then restore sessions so PTY events are never fired while window is null.
   ipcMain.on('renderer:ready', () => {
     const win = getWindow();
-    if (win) sessionManager.setWindow(win);
+    if (win) {
+      sessionManager.setWindow(win);
+      sessionManager.restoreSessions();
+    }
   });
 }

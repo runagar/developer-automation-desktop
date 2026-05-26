@@ -12,6 +12,14 @@ export class PtySession extends EventEmitter {
   readonly id: string;
   private ptyProcess: pty.IPty | null = null;
   private state: SessionState = 'idle';
+  // Tail of the previous chunk, prepended to each new chunk so that
+  // detection patterns split across a PTY chunk boundary are still matched.
+  private chunkTail = '';
+  private readonly TAIL_SIZE = 64;
+  // Idle is only committed after the prompt has been visible for this long
+  // with no further output, preventing false transitions during autocomplete.
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly IDLE_DELAY_MS = 5000;
 
   constructor(id: string) {
     super();
@@ -52,6 +60,7 @@ export class PtySession extends EventEmitter {
   }
 
   kill(): void {
+    this.cancelIdleTimer();
     if (this.ptyProcess) {
       try { this.ptyProcess.kill(); } catch { /* already dead */ }
       this.ptyProcess = null;
@@ -66,15 +75,34 @@ export class PtySession extends EventEmitter {
     return this.ptyProcess !== null;
   }
 
+  private cancelIdleTimer(): void {
+    if (this.idleTimer !== null) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
   private detectState(data: string): void {
     const plain = stripAnsi(data);
-    if (plain.includes('esc cancel')) {
+    // Bridge chunk boundaries: prepend the tail of the previous chunk so a
+    // pattern split across two chunks (e.g. "esc can" + "cel") is still matched.
+    const window = this.chunkTail + plain;
+    this.chunkTail = plain.slice(-this.TAIL_SIZE);
+
+    // Any new output cancels a pending idle transition — the session is still active.
+    this.cancelIdleTimer();
+
+    if (window.includes('esc cancel')) {
       this.setState('running');
-    } else if (plain.includes('enter to select') || plain.includes('enter to confirm') || plain.includes('Asking user')) {
+    } else if (window.includes('enter to select') || window.includes('enter to confirm') || window.includes('Asking user')) {
       this.setState('awaiting');
-    } else if (this.state === 'running' && plain.includes('❯')) {
-      // Only go idle from running state when the input prompt appears
-      this.setState('idle');
+    } else if (this.state === 'running' && window.includes('❯')) {
+      // Defer idle: only commit if no further output arrives within IDLE_DELAY_MS.
+      // This prevents false transitions when '❯' appears mid-output (e.g. autocomplete).
+      this.idleTimer = setTimeout(() => {
+        this.idleTimer = null;
+        this.setState('idle');
+      }, this.IDLE_DELAY_MS);
     }
   }
 

@@ -54,7 +54,7 @@
   inset: 0;
   background: radial-gradient(
     ellipse 80% 70% at 50% 50%,
-    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.10) 0%,
+    rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.15) 0%,
     transparent 70%
   );
   pointer-events: none;
@@ -66,13 +66,13 @@
   content: '';
   position: fixed;
   inset: 0;
-  /* Two alternating bands per 4px: bright stripe / very dim stripe */
-  /* 4px band: 3.2px bright (80%) then 0.8px dark (20%) */
+  /* Two alternating bands per 8px: bright stripe / very dim stripe */
+  /* 8px band: 6.4px bright (80%) then 1.6px dark (20%) */
   background: linear-gradient(
     rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.07) 80%,
     rgba(var(--c-bright-r), var(--c-bright-g), var(--c-bright-b), 0.02) 80%
   );
-  background-size: 100% 4px;
+  background-size: 100% 8px;
   pointer-events: none;
   z-index: 9999;
   animation: crt-scanlines 1s linear infinite;
@@ -102,7 +102,7 @@
 }
 
 @keyframes crt-scanlines {
-  to { background-position-y: 4px; }
+  to { background-position-y: 8px; }
 }
 
 @keyframes crt-sweep {

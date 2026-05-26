@@ -7,6 +7,7 @@ export interface Session {
   project: string | null;   // PFT Beta project key (e.g. NRPCON) or null
   state: SessionState;
   dead: boolean;
+  restored: boolean;        // true if resumed from a previous run (runtime-only, not persisted)
   createdAt: string;
   lastActive: string;
 }

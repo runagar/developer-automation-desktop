@@ -4,13 +4,16 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
 import { Session, SessionState, ProjectEntry } from './types';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 
 export class SessionManager {
   private db!: Database.Database;
   private ptySessions: Map<string, PtySession> = new Map();
   private dataDir: string;
   private window: BrowserWindow | null = null;
+  private sessionsRestored = false;
+  // IDs of sessions resumed from the previous run — runtime only, not persisted.
+  private restoredIds = new Set<string>();
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -36,14 +39,16 @@ export class SessionManager {
         last_active TEXT NOT NULL
       )
     `);
-
-    // Restore previous sessions
-    await this.restoreSessions();
   }
 
-  private async restoreSessions(): Promise<void> {
+  // Called from the renderer:ready IPC event, after the window is set,
+  // so PTY events are never emitted while this.window is null.
+  async restoreSessions(): Promise<void> {
+    if (this.sessionsRestored) return;
+    this.sessionsRestored = true;
     const rows = this.db.prepare('SELECT * FROM sessions WHERE dead = 0').all() as any[];
     for (const row of rows) {
+      this.restoredIds.add(row.id);
       await this.spawnSession(row.id, row.working_dir, row.name, row.project, true);
     }
   }
@@ -91,8 +96,16 @@ export class SessionManager {
     try {
       ptySession.spawn(workingDir, id);
       this.ptySessions.set(id, ptySession);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Surface the error in the terminal pane before marking the session dead,
+      // so the user knows why it failed (e.g. 'copilot' binary not found).
+      this.window?.webContents.send(
+        'pty:data', id,
+        `\r\n\x1b[31m[Agent Smith] Failed to start session: ${msg}\x1b[0m\r\n`
+      );
       this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
+      this.window?.webContents.send('session:died', id);
     }
   }
 
@@ -138,7 +151,9 @@ export class SessionManager {
   }
 
   getProjectEntries(): ProjectEntry[] {
-    const configPath = path.join(__dirname, '../../projects.json');
+    // app.getAppPath() resolves correctly in both dev and packaged .asar,
+    // unlike __dirname which breaks when the app is bundled.
+    const configPath = path.join(app.getAppPath(), 'projects.json');
     try {
       const content = fs.readFileSync(configPath, 'utf-8');
       return JSON.parse(content) as ProjectEntry[];
@@ -152,16 +167,16 @@ export class SessionManager {
     return row.count;
   }
 
-  private rowToSession(row: any): Session {
-    return {
-      id: row.id,
-      name: row.name,
-      workingDir: row.working_dir,
-      project: row.project,
-      state: row.state as SessionState,
-      dead: row.dead === 1,
-      createdAt: row.created_at,
-      lastActive: row.last_active,
-    };
-  }
+  // Arrow property so `this` is bound correctly when passed as a .map() callback.
+  private rowToSession = (row: any): Session => ({
+    id: row.id,
+    name: row.name,
+    workingDir: row.working_dir,
+    project: row.project,
+    state: row.state as SessionState,
+    dead: row.dead === 1,
+    restored: this.restoredIds.has(row.id),
+    createdAt: row.created_at,
+    lastActive: row.last_active,
+  });
 }

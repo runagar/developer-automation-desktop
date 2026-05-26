@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Session, ProjectEntry } from '../../main/types';
 import StateIndicator from './StateIndicator';
+import ConfirmDialog from './ConfirmDialog';
 import './SessionList.css';
 
 interface Props {
@@ -20,6 +21,9 @@ export default function SessionList({
 }: Props): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
+
+  const pendingSession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -102,16 +106,32 @@ export default function SessionList({
                 <button
                   className="btn btn--micro btn--danger"
                   title="Destroy session"
-                  onClick={(e) => { e.stopPropagation(); onDestroy(session.id); }}
+                  onClick={(e) => { e.stopPropagation(); setPendingDestroyId(session.id); }}
                 >✕</button>
               </div>
             </div>
             {session.project && (
               <div className="session-item__project">{session.project}</div>
             )}
+            {session.restored && (
+              <div className="session-item__restored">↺</div>
+            )}
           </li>
         ))}
       </ul>
+
+      {pendingSession && (
+        <ConfirmDialog
+          message={`Destroy "${pendingSession.name}"?`}
+          detail="The session and its scrollback will be permanently removed."
+          confirmLabel="DESTROY"
+          onConfirm={() => {
+            onDestroy(pendingSession.id);
+            setPendingDestroyId(null);
+          }}
+          onCancel={() => setPendingDestroyId(null)}
+        />
+      )}
     </aside>
   );
 }

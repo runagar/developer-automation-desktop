@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Session, ProjectEntry } from '../main/types';
 import SessionList from './components/SessionList';
 import TerminalPane from './components/TerminalPane';
@@ -17,6 +17,32 @@ export default function App(): React.ReactElement {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
+
+  // Always-current ref so the Tab cycling handler doesn't need to re-register
+  // every time the sessions list changes.
+  const sessionsRef = useRef<Session[]>([]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  // Tab / Shift+Tab — cycle forward / backward through sessions.
+  // Registered once; reads fresh sessions from sessionsRef.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const s = sessionsRef.current;
+      if (s.length < 2) return;
+      e.preventDefault();
+      setActiveSessionId((current) => {
+        const idx = s.findIndex((sess) => sess.id === current);
+        if (idx === -1) return current;
+        const next = e.shiftKey
+          ? (idx - 1 + s.length) % s.length
+          : (idx + 1) % s.length;
+        return s[next].id;
+      });
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     window.agentSmith.getSessions().then((s) => {
@@ -55,14 +81,17 @@ export default function App(): React.ReactElement {
   const handleDestroySession = useCallback(
     async (id: string) => {
       await window.agentSmith.destroySession(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      setActiveSessionId((prev) => {
-        if (prev !== id) return prev;
-        const remaining = sessions.filter((s) => s.id !== id);
-        return remaining.length > 0 ? remaining[0].id : null;
+      // Use functional updater so `remaining` is derived from fresh state,
+      // avoiding the stale-closure bug that occurred when `sessions` was captured.
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        setActiveSessionId((activeId) =>
+          activeId === id ? (next[0]?.id ?? null) : activeId
+        );
+        return next;
       });
     },
-    [sessions]
+    []
   );
 
   const handleReviveSession = useCallback(async (id: string) => {
