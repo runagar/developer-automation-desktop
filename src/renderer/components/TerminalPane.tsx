@@ -10,6 +10,7 @@ interface Props {
   session: Session;
   isActive: boolean;
   onRename: (id: string, name: string) => void;
+  openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
 const XTERM_THEMES: Record<string, ITheme> = {
@@ -70,7 +71,7 @@ function getXtermTheme(): ITheme {
   return XTERM_THEMES[themeId] ?? XTERM_THEMES['pipboy-3000'];
 }
 
-export default function TerminalPane({ session, isActive, onRename }: Props): React.ReactElement {
+export default function TerminalPane({ session, isActive, onRename, openDropdownWithKeyboardRef }: Props): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -100,6 +101,16 @@ export default function TerminalPane({ session, isActive, onRename }: Props): Re
 
     term.onData((data) => {
       window.agentSmith.ptyWrite(session.id, data);
+    });
+
+    // Intercept Ctrl+N before xterm consumes it so the New Session dropdown
+    // can be opened even when focus is inside the terminal.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === 'keydown' && e.key === 'n' && (e.ctrlKey || e.metaKey)) {
+        openDropdownWithKeyboardRef.current();
+        return false; // prevent xterm from writing the Ctrl+N sequence to the pty
+      }
+      return true;
     });
 
     term.onResize(({ cols, rows }) => {

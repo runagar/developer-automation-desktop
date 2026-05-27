@@ -76,8 +76,13 @@
   font-family: inherit;
   border-bottom: 1px solid var(--c-panel);
 }
-.dropdown__item:hover {
+.dropdown__item:hover,
+.dropdown__item--highlighted {
   background: var(--c-dark);
+  box-shadow: inset 0 0 0 1px var(--c-bright);
+}
+.dropdown__item--highlighted {
+  color: var(--c-bright);
 }
 .dropdown__item-row {
   display: flex;
@@ -98,7 +103,11 @@
   overflow-wrap: break-word;
 }
 
-/* Session items */
+/* Keyboard highlight for "New Session" button */
+.session-list__new-btn--highlighted {
+  box-shadow: var(--glow);
+  outline: 1px solid var(--c-bright);
+}
 .session-list__items {
   flex: 1;
   overflow-y: auto;

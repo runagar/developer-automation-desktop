@@ -12,18 +12,41 @@ interface Props {
   onCreate: (workingDir: string, project?: string) => void;
   onDestroy: (id: string) => void;
   onRevive: (id: string) => void;
+  openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
 const DEFAULT_WORK_DIR = '/home/rulu/projects/Agent Smith';
 
 export default function SessionList({
   sessions, activeSessionId, projects, onSelect, onCreate, onDestroy, onRevive,
+  openDropdownWithKeyboardRef,
 }: Props): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  // null  = nothing highlighted (click-open default)
+  // -1    = "New Session" button highlighted
+  // 0..n-1 = project item at that index highlighted
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
+  const highlightedIndexRef = useRef<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
 
   const pendingSession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
+
+  // Keep ref in sync with state so the keyboard handler can read it without
+  // needing to be re-registered on every highlight change.
+  useEffect(() => { highlightedIndexRef.current = highlightedIndex; }, [highlightedIndex]);
+
+  // Expose keyboard-open function to App.tsx via ref
+  openDropdownWithKeyboardRef.current = () => {
+    if (dropdownOpen) return;
+    setDropdownOpen(true);
+    setHighlightedIndex(-1);
+  };
+
+  // Reset highlight whenever the dropdown closes
+  useEffect(() => {
+    if (!dropdownOpen) setHighlightedIndex(null);
+  }, [dropdownOpen]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -36,13 +59,66 @@ export default function SessionList({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Keyboard navigation — only active while the dropdown is open.
+  // Registered with capture=true so it fires before App.tsx's bubble-phase
+  // Tab handler, allowing stopImmediatePropagation to suppress session cycling.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDropdownOpen(false);
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const n = projects.length;
+        if (e.shiftKey) {
+          setHighlightedIndex((curr) => {
+            if (curr === null) return n > 0 ? n - 1 : -1;
+            if (curr === -1)   return n > 0 ? n - 1 : -1; // no-op when empty
+            return curr === 0 ? -1 : curr - 1;
+          });
+        } else {
+          setHighlightedIndex((curr) => {
+            if (curr === null) return n > 0 ? 0 : -1;
+            if (curr === -1)   return n > 0 ? 0 : -1; // no-op when empty
+            return curr === n - 1 ? -1 : curr + 1;
+          });
+        }
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault(); // prevent the focused arrow/new-session button from activating
+        const curr = highlightedIndexRef.current;
+        if (curr === null) return;
+        if (curr === -1) {
+          onCreate(DEFAULT_WORK_DIR);
+        } else {
+          const p = projects[curr];
+          if (p) onCreate(p.workingDir, p.key);
+        }
+        setDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, [dropdownOpen, projects, onCreate]);
+
   return (
     <aside className="session-list">
       <div className="session-list__header">SESSIONS</div>
 
       <div className="session-list__new" ref={dropdownRef}>
         <button
-          className="btn btn--primary session-list__new-btn"
+          className={[
+            'btn btn--primary session-list__new-btn',
+            highlightedIndex === -1 ? 'session-list__new-btn--highlighted' : '',
+          ].filter(Boolean).join(' ')}
           onClick={() => onCreate(DEFAULT_WORK_DIR)}
           title={`New session in ${DEFAULT_WORK_DIR}`}
         >
@@ -51,6 +127,7 @@ export default function SessionList({
         <button
           className="btn btn--icon session-list__arrow"
           onClick={() => setDropdownOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
           title="Open in project…"
         >
           ▾
@@ -62,10 +139,13 @@ export default function SessionList({
             {projects.length === 0 && (
               <div className="dropdown__empty">No projects found</div>
             )}
-            {projects.map((p) => (
+            {projects.map((p, i) => (
               <button
                 key={p.key}
-                className="dropdown__item"
+                className={[
+                  'dropdown__item',
+                  highlightedIndex === i ? 'dropdown__item--highlighted' : '',
+                ].filter(Boolean).join(' ')}
                 onClick={() => {
                   onCreate(p.workingDir, p.key);
                   setDropdownOpen(false);

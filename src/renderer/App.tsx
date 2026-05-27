@@ -23,8 +23,13 @@ export default function App(): React.ReactElement {
   const sessionsRef = useRef<Session[]>([]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
+  // Ref populated by SessionList; called by the Ctrl+N handler below.
+  const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
+
   // Tab / Shift+Tab — cycle forward / backward through sessions.
   // Registered once; reads fresh sessions from sessionsRef.
+  // SessionList's dropdown handler uses capture phase + stopImmediatePropagation
+  // to suppress this when the dropdown is open.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
@@ -39,6 +44,18 @@ export default function App(): React.ReactElement {
           : (idx + 1) % s.length;
         return s[next].id;
       });
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // Ctrl+N — open the New Session dropdown with keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        openDropdownWithKeyboardRef.current();
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -132,6 +149,7 @@ export default function App(): React.ReactElement {
           onCreate={handleCreateSession}
           onDestroy={handleDestroySession}
           onRevive={handleReviveSession}
+          openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
         <main className="app-main">
           {sessions.length === 0 && (
@@ -146,6 +164,7 @@ export default function App(): React.ReactElement {
               session={s}
               isActive={s.id === activeSessionId}
               onRename={handleRenameSession}
+              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
             />
           ))}
         </main>
