@@ -15,7 +15,7 @@ interface Props {
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
-const DEFAULT_WORK_DIR = '/home/rulu/projects/Agent Smith';
+const DEFAULT_WORK_DIR = '/home/rulu/projects';
 
 export default function SessionList({
   sessions, activeSessionId, projects, onSelect, onCreate, onDestroy, onRevive,
@@ -190,11 +190,11 @@ export default function SessionList({
                 >✕</button>
               </div>
             </div>
-            {session.project && (
-              <div className="session-item__project">{session.project}</div>
-            )}
-            {session.restored && (
-              <div className="session-item__restored">↺</div>
+            {(session.project || session.restored) && (
+              <div className="session-item__meta">
+                {session.restored && <span className="session-item__restored">↺</span>}
+                {session.project && <span className="session-item__project">{session.project}</span>}
+              </div>
             )}
           </li>
         ))}

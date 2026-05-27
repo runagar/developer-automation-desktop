@@ -154,16 +154,19 @@
 .session-item:hover .session-item__actions {
   opacity: 1;
 }
+.session-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding-left: 18px;
+}
 .session-item__project {
   font-size: 0.6rem;
   color: var(--c-dim);
-  margin-top: 2px;
-  padding-left: 18px;
   letter-spacing: 0.08em;
 }
 .session-item__restored {
   font-size: 0.7rem;
   color: var(--c-dim);
-  margin-top: 1px;
-  padding-left: 18px;
 }
