@@ -3,9 +3,6 @@ node_modules/
 dist/
 out/
 
-# Local config with internal project paths
-projects.json
-
 # Logs & runtime
 *.log
 npm-debug.log*

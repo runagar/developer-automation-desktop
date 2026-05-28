@@ -16,16 +16,30 @@ Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://g
 Each session is assigned a UUID on creation. That UUID is passed to the CLI as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database and automatically relaunched on next startup. Sessions that died while the app was closed are shown as dead on relaunch rather than silently dropped.
 
 ### Session state detection
-Each CLI process runs inside a PTY proxy that reads all output in real time and drives a state machine:
+Each CLI process runs inside a PTY proxy that reads all output in real time and drives a state machine.
 
-| State | Meaning |
+`SessionState` has three values (`idle` | `running` | `awaiting`). **Dead is not a `SessionState`** — it is a boolean flag (`Session.dead`) set in the DB and displayed by `StateIndicator` in the renderer.
+
+| State / flag | Meaning |
 |---|---|
-| **Idle** | Input prompt visible, no output for 5 seconds |
-| **Running** | Output is streaming or a thinking indicator is present |
-| **Awaiting** | CLI is waiting for user approval or input |
-| **Dead** | Process has exited |
+| **Idle** | Input prompt (`❯`) visible with no further output for 5 seconds |
+| **Running** | Output is streaming (`esc cancel` pattern detected) |
+| **Awaiting** | CLI is waiting for user input (`enter to select` / `enter to confirm` / `Asking user`) |
+| **Dead** *(flag)* | PTY process has exited; session row has `dead = 1` in the DB |
 
 States are shown as coloured indicator pills in the session sidebar.
+
+**Detection patterns** (defined in `src/main/pty.ts`):
+
+| Pattern in output | Transition |
+|---|---|
+| `esc cancel` | → `running` |
+| `enter to select` | → `awaiting` |
+| `enter to confirm` | → `awaiting` |
+| `Asking user` | → `awaiting` |
+| `❯` *(after 5 s of silence, only when currently `running`)* | → `idle` |
+
+To handle patterns that are split across two PTY data chunks, the last 64 bytes of each chunk are prepended to the next before matching (chunk-tail bridging).
 
 ### Project shortcuts
 A dropdown next to the **+ New Session** button lists all configured PFT Beta repositories. Selecting one opens a new session with its working directory pre-set to the corresponding repository on disk.
@@ -68,9 +82,10 @@ Preload
 ```
 
 **Session lifecycle:**
-1. `createSession()` inserts a DB row and calls `PtySession.spawn('copilot --session-id <uuid>')`.
+1. `createSession()` inserts a DB row and calls `PtySession.spawn('copilot --session-id <uuid> --banner')`.
 2. PTY output is forwarded to the renderer via `pty:data` IPC events; xterm.js buffers it even for hidden panes.
-3. On close, `persistAll()` timestamps all live sessions. On next launch, `restoreSessions()` is called after the renderer signals ready, so no PTY events are lost before the window exists.
+3. On close, `persistAll()` timestamps all live sessions. On next launch, `restoreSessions()` is called only after the renderer fires `renderer:ready`, so no PTY events are lost before the window exists.
+4. Sessions that were alive when the app closed are relaunched on startup and marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
 
 ---
 
@@ -90,6 +105,7 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 |---|---|
 | **Tab** | Next session |
 | **Shift+Tab** | Previous session |
+| **Ctrl+n** | New session|
 | **Ctrl++** / **Ctrl+=** | Zoom in |
 | **Ctrl+-** | Zoom out |
 | **Ctrl+0** | Reset zoom |
@@ -107,6 +123,13 @@ Maps PFT Beta project keys to repository names and working directories. Loaded a
   ...
 ]
 ```
+
+### Data directory
+Session data is stored at:
+```
+$XDG_CONFIG_HOME/agent-smith/sessions.db
+```
+On WSLg this resolves to `~/.config/agent-smith/sessions.db`. The directory is created automatically on first launch.
 
 ### State detection patterns
 Defined in `src/main/pty.ts`. Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed.

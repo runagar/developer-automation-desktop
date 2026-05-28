@@ -23,7 +23,7 @@ function createWindow(): void {
       contextIsolation: true,
     },
     title: 'AGENT SMITH',
-    icon: path.join(__dirname, '../../assets/icon.png'),
+    icon: path.join(__dirname, '../../assets/agent_smith_icon.png'),
   });
 
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);

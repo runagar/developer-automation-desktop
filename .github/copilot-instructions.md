@@ -1,75 +1,86 @@
 # Copilot Instructions
 
-This is a Nykredit developer workspace containing multiple Java microservices and shared libraries,
-all under the `dk.nykredit` groupId.
+Always review `.github/agent-smith.md` before making changes in this project.
 
-## Build & Test Commands
+---
 
-All projects use Maven. Java/Maven versions are managed via **SDKMan** and set per-project via `.envrc`.
+## Project identity
 
-```bash
-# Build
-mvn clean package              # dev build (H2 database)
-mvn clean package -Pprod       # production build (Oracle datasource)
-mvn clean verify               # build + integration tests
+Agent Smith is a single-window Electron desktop app. It is **not** a web app, a CLI tool, or a server. All code runs either in the Electron main process (Node.js) or the renderer process (Chromium + React). There is no backend, no HTTP server, and no database server — persistence is local SQLite via `better-sqlite3`.
 
-# Run locally
-mvn cargo:run -Pweblogic       # start on local WebLogic
-mvn cargo:redeploy             # redeploy without restart
+---
 
-# Skip test flags
--DskipTests                    # skip all tests
--DskipUTs                      # skip unit tests only
--DskipITs                      # skip integration tests only
+## Repository layout
 
-# Run a single test class
-mvn test -pl <module> -Dtest=ClassName
+```
+src/main/          Electron main process (Node.js)
+  index.ts         App entry, BrowserWindow setup
+  sessions.ts      SessionManager — SQLite + PTY lifecycle
+  pty.ts           PtySession — node-pty wrapper + state machine
+  ipc.ts           IPC handler registration
+  types.ts         Shared types (Session, IpcApi, ProjectEntry)
 
-# Run a single test method
-mvn test -pl <module> -Dtest=ClassName#methodName
+src/preload/
+  preload.ts       contextBridge — exposes window.agentSmith to renderer
+
+src/renderer/      React renderer process
+  index.tsx        Entry point, theme + zoom init
+  App.tsx          Root component, global keyboard shortcuts
+  components/      One file per component + matching .css
+  styles/
+    global.css     Reset, scrollbar, selection colours
+    pipboy.css     All theme variables, CRT effects, shared .btn classes
+
+projects.json      PFT Beta project list (key → repo → workingDir)
+launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 ```
 
-## Architecture
+---
 
-### Project Types
+## Architecture rules
 
-**`rs-*` services** 
-— JAX-RS microservices deployed to WebLogic or WildFly. Each is a Maven multi-module project. Structure is not 100% consistent (yet).
-- Each `rs-*` project has its own `repository{-root}/.github/copilot-instructions.md` and `repository{-root}/.github/code-style.md`. Refer to these when performing work in a specific project.
+- **IPC channel names** follow `noun:verb` format (e.g. `sessions:create`, `pty:write`). Add new channels consistently in `ipc.ts` (main handler) and `preload.ts` (renderer binding) and `types.ts` (`IpcApi` interface) together — all three must stay in sync.
+- **`window.agentSmith`** is the only way the renderer talks to the main process. Never use `require` or `ipcRenderer` directly in renderer code.
+- **`SessionState`** (`idle` | `running` | `awaiting`) lives in `types.ts`. The display-only `dead` state is added in the renderer (`StateIndicator`) and is never stored in the DB.
+- **`Session.restored`** is a runtime-only flag set by `SessionManager.restoredIds`. It is not a DB column and must not be persisted.
+- **`restoreSessions()`** must only be called after `setWindow()` has been called (triggered by `renderer:ready`). Never call it from `initialize()`.
 
-**`eventing`** — Custom point-to-point eventing framework used by all `rs-*` services. Provides `@EventConsumer`, `@EventPublisher`, and `event-api` annotations.
+---
 
-**`nic-openapitools-generator`** — Mustache templates and codegen configuration for generating JAX-RS clients/servers from OpenAPI specs. Supports: `jaxrs-javaee8` (Java 11), `microprofile-jakartaee10` (Java 17), `microprofile-jakartaee11` (Java 21).
+## Styling conventions
 
-## Jira -> project key mapping
-The user is part of team 'PFT Beta'. Each `rs.*` project has that PFT Beta owns has a corresponding Jira project. The mapping is:
-- NRPCON --> rs-consent
-- NRPCR --> rs-consent-registry
-- NRPACR --> rs-mortgage-agreement-change-request
-- NRPAV --> rs-mortgage-agreement-validator
-- NRPMG --> rs-mortgage-guarantee
-- NRPSHOL --> rs-mortgage-transfer-agreement
-- RPS --> rs-refinancing-process-summary
-- NRPP --> Share by rs-rp-prepayment-offer and rs-rp-prepayment-activity-legacy
+- All CSS custom properties (colours, borders, shadows, fonts) are defined in `pipboy.css` under `:root` (green theme) and `[data-theme="pipboy-3000a"]` (amber theme). **Never hardcode a colour value** in a component stylesheet — always reference a `--c-*` variable.
+- CRT effects (`.crt-glow`, `.app-shell::after`, `.app-shell::before`) are defined in `pipboy.css`. Do not duplicate or override them in component files.
+- Shared button styles (`.btn`, `.btn--primary`, `.btn--danger`, `.btn--micro`, `.btn--icon`) live in `pipboy.css`. Use them; don't create one-off button styles in component CSS.
+- Component CSS files are scoped by BEM-style class prefixes matching the component name (e.g. `.session-list__*`, `.terminal-pane__*`).
+- Font is always `Roboto Mono` via the `--font` variable.
 
-When asked to work on a Jira ticket, navigate to the appropriate repository and follow the local guidelines. 
+---
 
-## Key Conventions
+## Electron / WSLg specifics
 
-### Maven Profiles
-- `dev` (default) — H2 in-memory database, local development
-- `prod` — Oracle datasource configured on the server
-- `stubbed` (default) — stubs legacy services for XDT environments
-- `integrated` — connects to real downstream services (Tx environments and component tests)
-- `weblogic` — used with `cargo:run` for local WebLogic
+- The app runs under **WSLg** (Windows Subsystem for Linux with GUI). Some Electron behaviours differ from native Linux:
+  - `in-process-gpu` flag is set to prevent GPU process crashes on WSLg.
+  - `mainWindow.setBounds(display.workArea)` must be deferred with `setImmediate` inside the `maximize` event — calling it synchronously crashes.
+  - The app window is frameless (`frame: false`); window controls are handled by `TitleBar.tsx` via IPC.
+- Native modules (`node-pty`, `better-sqlite3`) must be compiled against the exact Electron version. `launch.sh` handles this via `electron-forge start` which uses `@electron-forge/plugin-webpack` with native module rebuild support.
 
-### Java / SDK Versions
-Each project's `.envrc` declares the required SDK via SDKMan:
-- `eventing`: Java 8, Maven 3
-- `rs-*` services: Java 11, Maven 3
-- `nic-openapitools-generator`: Java 21, Maven 3
+---
 
-Always check the project's `.envrc` before assuming which Java version applies.
+## Key behaviours to preserve
 
-### SCM
-All repositories are hosted on the internal Bitbucket at `git.tools.nykredit.it`.
+- **Tab / Shift+Tab** cycles sessions (wired in `App.tsx`). Do not intercept Tab in any component without `e.stopPropagation()` if the global handler should not fire.
+- **Ctrl++ / Ctrl+- / Ctrl+0** controls zoom (wired in `ZoomControl.tsx`).
+- **Session destroy** requires confirmation via `ConfirmDialog`. Never call `onDestroy` directly from a button click.
+- **xterm.js terminals** are created on mount but only opened into the DOM on first activation (`openedRef`). This is intentional — do not eagerly call `term.open()`.
+- PTY data subscriptions in `TerminalPane` intentionally use empty deps arrays (registered once on mount). Do not add `session.id` to those deps — it would leak listeners.
+
+---
+
+## What to check when adding a new feature
+
+1. Does it require a new IPC channel? → update `ipc.ts`, `preload.ts`, `types.ts`.
+2. Does it add persistent data? → add a DB column with a migration-safe `ALTER TABLE IF NOT EXISTS` or update the `CREATE TABLE` statement.
+3. Does it add UI? → use existing `.btn` / `--c-*` variables; match BEM naming of the nearest component.
+4. Does it affect session lifecycle? → verify behaviour on fresh create, restore-from-disk, revive-dead, and destroy paths.
+5. Does it add a `keydown` listener? → use a ref pattern (not state in deps) to avoid re-registration on every render.
