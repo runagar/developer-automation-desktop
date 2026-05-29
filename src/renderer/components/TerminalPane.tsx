@@ -105,11 +105,115 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
 
     // Intercept Ctrl+N before xterm consumes it so the New Session dropdown
     // can be opened even when focus is inside the terminal.
+    // Intercept Ctrl+V for clipboard paste (xterm would otherwise send raw 0x16).
+    // Intercept Shift+Arrow for screen text selection.
+    let shiftSel: {
+      anchor: { col: number; row: number };
+      cursor: { col: number; row: number };
+    } | null = null;
+
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.key === 'n' && (e.ctrlKey || e.metaKey)) {
+      if (e.type !== 'keydown') return true;
+
+      // Ctrl+N — open New Session dropdown
+      if (e.key === 'n' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
         openDropdownWithKeyboardRef.current();
-        return false; // prevent xterm from writing the Ctrl+N sequence to the pty
+        return false;
       }
+
+      // Ctrl+C — copy selection when text is highlighted; otherwise let
+      // the shell receive the interrupt signal as normal.
+      if (e.key === 'c' && e.ctrlKey && !e.shiftKey && !e.altKey) {
+        const sel = term.getSelection();
+        if (sel) {
+          navigator.clipboard.writeText(sel);
+          return false;
+        }
+      }
+
+      // Ctrl+V — block xterm from writing the raw 0x16 char to the PTY.
+      // The browser fires a separate 'paste' event which xterm handles
+      // natively (with bracketed-paste support), so no explicit paste call
+      // is needed here.
+      if (e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey) {
+        return false;
+      }
+
+      // Shift+Arrow / Ctrl+Shift+Arrow — extend screen selection without
+      // forwarding to PTY. Ctrl+Shift+Left/Right jumps by word.
+      const isShiftArrow =
+        e.shiftKey && !e.altKey &&
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+          (!e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')));
+
+      if (isShiftArrow) {
+        const buf = term.buffer.active;
+        const termCurCol = buf.cursorX;
+        const termCurRow = buf.cursorY + buf.viewportY;
+
+        if (!shiftSel) {
+          shiftSel = {
+            anchor: { col: termCurCol, row: termCurRow },
+            cursor: { col: termCurCol, row: termCurRow },
+          };
+        }
+
+        let { col, row } = shiftSel.cursor;
+
+        if (e.ctrlKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+          // Word-level movement: scan the buffer line for word boundaries.
+          const line = buf.getLine(row);
+          const text = line ? line.translateToString(false) : '';
+          if (e.key === 'ArrowRight') {
+            // Skip whitespace then non-whitespace to reach end of next word.
+            let p = col;
+            while (p < term.cols && text[p] === ' ') p++;
+            while (p < term.cols && text[p] !== ' ') p++;
+            col = p;
+          } else {
+            // Skip whitespace then non-whitespace going left to start of word.
+            let p = col - 1;
+            while (p >= 0 && text[p] === ' ') p--;
+            while (p >= 0 && text[p] !== ' ') p--;
+            col = p + 1;
+          }
+        } else {
+          // Character-level movement.
+          if (e.key === 'ArrowRight') {
+            col++;
+            if (col >= term.cols) { col = 0; row++; }
+          } else if (e.key === 'ArrowLeft') {
+            col--;
+            if (col < 0) { col = term.cols - 1; row--; }
+          } else if (e.key === 'ArrowDown') {
+            row++;
+          } else if (e.key === 'ArrowUp') {
+            row--;
+          }
+        }
+
+        col = Math.max(0, Math.min(col, term.cols - 1));
+        row = Math.max(0, Math.min(row, buf.length - 1));
+        shiftSel.cursor = { col, row };
+
+        // Compute selection bounds (anchor may be before or after cursor).
+        const a = shiftSel.anchor;
+        const anchorBefore =
+          a.row < row || (a.row === row && a.col <= col);
+        const [startCol, startRow, endCol, endRow] = anchorBefore
+          ? [a.col, a.row, col, row]
+          : [col, row, a.col, a.row];
+
+        const len = (endRow - startRow) * term.cols + (endCol - startCol);
+        if (len > 0) term.select(startCol, startRow, len);
+        else term.clearSelection();
+
+        return false;
+      }
+
+      // Any non-Shift key press resets the shift-selection anchor.
+      if (!e.shiftKey) shiftSel = null;
+
       return true;
     });
 
