@@ -58,15 +58,5 @@
         "workingDir": "/home/rulu/projects/rs-refinancing-process-summary"
       }
     ]
-  },
-  {
-    "group": "TEAST",
-    "workspaces": [
-      {
-        "key": "TEST",
-        "repo": "testet-test",
-        "workingDir": "/home/rulu/projects/testet-test"
-      }
-    ]
   }
 ]

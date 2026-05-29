@@ -162,9 +162,10 @@
   padding-left: 18px;
 }
 .session-item__project {
-  font-size: 0.6rem;
-  color: var(--c-dim);
+  font-size: 0.65rem;
+  color: var(--c-amber);
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 .session-item__restored {
   font-size: 0.7rem;

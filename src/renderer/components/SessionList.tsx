@@ -215,7 +215,7 @@ export default function SessionList({
             {(session.project || session.restored) && (
               <div className="session-item__meta">
                 {session.restored && <span className="session-item__restored">↺</span>}
-                {session.project && <span className="session-item__project">{session.project}</span>}
+                {session.project && <span className="session-item__project">[ {session.project} ]</span>}
               </div>
             )}
           </li>
