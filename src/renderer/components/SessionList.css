@@ -170,3 +170,23 @@
   font-size: 0.7rem;
   color: var(--c-dim);
 }
+
+/* Manage workspaces button */
+.session-list__manage {
+  border-top: 1px solid var(--c-dark);
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.session-list__manage-btn {
+  width: 100%;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: var(--c-dim);
+  border-color: var(--c-dark);
+}
+
+.session-list__manage-btn:hover {
+  color: var(--c-bright);
+  border-color: var(--c-dim);
+}

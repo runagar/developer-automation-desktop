@@ -1,23 +1,3 @@
-# New Session hotkey
-We need a hotkey to quickly create a new session. 
-Pressing Ctrl+N should:
-- Open the New Session dropdonw
-- Highlight the "New Session" button
-  - If the dropdown is opened with a mouse click (existing functionality) the "New Session" button should *not* be highlighted
-
-While the New Session dropdown is open, regardless of if it was opened by clicking the dropdown arrow or pressing Ctrl+N, the following should ALWAYS apply
-- Pressing tap/shift+tap should cycle through the dropdown menu, highlighting/un-highlighting each item in turn.
-  - The "New Session" button should functionally be the starting point of the list, being incorporated in the tap cycle, like: [{lastItemInDrowdown} -tap-> "New Session" -tap-> "{firstItemInDrowdown}], and vice versa with shift+tap
-  - If the dropdown was opened with a mouse click, the first press of tap/shift+tap should highlight {firItemInDropdown} and {lastItemInDropdown}, respectively.
-  - If `projects.json` is empty, tapping is a no-op. Highlight should simply be maintained on "New Session"
-- Pressing tab/shift+tap to cycle between open sessions should be disabled
-- Pressing Enter should activate the highlighted item, just like that highlighted item had been clicked. That means:
-  - "New Session" triggers the default workspace session.
-  - An item in the list spawns a session for that specific workspace
-- Pressing Escape should close the dropdown and un-highlight the highlighted item
-  - No focus management, simply drop the focus. 
-  - If no item is highlighted, simply close the dropdown. 
-
 # Jira issue overview
 We most often work with jira issues. We already MCP servers to enable an agent to fetch a jira issue by its key. 
 When an agent is working on a jira issue, we are missing an easy overview of the issue. 

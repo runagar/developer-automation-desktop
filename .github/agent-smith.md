@@ -44,6 +44,18 @@ To handle patterns that are split across two PTY data chunks, the last 64 bytes 
 ### Project shortcuts
 A dropdown next to the **+ New Session** button lists all configured PFT Beta repositories. Selecting one opens a new session with its working directory pre-set to the corresponding repository on disk.
 
+### Workspace management
+A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:
+- **Add** a new workspace by entering a Key, Repo, and Group (workingDir is auto-computed as `/home/rulu/projects/` + Repo).
+- **Remove** a workspace with a confirmation prompt. The delete button is disabled while any non-dead session is running for that project key.
+- **Add** a new group with the **+ ADD GROUP** button. Empty groups can be removed with the ✕ button on their placeholder row.
+- **Reorder workspaces** within and across groups by drag-and-dropping workspace rows.
+- **Reorder groups** by drag-and-dropping the group name cell (dragging a group never merges it into another group).
+
+Changes are written back to `projects.json` immediately and the in-memory projects list is refreshed so the New Session dropdown reflects the change without restarting. The dropdown renders one header per group with its workspaces listed beneath.
+
+Tab focus is constrained to the dialog while it is open (session Tab-cycling is suppressed). When the add-workspace form is active the Tab cycle is: KEY → REPO → GROUP → ADD → CANCEL → KEY. When the add-group form is active: GROUP NAME → ADD → CANCEL → GROUP NAME.
+
 ---
 
 ## Technology stack
@@ -115,12 +127,16 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 ## Configuration
 
 ### `projects.json`
-Maps PFT Beta project keys to repository names and working directories. Loaded at runtime via `app.getAppPath()` so it works in both dev and packaged builds.
+Maps project keys to repository names and working directories, organised into named groups. Loaded at runtime via `app.getAppPath()` so it works in both dev and packaged builds.
 
 ```json
 [
-  { "key": "NRPCON", "repo": "rs-consent", "workingDir": "/home/rulu/projects/rs-consent" },
-  ...
+  {
+    "group": "PFT BETA PROJECTS",
+    "workspaces": [
+      { "key": "NRPCON", "repo": "rs-consent", "workingDir": "/home/rulu/projects/rs-consent" }
+    ]
+  }
 ]
 ```
 

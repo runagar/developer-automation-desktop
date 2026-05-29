@@ -136,6 +136,11 @@
   background: var(--c-dark);
   box-shadow: var(--glow-sm);
 }
+.btn:focus-visible {
+  box-shadow: var(--glow);
+  border-color: var(--c-bright);
+  outline: none;
+}
 .btn:active {
   background: var(--c-dim);
 }

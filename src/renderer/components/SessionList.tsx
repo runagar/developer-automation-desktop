@@ -1,36 +1,48 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Session, ProjectEntry } from '../../main/types';
+import { Session, ProjectGroup } from '../../main/types';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
+import ManageWorkspacesDialog from './ManageWorkspacesDialog';
 import './SessionList.css';
 
 interface Props {
   sessions: Session[];
   activeSessionId: string | null;
-  projects: ProjectEntry[];
+  projectGroups: ProjectGroup[];
   onSelect: (id: string) => void;
   onCreate: (workingDir: string, project?: string) => void;
   onDestroy: (id: string) => void;
   onRevive: (id: string) => void;
+  onAddProject: (key: string, repo: string, group: string) => Promise<void>;
+  onRemoveProject: (key: string) => Promise<void>;
+  onAddGroup: (name: string) => Promise<void>;
+  onRemoveGroup: (name: string) => Promise<void>;
+  onMoveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
+  onReorderGroup: (name: string, toIndex: number) => Promise<void>;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
 const DEFAULT_WORK_DIR = '/home/rulu/projects';
 
 export default function SessionList({
-  sessions, activeSessionId, projects, onSelect, onCreate, onDestroy, onRevive,
+  sessions, activeSessionId, projectGroups, onSelect, onCreate, onDestroy, onRevive,
+  onAddProject, onRemoveProject, onAddGroup, onRemoveGroup, onMoveWorkspace, onReorderGroup,
   openDropdownWithKeyboardRef,
 }: Props): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   // null  = nothing highlighted (click-open default)
   // -1    = "New Session" button highlighted
-  // 0..n-1 = project item at that index highlighted
+  // 0..n-1 = project item at that index highlighted (flat index across all groups)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const highlightedIndexRef = useRef<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
 
   const pendingSession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
+
+  // Flat list of all workspaces for keyboard navigation
+  const allWorkspaces = projectGroups.flatMap((g) => g.workspaces);
 
   // Keep ref in sync with state so the keyboard handler can read it without
   // needing to be re-registered on every highlight change.
@@ -74,17 +86,17 @@ export default function SessionList({
       if (e.key === 'Tab') {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const n = projects.length;
+        const n = allWorkspaces.length;
         if (e.shiftKey) {
           setHighlightedIndex((curr) => {
             if (curr === null) return n > 0 ? n - 1 : -1;
-            if (curr === -1)   return n > 0 ? n - 1 : -1; // no-op when empty
+            if (curr === -1)   return n > 0 ? n - 1 : -1;
             return curr === 0 ? -1 : curr - 1;
           });
         } else {
           setHighlightedIndex((curr) => {
             if (curr === null) return n > 0 ? 0 : -1;
-            if (curr === -1)   return n > 0 ? 0 : -1; // no-op when empty
+            if (curr === -1)   return n > 0 ? 0 : -1;
             return curr === n - 1 ? -1 : curr + 1;
           });
         }
@@ -92,13 +104,13 @@ export default function SessionList({
       }
 
       if (e.key === 'Enter') {
-        e.preventDefault(); // prevent the focused arrow/new-session button from activating
+        e.preventDefault();
         const curr = highlightedIndexRef.current;
         if (curr === null) return;
         if (curr === -1) {
           onCreate(DEFAULT_WORK_DIR);
         } else {
-          const p = projects[curr];
+          const p = allWorkspaces[curr];
           if (p) onCreate(p.workingDir, p.key);
         }
         setDropdownOpen(false);
@@ -107,7 +119,10 @@ export default function SessionList({
 
     document.addEventListener('keydown', handler, true);
     return () => document.removeEventListener('keydown', handler, true);
-  }, [dropdownOpen, projects, onCreate]);
+  }, [dropdownOpen, allWorkspaces, onCreate]);
+
+  // Running flat index counter for keyboard highlight mapping
+  let flatIndex = 0;
 
   return (
     <aside className="session-list">
@@ -135,27 +150,34 @@ export default function SessionList({
 
         {dropdownOpen && (
           <div className="dropdown">
-            <div className="dropdown__header">PFT BETA PROJECTS</div>
-            {projects.length === 0 && (
+            {projectGroups.length === 0 && (
               <div className="dropdown__empty">No projects found</div>
             )}
-            {projects.map((p, i) => (
-              <button
-                key={p.key}
-                className={[
-                  'dropdown__item',
-                  highlightedIndex === i ? 'dropdown__item--highlighted' : '',
-                ].filter(Boolean).join(' ')}
-                onClick={() => {
-                  onCreate(p.workingDir, p.key);
-                  setDropdownOpen(false);
-                }}
-              >
-                <div className="dropdown__item-row">
-                  <span className="dropdown__key">{p.key}</span>
-                  <span className="dropdown__repo">{p.repo}</span>
-                </div>
-              </button>
+            {projectGroups.map((group) => (
+              <div key={group.group}>
+                <div className="dropdown__header">{group.group}</div>
+                {group.workspaces.map((p) => {
+                  const idx = flatIndex++;
+                  return (
+                    <button
+                      key={p.key}
+                      className={[
+                        'dropdown__item',
+                        highlightedIndex === idx ? 'dropdown__item--highlighted' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => {
+                        onCreate(p.workingDir, p.key);
+                        setDropdownOpen(false);
+                      }}
+                    >
+                      <div className="dropdown__item-row">
+                        <span className="dropdown__key">{p.key}</span>
+                        <span className="dropdown__repo">{p.repo}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             ))}
           </div>
         )}
@@ -200,6 +222,16 @@ export default function SessionList({
         ))}
       </ul>
 
+      <div className="session-list__manage">
+        <button
+          className="btn session-list__manage-btn"
+          onClick={() => setManageOpen(true)}
+          title="Manage workspaces"
+        >
+          ⬡ MANAGE WORKSPACES
+        </button>
+      </div>
+
       {pendingSession && (
         <ConfirmDialog
           message={`Destroy "${pendingSession.name}"?`}
@@ -210,6 +242,20 @@ export default function SessionList({
             setPendingDestroyId(null);
           }}
           onCancel={() => setPendingDestroyId(null)}
+        />
+      )}
+
+      {manageOpen && (
+        <ManageWorkspacesDialog
+          projectGroups={projectGroups}
+          sessions={sessions}
+          onAdd={onAddProject}
+          onRemove={onRemoveProject}
+          onAddGroup={onAddGroup}
+          onRemoveGroup={onRemoveGroup}
+          onMove={onMoveWorkspace}
+          onReorderGroup={onReorderGroup}
+          onClose={() => setManageOpen(false)}
         />
       )}
     </aside>

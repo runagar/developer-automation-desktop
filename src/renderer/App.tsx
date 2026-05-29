@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Session, ProjectEntry } from '../main/types';
+import { Session, ProjectEntry, ProjectGroup } from '../main/types';
 import SessionList from './components/SessionList';
 import TerminalPane from './components/TerminalPane';
 import ThemeSelector from './components/ThemeSelector';
@@ -16,7 +16,7 @@ declare global {
 export default function App(): React.ReactElement {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [projects, setProjects] = useState<ProjectEntry[]>([]);
+  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
 
   // Always-current ref so the Tab cycling handler doesn't need to re-register
   // every time the sessions list changes.
@@ -66,7 +66,7 @@ export default function App(): React.ReactElement {
       setSessions(s);
       if (s.length > 0) setActiveSessionId(s[0].id);
     });
-    window.agentSmith.getProjects().then(setProjects);
+    window.agentSmith.getProjectGroups().then(setProjectGroups);
 
     const unsubState = window.agentSmith.onSessionStateChange((id, state) => {
       setSessions((prev) =>
@@ -123,6 +123,58 @@ export default function App(): React.ReactElement {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
   }, []);
 
+  const refreshProjects = useCallback(() => {
+    window.agentSmith.getProjectGroups().then(setProjectGroups);
+  }, []);
+
+  const handleAddProject = useCallback(
+    async (key: string, repo: string, group: string) => {
+      await window.agentSmith.addProject({ key, repo, group });
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const handleRemoveProject = useCallback(
+    async (key: string) => {
+      await window.agentSmith.removeProject(key);
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const handleAddGroup = useCallback(
+    async (name: string) => {
+      await window.agentSmith.addGroup(name);
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const handleRemoveGroup = useCallback(
+    async (name: string) => {
+      await window.agentSmith.removeGroup(name);
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const handleReorderGroup = useCallback(
+    async (name: string, toIndex: number) => {
+      await window.agentSmith.reorderGroup(name, toIndex);
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
+  const handleMoveWorkspace = useCallback(
+    async (key: string, toGroup: string, toIndex: number) => {
+      await window.agentSmith.moveWorkspace(key, toGroup, toIndex);
+      refreshProjects();
+    },
+    [refreshProjects]
+  );
+
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
   return (
@@ -144,11 +196,17 @@ export default function App(): React.ReactElement {
         <SessionList
           sessions={sessions}
           activeSessionId={activeSessionId}
-          projects={projects}
+          projectGroups={projectGroups}
           onSelect={setActiveSessionId}
           onCreate={handleCreateSession}
           onDestroy={handleDestroySession}
           onRevive={handleReviveSession}
+          onAddProject={handleAddProject}
+          onRemoveProject={handleRemoveProject}
+          onAddGroup={handleAddGroup}
+          onRemoveGroup={handleRemoveGroup}
+          onMoveWorkspace={handleMoveWorkspace}
+          onReorderGroup={handleReorderGroup}
           openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
         <main className="app-main">

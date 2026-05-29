@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
-import { Session, SessionState, ProjectEntry } from './types';
+import { Session, SessionState, ProjectEntry, ProjectGroup } from './types';
 import { BrowserWindow, app } from 'electron';
 
 export class SessionManager {
@@ -150,16 +150,99 @@ export class SessionManager {
       .run(new Date().toISOString());
   }
 
-  getProjectEntries(): ProjectEntry[] {
-    // app.getAppPath() resolves correctly in both dev and packaged .asar,
-    // unlike __dirname which breaks when the app is bundled.
+  getProjectGroups(): ProjectGroup[] {
     const configPath = path.join(app.getAppPath(), 'projects.json');
     try {
       const content = fs.readFileSync(configPath, 'utf-8');
-      return JSON.parse(content) as ProjectEntry[];
+      return JSON.parse(content) as ProjectGroup[];
     } catch {
       return [];
     }
+  }
+
+  getProjectEntries(): ProjectEntry[] {
+    return this.getProjectGroups().flatMap((g) => g.workspaces);
+  }
+
+  addProject(key: string, repo: string, group: string): ProjectEntry {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    if (groups.some((g) => g.workspaces.some((w) => w.key === key))) {
+      throw new Error(`Workspace key "${key}" already exists`);
+    }
+    const targetGroup = groups.find((g) => g.group === group);
+    if (!targetGroup) {
+      throw new Error(`Group "${group}" does not exist`);
+    }
+    const newEntry: ProjectEntry = {
+      key,
+      repo,
+      workingDir: `/home/rulu/projects/${repo}`,
+    };
+    targetGroup.workspaces.push(newEntry);
+    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
+    return newEntry;
+  }
+
+  removeProject(key: string): void {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    for (const g of groups) {
+      g.workspaces = g.workspaces.filter((w) => w.key !== key);
+    }
+    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
+  }
+
+  addGroup(name: string): void {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    if (groups.some((g) => g.group === name)) {
+      throw new Error(`Group "${name}" already exists`);
+    }
+    groups.push({ group: name, workspaces: [] });
+    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
+  }
+
+  removeGroup(name: string): void {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    const target = groups.find((g) => g.group === name);
+    if (!target) return;
+    if (target.workspaces.length > 0) {
+      throw new Error(`Group "${name}" still has workspaces`);
+    }
+    const filtered = groups.filter((g) => g.group !== name);
+    fs.writeFileSync(configPath, JSON.stringify(filtered, null, 2), 'utf-8');
+  }
+
+  reorderGroup(name: string, toIndex: number): void {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    const fromIndex = groups.findIndex((g) => g.group === name);
+    if (fromIndex === -1) return;
+    const [group] = groups.splice(fromIndex, 1);
+    const clampedIndex = Math.min(toIndex, groups.length);
+    groups.splice(clampedIndex, 0, group);
+    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
+  }
+
+  moveWorkspace(key: string, toGroup: string, toIndex: number): void {
+    const configPath = path.join(app.getAppPath(), 'projects.json');
+    const groups = this.getProjectGroups();
+    let workspace: ProjectEntry | undefined;
+    for (const g of groups) {
+      const idx = g.workspaces.findIndex((w) => w.key === key);
+      if (idx !== -1) {
+        [workspace] = g.workspaces.splice(idx, 1);
+        break;
+      }
+    }
+    if (!workspace) return;
+    const target = groups.find((g) => g.group === toGroup);
+    if (!target) return;
+    const clampedIndex = Math.min(toIndex, target.workspaces.length);
+    target.workspaces.splice(clampedIndex, 0, workspace);
+    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
   }
 
   private getSessionCount(): number {

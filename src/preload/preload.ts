@@ -12,6 +12,13 @@ const api: IpcApi = {
   ptyResize: (sessionId, cols, rows) => ipcRenderer.invoke('pty:resize', sessionId, cols, rows),
 
   getProjects: () => ipcRenderer.invoke('projects:get'),
+  getProjectGroups: () => ipcRenderer.invoke('projects:getGroups'),
+  addProject: (entry) => ipcRenderer.invoke('projects:add', entry),
+  removeProject: (key) => ipcRenderer.invoke('projects:remove', key),
+  addGroup: (name) => ipcRenderer.invoke('projects:addGroup', name),
+  removeGroup: (name) => ipcRenderer.invoke('projects:removeGroup', name),
+  moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('projects:move', key, toGroup, toIndex),
+  reorderGroup: (name, toIndex) => ipcRenderer.invoke('projects:reorderGroup', name, toIndex),
 
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),

@@ -33,6 +33,31 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle('projects:get', () => sessionManager.getProjectEntries());
+  ipcMain.handle('projects:getGroups', () => sessionManager.getProjectGroups());
+
+  ipcMain.handle('projects:add', (_event, entry: { key: string; repo: string; group: string }) =>
+    sessionManager.addProject(entry.key, entry.repo, entry.group)
+  );
+
+  ipcMain.handle('projects:remove', (_event, key: string) =>
+    sessionManager.removeProject(key)
+  );
+
+  ipcMain.handle('projects:addGroup', (_event, name: string) =>
+    sessionManager.addGroup(name)
+  );
+
+  ipcMain.handle('projects:removeGroup', (_event, name: string) =>
+    sessionManager.removeGroup(name)
+  );
+
+  ipcMain.handle('projects:move', (_event, key: string, toGroup: string, toIndex: number) =>
+    sessionManager.moveWorkspace(key, toGroup, toIndex)
+  );
+
+  ipcMain.handle('projects:reorderGroup', (_event, name: string, toIndex: number) =>
+    sessionManager.reorderGroup(name, toIndex)
+  );
 
   // Window controls for custom frameless titlebar
   ipcMain.handle('window:minimize', () => getWindow()?.minimize());

@@ -24,8 +24,15 @@ export interface IpcApi {
   ptyWrite: (sessionId: string, data: string) => Promise<void>;
   ptyResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
 
-  // Projects dropdown
+  // Projects dropdown / workspace management
   getProjects: () => Promise<ProjectEntry[]>;
+  getProjectGroups: () => Promise<ProjectGroup[]>;
+  addProject: (entry: { key: string; repo: string; group: string }) => Promise<ProjectEntry>;
+  removeProject: (key: string) => Promise<void>;
+  addGroup: (name: string) => Promise<void>;
+  removeGroup: (name: string) => Promise<void>;
+  moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
+  reorderGroup: (name: string, toIndex: number) => Promise<void>;
 
   // Window controls (custom titlebar)
   windowMinimize: () => void;
@@ -47,4 +54,9 @@ export interface ProjectEntry {
   key: string;         // e.g. NRPCON
   repo: string;        // e.g. rs-consent
   workingDir: string;  // e.g. /home/rulu/projects/rs-consent
+}
+
+export interface ProjectGroup {
+  group: string;
+  workspaces: ProjectEntry[];
 }
