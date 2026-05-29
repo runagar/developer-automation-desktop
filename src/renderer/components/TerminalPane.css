@@ -7,6 +7,8 @@
   flex-direction: column;
   height: 100%;
   background: var(--c-bg);
+  flex: 2;
+  min-width: 0;
 }
 
 .terminal-pane__header {

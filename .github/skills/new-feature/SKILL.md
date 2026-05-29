@@ -16,3 +16,4 @@ allowed-tools: shell
 10. Fix any bugs described by the user. Stay on the current working branch. Do not invoke the fix-bug skill.
 11. Once testing is complete, update ./.github/agent-smith.md if required by implemenation-plan
 12. Commit, push to remote, and open a pull request to main
+13. NEVER puch to remote an open a pull request if user has not confirmed that eveything is working as detailed by step 9. and 10.

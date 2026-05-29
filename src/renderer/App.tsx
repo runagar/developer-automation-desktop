@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Session, ProjectEntry, ProjectGroup } from '../main/types';
+import { Session, ProjectEntry, ProjectGroup, JiraIssue } from '../main/types';
 import SessionList from './components/SessionList';
 import TerminalPane from './components/TerminalPane';
 import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
 import ZoomControl from './components/ZoomControl';
+import { JiraPane } from './components/JiraPane';
 import './styles/app.css';
 
 declare global {
@@ -17,6 +18,8 @@ export default function App(): React.ReactElement {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
+  const [jiraIssues, setJiraIssues] = useState<Map<string, JiraIssue>>(new Map());
+  const [jiraCollapsed, setJiraCollapsed] = useState(false);
 
   // Always-current ref so the Tab cycling handler doesn't need to re-register
   // every time the sessions list changes.
@@ -65,6 +68,11 @@ export default function App(): React.ReactElement {
     window.agentSmith.getSessions().then((s) => {
       setSessions(s);
       if (s.length > 0) setActiveSessionId(s[0].id);
+      const map = new Map<string, JiraIssue>();
+      for (const sess of s) {
+        if (sess.jiraData) map.set(sess.id, sess.jiraData);
+      }
+      setJiraIssues(map);
     });
     window.agentSmith.getProjectGroups().then(setProjectGroups);
 
@@ -175,6 +183,28 @@ export default function App(): React.ReactElement {
     [refreshProjects]
   );
 
+  const handleJiraIssueLoaded = useCallback((sessionId: string, issue: JiraIssue) => {
+    setJiraIssues((prev) => new Map(prev).set(sessionId, issue));
+  }, []);
+
+  const handleJiraPlan = useCallback((sessionId: string, key: string) => {
+    const text = `Fetch ${key} and implement it`;
+    let i = 0;
+    const typeNext = () => {
+      if (i < text.length) {
+        window.agentSmith.ptyWrite(sessionId, text[i++]);
+        setTimeout(typeNext, 8);
+      } else {
+        setTimeout(() => window.agentSmith.ptyWrite(sessionId, '\r'), 50);
+      }
+    };
+    typeNext();
+  }, []);
+
+  const handleToggleJiraCollapse = useCallback(() => {
+    setJiraCollapsed((v) => !v);
+  }, []);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
   return (
@@ -217,13 +247,26 @@ export default function App(): React.ReactElement {
             </div>
           )}
           {sessions.map((s) => (
-            <TerminalPane
+            <div
               key={s.id}
-              session={s}
-              isActive={s.id === activeSessionId}
-              onRename={handleRenameSession}
-              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-            />
+              className="session-area"
+              style={s.id === activeSessionId ? undefined : { display: 'none' }}
+            >
+              <TerminalPane
+                session={s}
+                isActive={s.id === activeSessionId}
+                onRename={handleRenameSession}
+                openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+              />
+              <JiraPane
+                sessionId={s.id}
+                issue={jiraIssues.get(s.id) ?? null}
+                collapsed={jiraCollapsed}
+                onToggleCollapse={handleToggleJiraCollapse}
+                onIssueLoaded={handleJiraIssueLoaded}
+                onPlan={handleJiraPlan}
+              />
+            </div>
           ))}
         </main>
       </div>

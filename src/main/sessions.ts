@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
-import { Session, SessionState, ProjectEntry, ProjectGroup } from './types';
+import { Session, SessionState, ProjectEntry, ProjectGroup, JiraIssue } from './types';
 import { BrowserWindow, app } from 'electron';
 
 export class SessionManager {
@@ -39,6 +39,10 @@ export class SessionManager {
         last_active TEXT NOT NULL
       )
     `);
+
+    // Migration-safe additions
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_key TEXT'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_data TEXT'); } catch { /* already exists */ }
   }
 
   // Called from the renderer:ready IPC event, after the window is set,
@@ -261,5 +265,17 @@ export class SessionManager {
     restored: this.restoredIds.has(row.id),
     createdAt: row.created_at,
     lastActive: row.last_active,
+    jiraKey: row.jira_key ?? null,
+    jiraData: row.jira_data ? JSON.parse(row.jira_data) as JiraIssue : null,
   });
+
+  saveJiraIssue(sessionId: string, issue: JiraIssue): void {
+    this.db.prepare(`UPDATE sessions SET jira_key = ?, jira_data = ? WHERE id = ?`)
+      .run(issue.key, JSON.stringify(issue), sessionId);
+  }
+
+  clearJiraIssue(sessionId: string): void {
+    this.db.prepare(`UPDATE sessions SET jira_key = NULL, jira_data = NULL WHERE id = ?`)
+      .run(sessionId);
+  }
 }

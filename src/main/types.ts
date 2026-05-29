@@ -1,5 +1,14 @@
 export type SessionState = 'idle' | 'running' | 'awaiting';
 
+export interface JiraIssue {
+  key: string;
+  summary: string;
+  description: string;
+  acceptanceCriteria: string;
+  releaseNotes: string;
+  developerTasks: string;
+}
+
 export interface Session {
   id: string;               // UUID — also used as copilot --session-id
   name: string;
@@ -10,6 +19,8 @@ export interface Session {
   restored: boolean;        // true if resumed from a previous run (runtime-only, not persisted)
   createdAt: string;
   lastActive: string;
+  jiraKey: string | null;
+  jiraData: JiraIssue | null;
 }
 
 export interface IpcApi {
@@ -33,6 +44,11 @@ export interface IpcApi {
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   reorderGroup: (name: string, toIndex: number) => Promise<void>;
+
+  // Jira
+  fetchJiraIssue: (key: string) => Promise<JiraIssue>;
+  saveJiraIssue: (sessionId: string, issue: JiraIssue) => Promise<void>;
+  clearJiraIssue: (sessionId: string) => Promise<void>;
 
   // Window controls (custom titlebar)
   windowMinimize: () => void;

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
-import { IpcApi, Session, SessionState, ProjectEntry } from '../main/types';
+import { IpcApi, Session, SessionState, ProjectEntry, JiraIssue } from '../main/types';
 
 const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
@@ -19,6 +19,11 @@ const api: IpcApi = {
   removeGroup: (name) => ipcRenderer.invoke('projects:removeGroup', name),
   moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('projects:move', key, toGroup, toIndex),
   reorderGroup: (name, toIndex) => ipcRenderer.invoke('projects:reorderGroup', name, toIndex),
+
+  // Jira
+  fetchJiraIssue: (key) => ipcRenderer.invoke('jira:fetchIssue', key),
+  saveJiraIssue: (sessionId, issue) => ipcRenderer.invoke('jira:saveIssue', sessionId, issue),
+  clearJiraIssue: (sessionId) => ipcRenderer.invoke('jira:clearIssue', sessionId),
 
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),

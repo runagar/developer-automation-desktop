@@ -65,6 +65,14 @@
   background: var(--c-bg);
 }
 
+/* Session area: terminal + jira pane side by side */
+.session-area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Empty state */
 .app-empty {
   display: flex;

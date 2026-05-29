@@ -41,8 +41,23 @@ States are shown as coloured indicator pills in the session sidebar.
 
 To handle patterns that are split across two PTY data chunks, the last 64 bytes of each chunk are prepended to the next before matching (chunk-tail bridging).
 
-### Project shortcuts
-A dropdown next to the **+ New Session** button lists all configured PFT Beta repositories. Selecting one opens a new session with its working directory pre-set to the corresponding repository on disk.
+### Jira issue overview
+A collapsible Jira pane is displayed to the right of the terminal area for each session. The layout is a `flex` row inside `.session-area` with the terminal taking `flex: 2` and the Jira pane taking `flex: 1`.
+
+**Fetching issues:**
+- Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
+- The pane calls `GET {ATLASSIAN_BASE_URL}/rest/api/latest/issue/{key}?fields=summary,description` using the Bearer token from `/home/rulu/mcp_servers_distributable_linux/.env` (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`).
+- Credentials are loaded lazily from the `.env` file (not the app's env) by `src/main/jira.ts`.
+
+**Display order:** SUMMARY → ACCEPTANCE CRITERIA → DESCRIPTION. Acceptance Criteria are extracted from the description by splitting on the first line matching `/acceptance criteri/i`, reading until the next capitalised section header.
+
+**PLAN button:** Sends `"Fetch {key} and implement it\n"` to the active session's PTY.
+
+**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Issues are restored on startup and pre-populated into the `jiraIssues` Map in `App.tsx`.
+
+**Collapse/expand:** A ◀ / ▶ toggle button in the top-left of the pane collapses it to a 28 px-wide strip. Collapse state is global (not per-session) and not persisted. The terminal's `ResizeObserver` automatically calls `fitAddon.fit()` when the pane width changes.
+
+**IPC channels:** `jira:fetchIssue`, `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Workspace management
 A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:
@@ -83,6 +98,7 @@ Renderer process
 ├── App.tsx              root state, keyboard shortcuts
 ├── SessionList          sidebar: new/destroy/revive, project dropdown
 ├── TerminalPane         xterm.js instance per session (lazy-opened)
+├── JiraPane             Jira issue overview + collapse/expand per session
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
 ├── TitleBar             frameless window controls

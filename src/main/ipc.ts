@@ -1,5 +1,7 @@
 import { IpcMain, BrowserWindow } from 'electron';
 import { SessionManager } from './sessions';
+import { fetchJiraIssue } from './jira';
+import { JiraIssue } from './types';
 
 export function registerIpcHandlers(
   ipcMain: IpcMain,
@@ -58,6 +60,17 @@ export function registerIpcHandlers(
   ipcMain.handle('projects:reorderGroup', (_event, name: string, toIndex: number) =>
     sessionManager.reorderGroup(name, toIndex)
   );
+
+  // Jira
+  ipcMain.handle('jira:fetchIssue', (_event, key: string) => fetchJiraIssue(key));
+
+  ipcMain.handle('jira:saveIssue', (_event, sessionId: string, issue: JiraIssue) => {
+    sessionManager.saveJiraIssue(sessionId, issue);
+  });
+
+  ipcMain.handle('jira:clearIssue', (_event, sessionId: string) => {
+    sessionManager.clearJiraIssue(sessionId);
+  });
 
   // Window controls for custom frameless titlebar
   ipcMain.handle('window:minimize', () => getWindow()?.minimize());
