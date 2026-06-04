@@ -270,26 +270,41 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
 
   // Write incoming PTY data for this session's terminal regardless of visibility.
   // xterm buffers data before open(), so history accumulates even while hidden.
+  // Data is batched per animation frame to avoid per-chunk xterm render passes.
   useEffect(() => {
     const id = session.id;
-    const unsub = window.agentSmith.onPtyData((sessionId, data) => {
-      if (sessionId === id && termRef.current) {
-        // Intercept OSC 52 clipboard-write sequences from CLI applications.
-        // Format: ESC ] 52 ; <target> ; <base64-data> BEL|ST
-        // This handles clipboard writes that would otherwise fail because
-        // xterm.js uses navigator.clipboard (unreliable in Electron).
-        const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
-        let match;
-        while ((match = osc52Re.exec(data)) !== null) {
-          try {
-            window.agentSmith.clipboardWrite(atob(match[1]));
-          } catch (_) { /* invalid base64 — ignore */ }
-        }
+    let pending = '';
+    let rafId: number | null = null;
 
-        termRef.current.write(data);
+    const unsub = window.agentSmith.onPtyData((sessionId, data) => {
+      if (sessionId !== id || !termRef.current) return;
+
+      // Intercept OSC 52 clipboard-write sequences from CLI applications.
+      // Format: ESC ] 52 ; <target> ; <base64-data> BEL|ST
+      // This handles clipboard writes that would otherwise fail because
+      // xterm.js uses navigator.clipboard (unreliable in Electron).
+      const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
+      let match;
+      while ((match = osc52Re.exec(data)) !== null) {
+        try {
+          window.agentSmith.clipboardWrite(atob(match[1]));
+        } catch (_) { /* invalid base64 — ignore */ }
+      }
+
+      pending += data;
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          termRef.current?.write(pending);
+          pending = '';
+          rafId = null;
+        });
       }
     });
-    return unsub;
+
+    return () => {
+      unsub();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   // Empty deps: `id` is captured intentionally. The subscription must be registered
   // once on mount; re-subscribing on every render would leak listeners.
   }, []);

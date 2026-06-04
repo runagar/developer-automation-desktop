@@ -8,7 +8,7 @@ const api: IpcApi = {
   renameSession: (id, name) => ipcRenderer.invoke('sessions:rename', id, name),
   reviveSession: (id) => ipcRenderer.invoke('sessions:revive', id),
 
-  ptyWrite: (sessionId, data) => ipcRenderer.invoke('pty:write', sessionId, data),
+  ptyWrite: (sessionId, data) => ipcRenderer.send('pty:write', sessionId, data),
   ptyResize: (sessionId, cols, rows) => ipcRenderer.invoke('pty:resize', sessionId, cols, rows),
 
   getProjects: () => ipcRenderer.invoke('projects:get'),

@@ -32,7 +32,7 @@ export interface IpcApi {
   reviveSession: (id: string) => Promise<void>;
 
   // PTY I/O
-  ptyWrite: (sessionId: string, data: string) => Promise<void>;
+  ptyWrite: (sessionId: string, data: string) => void;
   ptyResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
 
   // Projects dropdown / workspace management

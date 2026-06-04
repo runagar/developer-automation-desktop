@@ -26,7 +26,7 @@ export function registerIpcHandlers(
     sessionManager.reviveSession(id)
   );
 
-  ipcMain.handle('pty:write', (_event, id: string, data: string) => {
+  ipcMain.on('pty:write', (_event, id: string, data: string) => {
     sessionManager.ptyWrite(id, data);
   });
 

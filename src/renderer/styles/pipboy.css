@@ -75,6 +75,7 @@
   background-size: 100% 8px;
   pointer-events: none;
   z-index: 9999;
+  will-change: transform;
   animation: crt-scanlines 1s linear infinite;
 }
 
@@ -102,7 +103,7 @@
 }
 
 @keyframes crt-scanlines {
-  to { background-position-y: 8px; }
+  to { transform: translateY(8px); }
 }
 
 @keyframes crt-sweep {
