@@ -105,7 +105,7 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
 
     // Intercept Ctrl+N before xterm consumes it so the New Session dropdown
     // can be opened even when focus is inside the terminal.
-    // Intercept Ctrl+V for clipboard paste (xterm would otherwise send raw 0x16).
+    // Intercept Ctrl+C/X/V for clipboard operations.
     // Intercept Shift+Arrow for screen text selection.
     let shiftSel: {
       anchor: { col: number; row: number };
@@ -122,19 +122,18 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
       }
 
       // Ctrl+C — copy selection when text is highlighted; otherwise let
-      // the shell receive the interrupt signal as normal.
+      // the shell receive the interrupt signal (SIGINT) as normal.
       if (e.key === 'c' && e.ctrlKey && !e.shiftKey && !e.altKey) {
         const sel = term.getSelection();
         if (sel) {
-          navigator.clipboard.writeText(sel);
+          window.agentSmith.clipboardWrite(sel);
           return false;
         }
       }
 
       // Ctrl+V — block xterm from writing the raw 0x16 char to the PTY.
       // The browser fires a separate 'paste' event which xterm handles
-      // natively (with bracketed-paste support), so no explicit paste call
-      // is needed here.
+      // natively (with bracketed-paste support).
       if (e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey) {
         return false;
       }
@@ -275,6 +274,18 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
     const id = session.id;
     const unsub = window.agentSmith.onPtyData((sessionId, data) => {
       if (sessionId === id && termRef.current) {
+        // Intercept OSC 52 clipboard-write sequences from CLI applications.
+        // Format: ESC ] 52 ; <target> ; <base64-data> BEL|ST
+        // This handles clipboard writes that would otherwise fail because
+        // xterm.js uses navigator.clipboard (unreliable in Electron).
+        const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
+        let match;
+        while ((match = osc52Re.exec(data)) !== null) {
+          try {
+            window.agentSmith.clipboardWrite(atob(match[1]));
+          } catch (_) { /* invalid base64 — ignore */ }
+        }
+
         termRef.current.write(data);
       }
     });

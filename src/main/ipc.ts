@@ -1,4 +1,4 @@
-import { IpcMain, BrowserWindow } from 'electron';
+import { IpcMain, BrowserWindow, clipboard } from 'electron';
 import { SessionManager } from './sessions';
 import { fetchJiraIssue } from './jira';
 import { JiraIssue } from './types';
@@ -90,5 +90,16 @@ export function registerIpcHandlers(
       sessionManager.setWindow(win);
       sessionManager.restoreSessions();
     }
+  });
+
+  // Clipboard — synchronous IPC so the key event handler can read/write
+  // clipboard without going async.
+  ipcMain.on('clipboard:write', (event, text: string) => {
+    clipboard.writeText(text);
+    event.returnValue = true;
+  });
+
+  ipcMain.on('clipboard:read', (event) => {
+    event.returnValue = clipboard.readText();
   });
 }

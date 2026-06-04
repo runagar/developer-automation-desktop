@@ -134,9 +134,23 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 | **Tab** | Next session |
 | **Shift+Tab** | Previous session |
 | **Ctrl+n** | New session|
+| **Ctrl+c** | Copy selection to clipboard (if text is selected); otherwise send SIGINT |
+| **Ctrl+v** | Paste from clipboard |
+| **Shift+Arrow** | Extend text selection (xterm-level) |
+| **Ctrl+Shift+Left/Right** | Extend text selection by word |
 | **Ctrl++** / **Ctrl+=** | Zoom in |
 | **Ctrl+-** | Zoom out |
 | **Ctrl+0** | Reset zoom |
+
+### Clipboard architecture
+
+Two selection modes coexist because the Copilot CLI uses Ink, which enables terminal mouse tracking:
+
+- **Normal click+drag** — handled by the CLI's own Ink-based selection. The CLI copies to clipboard via `xclip` (must be installed: `sudo apt-get install xclip`). Our code does not intercept this.
+- **Shift+click+drag** — bypasses mouse tracking and creates a real xterm text selection. Ctrl+C/X copies via Electron's `clipboard` module through synchronous IPC (`clipboard:write` / `clipboard:read` in `ipc.ts`, bound in `preload.ts`).
+- **Shift+Arrow** — keyboard selection, creates an xterm selection via `term.select()`. Same copy mechanism as Shift+click.
+
+OSC 52 clipboard-write sequences from CLI applications are intercepted in the PTY data handler and forwarded to Electron's clipboard API.
 
 ---
 

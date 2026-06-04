@@ -36,6 +36,10 @@ const api: IpcApi = {
     return () => ipcRenderer.removeListener('window:maximized', listener);
   },
 
+  // Clipboard (synchronous IPC — clipboard module is only available in main process)
+  clipboardWrite: (text) => ipcRenderer.sendSync('clipboard:write', text),
+  clipboardRead: () => ipcRenderer.sendSync('clipboard:read'),
+
   // Zoom (uses webFrame — no IPC round-trip needed)
   setZoom: (factor) => webFrame.setZoomFactor(factor),
   getZoom: () => webFrame.getZoomFactor(),

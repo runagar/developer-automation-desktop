@@ -56,6 +56,10 @@ export interface IpcApi {
   windowClose: () => void;
   onWindowMaximized: (callback: (maximized: boolean) => void) => () => void;
 
+  // Clipboard (uses Electron clipboard — no IPC round-trip needed)
+  clipboardWrite: (text: string) => void;
+  clipboardRead: () => string;
+
   // Zoom
   setZoom: (factor: number) => void;
   getZoom: () => number;
