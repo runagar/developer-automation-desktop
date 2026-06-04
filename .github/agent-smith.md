@@ -46,8 +46,11 @@ A collapsible Jira pane is displayed to the right of the terminal area for each 
 
 **Fetching issues:**
 - Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
-- The pane calls `GET {ATLASSIAN_BASE_URL}/rest/api/latest/issue/{key}?fields=summary,description` using the Bearer token from `/home/rulu/mcp_servers_distributable_linux/.env` (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`).
-- Credentials are loaded lazily from the `.env` file (not the app's env) by `src/main/jira.ts`.
+- The pane calls `GET {ATLASSIAN_BASE_URL}/rest/api/latest/issue/{key}?fields=summary,description` using a Bearer token.
+- Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/jira.ts` in order:
+  1. Environment variables (highest priority)
+  2. `~/.config/agent-smith/agent-smith/credentials.env`
+  3. Error with actionable message if neither source provides both values
 
 **Display order:** SUMMARY → ACCEPTANCE CRITERIA → DESCRIPTION. Acceptance Criteria are extracted from the description by splitting on the first line matching `/acceptance criteri/i`, reading until the next capitalised section header.
 

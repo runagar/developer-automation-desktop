@@ -1,36 +1,53 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 import { JiraIssue } from './types';
-
-const ENV_PATH = '/home/rulu/mcp_servers_distributable_linux/.env';
 
 let cachedPat: string | null = null;
 let cachedBaseUrl: string | null = null;
 
-function loadCredentials(): { pat: string; baseUrl: string } {
-  if (cachedPat && cachedBaseUrl) {
-    return { pat: cachedPat, baseUrl: cachedBaseUrl };
-  }
-
-  const content = fs.readFileSync(ENV_PATH, 'utf-8');
+function parseEnvFile(filePath: string): Record<string, string> {
+  const content = fs.readFileSync(filePath, 'utf-8');
   const env: Record<string, string> = {};
-
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
     if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
     const eqIdx = trimmed.indexOf('=');
     env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
   }
+  return env;
+}
 
-  const pat = env['ATLASSIAN_PAT'];
-  const baseUrl = env['ATLASSIAN_BASE_URL']?.replace(/\/$/, '');
+function loadCredentials(): { pat: string; baseUrl: string } {
+  if (cachedPat && cachedBaseUrl) {
+    return { pat: cachedPat, baseUrl: cachedBaseUrl };
+  }
+
+  // 1. Environment variables (highest priority)
+  let pat = process.env.ATLASSIAN_PAT;
+  let baseUrl = process.env.ATLASSIAN_BASE_URL;
+
+  // 2. Config file in app data directory
+  if (!pat || !baseUrl) {
+    const dataDir = path.join(app.getPath('userData'), 'agent-smith');
+    const configPath = path.join(dataDir, 'credentials.env');
+    if (fs.existsSync(configPath)) {
+      const env = parseEnvFile(configPath);
+      pat = pat || env['ATLASSIAN_PAT'];
+      baseUrl = baseUrl || env['ATLASSIAN_BASE_URL'];
+    }
+  }
 
   if (!pat || !baseUrl) {
-    throw new Error('Missing ATLASSIAN_PAT or ATLASSIAN_BASE_URL in .env');
+    throw new Error(
+      'Missing Jira credentials. Set ATLASSIAN_PAT and ATLASSIAN_BASE_URL as environment ' +
+      'variables or in ~/.config/agent-smith/agent-smith/credentials.env'
+    );
   }
 
   cachedPat = pat;
-  cachedBaseUrl = baseUrl;
-  return { pat, baseUrl };
+  cachedBaseUrl = baseUrl.replace(/\/$/, '');
+  return { pat: cachedPat, baseUrl: cachedBaseUrl };
 }
 
 function isSectionHeader(line: string): boolean {
