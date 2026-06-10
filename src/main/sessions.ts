@@ -5,6 +5,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
 import { Session, SessionState, ProjectEntry, ProjectGroup, JiraIssue } from './types';
 import { BrowserWindow, app } from 'electron';
+import {
+  tmuxSessionName, hasTmuxSession, capturePane,
+  capturePaneFullScrollback, getSessionInfo,
+  listSmithSessions, killTmuxSession,
+} from './tmux';
+
+// Strip ANSI escape sequences for state detection
+const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
 
 export class SessionManager {
   private db!: Database.Database;
@@ -14,6 +22,8 @@ export class SessionManager {
   private sessionsRestored = false;
   // IDs of sessions resumed from the previous run — runtime only, not persisted.
   private restoredIds = new Set<string>();
+  private statePollingInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly STATE_POLL_MS = 3000;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -43,6 +53,7 @@ export class SessionManager {
     // Migration-safe additions
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_key TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_data TEXT'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
   }
 
   // Called from the renderer:ready IPC event, after the window is set,
@@ -50,11 +61,36 @@ export class SessionManager {
   async restoreSessions(): Promise<void> {
     if (this.sessionsRestored) return;
     this.sessionsRestored = true;
-    const rows = this.db.prepare('SELECT * FROM sessions WHERE dead = 0').all() as any[];
+
+    // Clean up orphaned tmux sessions (no matching DB row)
+    this.cleanupOrphanedSessions();
+
+    // Restore non-dead, non-archived sessions
+    const rows = this.db.prepare(
+      'SELECT * FROM sessions WHERE dead = 0 AND archived = 0'
+    ).all() as any[];
+
     for (const row of rows) {
       this.restoredIds.add(row.id);
-      await this.spawnSession(row.id, row.working_dir, row.name, row.project, true);
+      const tmuxName = tmuxSessionName(row.id);
+      const tmuxExists = hasTmuxSession(tmuxName);
+
+      if (tmuxExists) {
+        // Replay scrollback into terminal before reattaching
+        const scrollback = capturePaneFullScrollback(tmuxName);
+        if (scrollback) {
+          this.window?.webContents.send('pty:data', row.id, scrollback);
+        }
+        this.window?.webContents.send(
+          'pty:data', row.id,
+          '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
+        );
+      }
+
+      await this.spawnSession(row.id, row.working_dir, row.name, row.project, tmuxExists);
     }
+
+    this.startStatePolling();
   }
 
   async createSession(opts: { name?: string; workingDir: string; project?: string | null }): Promise<Session> {
@@ -63,8 +99,8 @@ export class SessionManager {
     const name = opts.name || `Session ${this.getSessionCount() + 1}`;
 
     this.db.prepare(`
-      INSERT INTO sessions (id, name, working_dir, project, state, dead, created_at, last_active)
-      VALUES (?, ?, ?, ?, 'idle', 0, ?, ?)
+      INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, created_at, last_active)
+      VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?)
     `).run(id, name, opts.workingDir, opts.project ?? null, now, now);
 
     await this.spawnSession(id, opts.workingDir, name, opts.project ?? null, false);
@@ -75,9 +111,9 @@ export class SessionManager {
   private async spawnSession(
     id: string,
     workingDir: string,
-    name: string,
-    project: string | null,
-    isRestore: boolean
+    _name: string,
+    _project: string | null,
+    tmuxExists: boolean
   ): Promise<void> {
     const ptySession = new PtySession(id);
 
@@ -98,12 +134,10 @@ export class SessionManager {
     });
 
     try {
-      ptySession.spawn(workingDir, id);
+      ptySession.spawn(workingDir, id, tmuxExists);
       this.ptySessions.set(id, ptySession);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Surface the error in the terminal pane before marking the session dead,
-      // so the user knows why it failed (e.g. 'copilot' binary not found).
       this.window?.webContents.send(
         'pty:data', id,
         `\r\n\x1b[31m[Agent Smith] Failed to start session: ${msg}\x1b[0m\r\n`
@@ -113,10 +147,57 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Archive a session: detach the PTY but keep the tmux session alive.
+   */
+  archiveSession(id: string): void {
+    const pty = this.ptySessions.get(id);
+    if (pty) {
+      pty.kill(); // kills attach PTY only, tmux keeps running
+      this.ptySessions.delete(id);
+    }
+    this.db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run(id);
+    this.window?.webContents.send('session:archived', id);
+  }
+
+  /**
+   * Unarchive a session: reattach to the (possibly still running) tmux session.
+   */
+  async unarchiveSession(id: string): Promise<void> {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+    if (!row) return;
+
+    this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
+
+    const tmuxName = tmuxSessionName(id);
+    const tmuxExists = hasTmuxSession(tmuxName);
+
+    if (tmuxExists) {
+      const scrollback = capturePaneFullScrollback(tmuxName);
+      if (scrollback) {
+        this.window?.webContents.send('pty:data', id, scrollback);
+      }
+      this.window?.webContents.send(
+        'pty:data', id,
+        '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
+      );
+    }
+
+    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists);
+  }
+
+  /**
+   * Permanently destroy a session: kill tmux session and delete DB row.
+   */
   destroySession(id: string): void {
     const pty = this.ptySessions.get(id);
-    pty?.kill();
-    this.ptySessions.delete(id);
+    if (pty) {
+      pty.destroyTmux();
+      this.ptySessions.delete(id);
+    } else {
+      // No active PTY (archived) — kill tmux directly
+      killTmuxSession(tmuxSessionName(id));
+    }
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
@@ -127,8 +208,24 @@ export class SessionManager {
   async reviveSession(id: string): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
+
+    const tmuxName = tmuxSessionName(id);
+    const tmuxExists = hasTmuxSession(tmuxName);
+
     this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
-    await this.spawnSession(id, row.working_dir, row.name, row.project, true);
+
+    if (tmuxExists) {
+      const scrollback = capturePaneFullScrollback(tmuxName);
+      if (scrollback) {
+        this.window?.webContents.send('pty:data', id, scrollback);
+      }
+      this.window?.webContents.send(
+        'pty:data', id,
+        '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
+      );
+    }
+
+    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists);
   }
 
   ptyWrite(id: string, data: string): void {
@@ -150,8 +247,100 @@ export class SessionManager {
   }
 
   async persistAll(): Promise<void> {
+    // Stop state detection polling
+    this.stopStatePolling();
+
+    // Update last_active for all live sessions
     this.db.prepare('UPDATE sessions SET last_active = ? WHERE dead = 0')
       .run(new Date().toISOString());
+
+    // Kill only attach PTYs — tmux sessions keep running
+    for (const [, pty] of this.ptySessions) {
+      pty.kill();
+    }
+    this.ptySessions.clear();
+  }
+
+  // --- State detection polling ---
+
+  private startStatePolling(): void {
+    if (this.statePollingInterval) return;
+    this.statePollingInterval = setInterval(() => this.pollAllStates(), this.STATE_POLL_MS);
+  }
+
+  private stopStatePolling(): void {
+    if (this.statePollingInterval) {
+      clearInterval(this.statePollingInterval);
+      this.statePollingInterval = null;
+    }
+  }
+
+  private pollAllStates(): void {
+    // Poll all non-dead sessions (active + archived)
+    const rows = this.db.prepare('SELECT id, state FROM sessions WHERE dead = 0').all() as any[];
+
+    for (const row of rows) {
+      const tmuxName = tmuxSessionName(row.id);
+      if (!hasTmuxSession(tmuxName)) {
+        // tmux session died (maybe copilot exited while archived)
+        if (row.state !== 'idle') {
+          this.db.prepare('UPDATE sessions SET dead = 1, state = ? WHERE id = ?').run('idle', row.id);
+          this.ptySessions.delete(row.id);
+          this.window?.webContents.send('session:died', row.id);
+        }
+        continue;
+      }
+
+      const paneContent = capturePane(tmuxName);
+      if (!paneContent) continue;
+
+      const newState = this.detectStateFromPane(paneContent, row.state as SessionState);
+      if (newState && newState !== row.state) {
+        // Update via PtySession if it exists (keeps internal state in sync)
+        const pty = this.ptySessions.get(row.id);
+        if (pty) {
+          pty.setState(newState); // triggers 'stateChange' event → DB + IPC
+        } else {
+          // Archived session — update directly
+          this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
+            .run(newState, new Date().toISOString(), row.id);
+          this.window?.webContents.send('session:stateChange', row.id, newState);
+        }
+      }
+    }
+  }
+
+  private detectStateFromPane(content: string, currentState: SessionState): SessionState | null {
+    const plain = content.replace(ANSI_RE, '');
+    if (plain.includes('esc cancel')) return 'running';
+    if (plain.includes('enter to select') || plain.includes('enter to confirm') || plain.includes('Asking user')) return 'awaiting';
+    if (plain.includes('❯')) return 'idle';
+    return null;
+  }
+
+  // --- Orphan cleanup ---
+
+  private cleanupOrphanedSessions(): void {
+    const tmuxSessions = listSmithSessions();
+    const dbIds = new Set<string>(
+      (this.db.prepare('SELECT id FROM sessions').all() as any[]).map((r) => r.id)
+    );
+
+    for (const ts of tmuxSessions) {
+      // Extract the session ID prefix from the tmux name (smith-<12 chars>)
+      const prefix = ts.name.replace('smith-', '');
+      const hasDbRow = Array.from(dbIds).some((id) => id.startsWith(prefix));
+      if (!hasDbRow) {
+        console.log(`[tmux] Cleaning up orphaned tmux session: ${ts.name}`);
+        killTmuxSession(ts.name);
+      }
+    }
+  }
+
+  // --- tmux metadata for renderer ---
+
+  getSessionTmuxInfo(id: string): { activity: number; attached: number } | null {
+    return getSessionInfo(tmuxSessionName(id));
   }
 
   getProjectGroups(): ProjectGroup[] {
@@ -262,6 +451,7 @@ export class SessionManager {
     project: row.project,
     state: row.state as SessionState,
     dead: row.dead === 1,
+    archived: row.archived === 1,
     restored: this.restoredIds.has(row.id),
     createdAt: row.created_at,
     lastActive: row.last_active,

@@ -5,6 +5,8 @@ const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
   createSession: (opts) => ipcRenderer.invoke('sessions:create', opts),
   destroySession: (id) => ipcRenderer.invoke('sessions:destroy', id),
+  archiveSession: (id) => ipcRenderer.invoke('sessions:archive', id),
+  unarchiveSession: (id) => ipcRenderer.invoke('sessions:unarchive', id),
   renameSession: (id, name) => ipcRenderer.invoke('sessions:rename', id, name),
   reviveSession: (id) => ipcRenderer.invoke('sessions:revive', id),
 
@@ -63,6 +65,13 @@ const api: IpcApi = {
       callback(sessionId);
     ipcRenderer.on('session:died', listener);
     return () => ipcRenderer.removeListener('session:died', listener);
+  },
+
+  onSessionArchived: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+      callback(sessionId);
+    ipcRenderer.on('session:archived', listener);
+    return () => ipcRenderer.removeListener('session:archived', listener);
   },
 };
 

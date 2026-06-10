@@ -33,19 +33,20 @@ export default function App(): React.ReactElement {
   // Registered once; reads fresh sessions from sessionsRef.
   // SessionList's dropdown handler uses capture phase + stopImmediatePropagation
   // to suppress this when the dropdown is open.
+  // Archived sessions are excluded from cycling.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
-      const s = sessionsRef.current;
-      if (s.length < 2) return;
+      const activeSessions = sessionsRef.current.filter((s) => !s.archived);
+      if (activeSessions.length < 2) return;
       e.preventDefault();
       setActiveSessionId((current) => {
-        const idx = s.findIndex((sess) => sess.id === current);
+        const idx = activeSessions.findIndex((sess) => sess.id === current);
         if (idx === -1) return current;
         const next = e.shiftKey
-          ? (idx - 1 + s.length) % s.length
-          : (idx + 1) % s.length;
-        return s[next].id;
+          ? (idx - 1 + activeSessions.length) % activeSessions.length
+          : (idx + 1) % activeSessions.length;
+        return activeSessions[next].id;
       });
     };
     document.addEventListener('keydown', handler);
@@ -67,7 +68,8 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     window.agentSmith.getSessions().then((s) => {
       setSessions(s);
-      if (s.length > 0) setActiveSessionId(s[0].id);
+      const firstActive = s.find((sess) => !sess.archived);
+      if (firstActive) setActiveSessionId(firstActive.id);
       const map = new Map<string, JiraIssue>();
       for (const sess of s) {
         if (sess.jiraData) map.set(sess.id, sess.jiraData);
@@ -88,9 +90,23 @@ export default function App(): React.ReactElement {
       );
     });
 
+    const unsubArchived = window.agentSmith.onSessionArchived((id) => {
+      setSessions((prev) => {
+        const next = prev.map((s) => (s.id === id ? { ...s, archived: true } : s));
+        // If the archived session was active, switch to first non-archived session
+        setActiveSessionId((current) => {
+          if (current !== id) return current;
+          const firstActive = next.find((s) => !s.archived);
+          return firstActive?.id ?? null;
+        });
+        return next;
+      });
+    });
+
     return () => {
       unsubState();
       unsubDied();
+      unsubArchived();
     };
   }, []);
 
@@ -106,15 +122,31 @@ export default function App(): React.ReactElement {
   const handleDestroySession = useCallback(
     async (id: string) => {
       await window.agentSmith.destroySession(id);
-      // Use functional updater so `remaining` is derived from fresh state,
-      // avoiding the stale-closure bug that occurred when `sessions` was captured.
       setSessions((prev) => {
         const next = prev.filter((s) => s.id !== id);
         setActiveSessionId((activeId) =>
-          activeId === id ? (next[0]?.id ?? null) : activeId
+          activeId === id ? (next.find((s) => !s.archived)?.id ?? null) : activeId
         );
         return next;
       });
+    },
+    []
+  );
+
+  const handleArchiveSession = useCallback(
+    async (id: string) => {
+      await window.agentSmith.archiveSession(id);
+    },
+    []
+  );
+
+  const handleUnarchiveSession = useCallback(
+    async (id: string) => {
+      await window.agentSmith.unarchiveSession(id);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, archived: false, dead: false } : s))
+      );
+      setActiveSessionId(id);
     },
     []
   );
@@ -229,6 +261,8 @@ export default function App(): React.ReactElement {
           projectGroups={projectGroups}
           onSelect={setActiveSessionId}
           onCreate={handleCreateSession}
+          onArchive={handleArchiveSession}
+          onUnarchive={handleUnarchiveSession}
           onDestroy={handleDestroySession}
           onRevive={handleReviveSession}
           onAddProject={handleAddProject}

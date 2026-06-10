@@ -16,6 +16,7 @@ export interface Session {
   project: string | null;   // PFT Beta project key (e.g. NRPCON) or null
   state: SessionState;
   dead: boolean;
+  archived: boolean;        // true if session is archived (tmux keeps running)
   restored: boolean;        // true if resumed from a previous run (runtime-only, not persisted)
   createdAt: string;
   lastActive: string;
@@ -28,6 +29,8 @@ export interface IpcApi {
   getSessions: () => Promise<Session[]>;
   createSession: (opts: { name?: string; workingDir: string; project?: string }) => Promise<Session>;
   destroySession: (id: string) => Promise<void>;
+  archiveSession: (id: string) => Promise<void>;
+  unarchiveSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
   reviveSession: (id: string) => Promise<void>;
 
@@ -68,6 +71,7 @@ export interface IpcApi {
   onPtyData: (callback: (sessionId: string, data: string) => void) => () => void;
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
+  onSessionArchived: (callback: (sessionId: string) => void) => () => void;
 }
 
 export interface ProjectEntry {

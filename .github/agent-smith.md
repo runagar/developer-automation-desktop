@@ -1,6 +1,6 @@
 # Agent Smith
 
-Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli), built with Electron, React, and TypeScript. It lets you run multiple Copilot CLI sessions side by side in a single window, persists them across restarts, and wraps them in an Atompunk Pip-Boy aesthetic.
+Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli), built with Electron, React, and TypeScript. It lets you run multiple Copilot CLI sessions side by side in a single window, persists them across restarts via tmux, and wraps them in an Atompunk Pip-Boy aesthetic.
 
 ---
 
@@ -10,36 +10,75 @@ Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://g
 - Run any number of Copilot CLI sessions simultaneously, each in its own terminal pane.
 - Switch between sessions via the sidebar or with **Tab** / **Shift+Tab**.
 - Rename any session by clicking its name in the terminal header.
-- Destroy a session with confirmation, or revive a dead session without losing its scrollback.
+- Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background.
+- Restore an archived session to bring it back to the active list and reattach to the running tmux session.
+- Permanently destroy a session from the archived list with confirmation (kills the tmux session).
+- Revive a dead session without losing its scrollback.
 
-### Session persistence
-Each session is assigned a UUID on creation. That UUID is passed to the CLI as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database and automatically relaunched on next startup. Sessions that died while the app was closed are shown as dead on relaunch rather than silently dropped.
+### Session persistence (tmux)
+Each copilot session runs inside a **tmux session** that is independent of the Electron process. This means:
+- **App close** — the copilot agent keeps running in tmux. On next launch, Agent Smith reattaches to the existing tmux sessions and replays scrollback from `capture-pane`.
+- **Electron crash** — same as app close; tmux sessions are unaffected.
+- **OS restart** — tmux sessions are lost, but Agent Smith creates fresh ones on next launch (copilot `--session-id` resumes the server-side conversation).
+
+**tmux is a hard requirement.** If tmux is not installed, session creation fails with a descriptive error. There is no fallback to direct node-pty.
+
+**tmux session naming:** `smith-<first 12 chars of UUID>` — deterministic, short, avoids tmux name limits.
+
+**tmux session configuration:**
+- `mouse on` (required for Ink-based CLI mouse tracking)
+- `status off` (Agent Smith provides its own chrome)
+- `history-limit 50000` (generous scrollback)
+- `allow-passthrough on` (for OSC 52 clipboard)
+- `set-clipboard on`
+
+**Session lifecycle:**
+1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot, then spawns an attach PTY (`tmux attach-session`) via node-pty.
+2. PTY output flows through the tmux attach client to xterm.js — the renderer is unaware of tmux.
+3. On archive, only the attach PTY is killed; the tmux session survives.
+4. On app close, `persistAll()` kills all attach PTYs but leaves tmux sessions running.
+5. On next launch, `restoreSessions()` checks `hasTmuxSession()` for each session row. If the tmux session exists, it replays scrollback via `capturePaneFullScrollback()` and reattaches. If not (OS restart), it creates a fresh tmux session.
+
+Each session UUID is passed to copilot as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database.
+
+### Session archiving
+- The **✕ button** on active sessions archives instead of destroying.
+- Archived sessions appear in a collapsible **ARCHIVED SESSIONS** section at the bottom of the sidebar.
+- Archived sessions show a live state indicator (updated by capturePane polling).
+- Each archived session has a **Restore** (↺) button and a **Destroy** (✕) button.
+- Destroy permanently kills the tmux session and deletes the DB row (with confirmation).
+- Archived sessions are excluded from **Tab** / **Shift+Tab** cycling.
+- The collapse state of the archived section is persisted to `localStorage`.
 
 ### Session state detection
-Each CLI process runs inside a PTY proxy that reads all output in real time and drives a state machine.
+State detection uses **tmux `capture-pane` polling** — a single `setInterval` (every 3 seconds) captures the visible pane content from each session's tmux window and scans for known patterns.
 
 `SessionState` has three values (`idle` | `running` | `awaiting`). **Dead is not a `SessionState`** — it is a boolean flag (`Session.dead`) set in the DB and displayed by `StateIndicator` in the renderer.
 
 | State / flag | Meaning |
 |---|---|
-| **Idle** | Input prompt (`❯`) visible with no further output for 5 seconds |
+| **Idle** | Input prompt (`❯`) visible in the captured pane |
 | **Running** | Output is streaming (`esc cancel` pattern detected) |
 | **Awaiting** | CLI is waiting for user input (`enter to select` / `enter to confirm` / `Asking user`) |
-| **Dead** *(flag)* | PTY process has exited; session row has `dead = 1` in the DB |
+| **Dead** *(flag)* | tmux session has exited; session row has `dead = 1` in the DB |
 
 States are shown as coloured indicator pills in the session sidebar.
 
-**Detection patterns** (defined in `src/main/pty.ts`):
+**Detection patterns** (defined in `src/main/sessions.ts`, `detectStateFromPane()`):
 
-| Pattern in output | Transition |
+| Pattern in pane capture | Transition |
 |---|---|
 | `esc cancel` | → `running` |
 | `enter to select` | → `awaiting` |
 | `enter to confirm` | → `awaiting` |
 | `Asking user` | → `awaiting` |
-| `❯` *(after 5 s of silence, only when currently `running`)* | → `idle` |
+| `❯` | → `idle` |
 
-To handle patterns that are split across two PTY data chunks, the last 64 bytes of each chunk are prepended to the next before matching (chunk-tail bridging).
+**Key design decisions:**
+- Polling works for **both active and archived sessions** — no attach PTY needed for state detection.
+- ~3 second latency on state changes (acceptable since indicators are informational).
+- No chunk-tail bridging needed — `capture-pane` returns complete lines.
+- The polling loop is managed by `SessionManager`, not `PtySession`.
 
 ### Jira issue overview
 A collapsible Jira pane is displayed to the right of the terminal area for each session. The layout is a `flex` row inside `.session-area` with the terminal taking `flex: 2` and the Jira pane taking `flex: 1`.
@@ -84,7 +123,8 @@ Tab focus is constrained to the dialog while it is open (session Tab-cycling is 
 | Renderer | React 18 + TypeScript |
 | Bundler | Webpack via `electron-forge` |
 | Terminal emulator | xterm.js (`@xterm/xterm`) with FitAddon and WebLinksAddon |
-| PTY | `node-pty` |
+| Session host | tmux (hard requirement) |
+| PTY | `node-pty` (for tmux attach client only) |
 | Persistence | `better-sqlite3` |
 
 ---
@@ -93,13 +133,19 @@ Tab focus is constrained to the dialog while it is open (session Tab-cycling is 
 
 ```
 Main process
-├── SessionManager       SQLite session store + lifecycle
-├── PtySession(s)        node-pty wrapper + state machine per session
+├── SessionManager       SQLite session store + lifecycle + capturePane polling
+├── tmux.ts              tmux CLI wrapper (create/kill/capture/query sessions)
+├── PtySession(s)        node-pty wrapper for tmux attach-session client
 └── IPC handlers         bridges main ↔ renderer via contextBridge
+
+tmux server (independent process)
+└── smith-* sessions     each runs copilot CLI; survives app close
 
 Renderer process
 ├── App.tsx              root state, keyboard shortcuts
-├── SessionList          sidebar: new/destroy/revive, project dropdown
+├── SessionList          sidebar: new/archive/restore/destroy, project dropdown
+│   ├── Active sessions  main list with archive button (✕)
+│   └── Archived section collapsible list with restore (↺) and destroy (✕)
 ├── TerminalPane         xterm.js instance per session (lazy-opened)
 ├── JiraPane             Jira issue overview + collapse/expand per session
 ├── StateIndicator       idle / running / awaiting / dead pill
@@ -112,11 +158,21 @@ Preload
 └── preload.ts           exposes window.agentSmith IPC API via contextBridge
 ```
 
+**Data flow:**
+```
+Electron → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data → renderer
+                    ↓
+           tmux server → copilot process (child of tmux, NOT Electron)
+```
+
 **Session lifecycle:**
-1. `createSession()` inserts a DB row and calls `PtySession.spawn('copilot --session-id <uuid> --banner')`.
+1. `createSession()` creates a detached tmux session running copilot, then spawns a `tmux attach-session` PTY via node-pty.
 2. PTY output is forwarded to the renderer via `pty:data` IPC events; xterm.js buffers it even for hidden panes.
-3. On close, `persistAll()` timestamps all live sessions. On next launch, `restoreSessions()` is called only after the renderer fires `renderer:ready`, so no PTY events are lost before the window exists.
-4. Sessions that were alive when the app closed are relaunched on startup and marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
+3. On archive (✕ button), the attach PTY is killed but the tmux session keeps running. The session moves to the archived list.
+4. On restore (↺ button from archived list), scrollback is replayed from `capturePaneFullScrollback()` and the attach PTY is respawned.
+5. On app close, `persistAll()` kills all attach PTYs and stops state polling. tmux sessions survive.
+6. On next launch, `restoreSessions()` checks for surviving tmux sessions, replays scrollback, and reattaches. If tmux sessions are gone (OS restart), fresh ones are created.
+7. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
 
 ---
 
@@ -181,7 +237,7 @@ $XDG_CONFIG_HOME/agent-smith/sessions.db
 On WSLg this resolves to `~/.config/agent-smith/sessions.db`. The directory is created automatically on first launch.
 
 ### State detection patterns
-Defined in `src/main/pty.ts`. Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed.
+Defined in `src/main/sessions.ts` (`detectStateFromPane()` method). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed. State is polled from tmux `capture-pane` output every 3 seconds.
 
 ---
 

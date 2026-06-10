@@ -16,8 +16,9 @@ Agent Smith is a single-window Electron desktop app. It is **not** a web app, a 
 ```
 src/main/          Electron main process (Node.js)
   index.ts         App entry, BrowserWindow setup
-  sessions.ts      SessionManager — SQLite + PTY lifecycle
-  pty.ts           PtySession — node-pty wrapper + state machine
+  sessions.ts      SessionManager — SQLite + PTY + tmux lifecycle + state polling
+  pty.ts           PtySession — node-pty wrapper for tmux attach-session client
+  tmux.ts          tmux CLI wrapper (create/kill/capture/query sessions)
   ipc.ts           IPC handler registration
   types.ts         Shared types (Session, IpcApi, ProjectEntry)
 
@@ -44,7 +45,11 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 - **`window.agentSmith`** is the only way the renderer talks to the main process. Never use `require` or `ipcRenderer` directly in renderer code.
 - **`SessionState`** (`idle` | `running` | `awaiting`) lives in `types.ts`. The display-only `dead` state is added in the renderer (`StateIndicator`) and is never stored in the DB.
 - **`Session.restored`** is a runtime-only flag set by `SessionManager.restoredIds`. It is not a DB column and must not be persisted.
+- **`Session.archived`** is a DB column (`archived INTEGER DEFAULT 0`). Archived sessions have their attach PTY killed but their tmux session kept running.
 - **`restoreSessions()`** must only be called after `setWindow()` has been called (triggered by `renderer:ready`). Never call it from `initialize()`.
+- **tmux is a hard requirement.** Session creation fails with a descriptive error if tmux is not installed. There is no fallback to direct node-pty spawn.
+- **State detection** is done by `capturePane()` polling in `SessionManager` (every 3s), NOT in `PtySession`. `PtySession.setState()` is public so the polling loop can update state via the existing event system.
+- **The ✕ button archives** (detaches PTY, keeps tmux alive). Permanent destruction is only available from the archived sessions list.
 
 ---
 
@@ -70,9 +75,10 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 
 ## Key behaviours to preserve
 
-- **Tab / Shift+Tab** cycles sessions (wired in `App.tsx`). Do not intercept Tab in any component without `e.stopPropagation()` if the global handler should not fire.
+- **Tab / Shift+Tab** cycles non-archived sessions (wired in `App.tsx`). Archived sessions are excluded. Do not intercept Tab in any component without `e.stopPropagation()` if the global handler should not fire.
 - **Ctrl++ / Ctrl+- / Ctrl+0** controls zoom (wired in `ZoomControl.tsx`).
-- **Session destroy** requires confirmation via `ConfirmDialog`. Never call `onDestroy` directly from a button click.
+- **Session archive** (✕ button) requires confirmation via `ConfirmDialog`. Never call `onArchive` directly from a button click.
+- **Session destroy** (from archived list) requires confirmation via `ConfirmDialog`. Never call `onDestroy` directly from a button click.
 - **xterm.js terminals** are created on mount but only opened into the DOM on first activation (`openedRef`). This is intentional — do not eagerly call `term.open()`.
 - PTY data subscriptions in `TerminalPane` intentionally use empty deps arrays (registered once on mount). Do not add `session.id` to those deps — it would leak listeners.
 
@@ -83,5 +89,6 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 1. Does it require a new IPC channel? → update `ipc.ts`, `preload.ts`, `types.ts`.
 2. Does it add persistent data? → add a DB column with a migration-safe `ALTER TABLE IF NOT EXISTS` or update the `CREATE TABLE` statement.
 3. Does it add UI? → use existing `.btn` / `--c-*` variables; match BEM naming of the nearest component.
-4. Does it affect session lifecycle? → verify behaviour on fresh create, restore-from-disk, revive-dead, and destroy paths.
+4. Does it affect session lifecycle? → verify behaviour on fresh create, restore-from-disk, archive, unarchive, revive-dead, and destroy paths. Remember that destroy is only available from archived sessions.
 5. Does it add a `keydown` listener? → use a ref pattern (not state in deps) to avoid re-registration on every render.
+6. Does it interact with tmux? → use functions from `src/main/tmux.ts`. Never call tmux commands directly elsewhere.

@@ -18,6 +18,14 @@ export function registerIpcHandlers(
     sessionManager.destroySession(id);
   });
 
+  ipcMain.handle('sessions:archive', (_event, id: string) => {
+    sessionManager.archiveSession(id);
+  });
+
+  ipcMain.handle('sessions:unarchive', (_event, id: string) =>
+    sessionManager.unarchiveSession(id)
+  );
+
   ipcMain.handle('sessions:rename', (_event, id: string, name: string) => {
     sessionManager.renameSession(id, name);
   });

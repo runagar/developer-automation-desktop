@@ -11,6 +11,8 @@ interface Props {
   projectGroups: ProjectGroup[];
   onSelect: (id: string) => void;
   onCreate: (workingDir: string, project?: string) => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
   onDestroy: (id: string) => void;
   onRevive: (id: string) => void;
   onAddProject: (key: string, repo: string, group: string) => Promise<void>;
@@ -25,7 +27,7 @@ interface Props {
 const DEFAULT_WORK_DIR = '/home/rulu/projects';
 
 export default function SessionList({
-  sessions, activeSessionId, projectGroups, onSelect, onCreate, onDestroy, onRevive,
+  sessions, activeSessionId, projectGroups, onSelect, onCreate, onArchive, onUnarchive, onDestroy, onRevive,
   onAddProject, onRemoveProject, onAddGroup, onRemoveGroup, onMoveWorkspace, onReorderGroup,
   openDropdownWithKeyboardRef,
 }: Props): React.ReactElement {
@@ -38,8 +40,15 @@ export default function SessionList({
   const highlightedIndexRef = useRef<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
+  const [destroyAllPending, setDestroyAllPending] = useState(false);
+  const [archivedExpanded, setArchivedExpanded] = useState(() => {
+    try { return localStorage.getItem('smith-archived-expanded') === 'true'; } catch { return false; }
+  });
 
-  const pendingSession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
+  const pendingDestroySession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
+
+  const activeSessions = sessions.filter((s) => !s.archived);
+  const archivedSessions = sessions.filter((s) => s.archived);
 
   // Flat list of all workspaces for keyboard navigation
   const allWorkspaces = projectGroups.flatMap((g) => g.workspaces);
@@ -184,7 +193,7 @@ export default function SessionList({
       </div>
 
       <ul className="session-list__items">
-        {sessions.map((session) => (
+        {activeSessions.map((session) => (
           <li
             key={session.id}
             className={[
@@ -207,8 +216,8 @@ export default function SessionList({
                 )}
                 <button
                   className="btn btn--micro btn--danger"
-                  title="Destroy session"
-                  onClick={(e) => { e.stopPropagation(); setPendingDestroyId(session.id); }}
+                  title="Archive session"
+                  onClick={(e) => { e.stopPropagation(); onArchive(session.id); }}
                 >✕</button>
               </div>
             </div>
@@ -222,6 +231,70 @@ export default function SessionList({
         ))}
       </ul>
 
+      {archivedSessions.length > 0 && (
+        <div className="session-list__archived">
+          <button
+            className="session-list__archived-header"
+            onClick={() => {
+              setArchivedExpanded((v) => {
+                const next = !v;
+                try { localStorage.setItem('smith-archived-expanded', String(next)); } catch { /* ok */ }
+                return next;
+              });
+            }}
+          >
+            <span className="session-list__archived-arrow">
+              {archivedExpanded ? '▾' : '▸'}
+            </span>
+            <span>ARCHIVED SESSIONS</span>
+            <span className="session-list__archived-count">({archivedSessions.length})</span>
+          </button>
+          {archivedExpanded && (
+            <ul className="session-list__archived-items">
+              {archivedSessions.map((session) => (
+                <li
+                  key={session.id}
+                  className="session-item session-item--archived"
+                  onClick={() => onSelect(session.id)}
+                >
+                  <div className="session-item__top">
+                    <StateIndicator state={session.dead ? 'dead' : session.state} />
+                    <span className="session-item__name">{session.name}</span>
+                    <div className="session-item__actions session-item__actions--archived">
+                      <button
+                        className="btn btn--micro"
+                        title="Restore session"
+                        onClick={(e) => { e.stopPropagation(); onUnarchive(session.id); }}
+                      >↺</button>
+                      <button
+                        className="btn btn--micro btn--danger"
+                        title="Destroy session"
+                        onClick={(e) => { e.stopPropagation(); setPendingDestroyId(session.id); }}
+                      >✕</button>
+                    </div>
+                  </div>
+                  {session.project && (
+                    <div className="session-item__meta">
+                      <span className="session-item__project">[ {session.project} ]</span>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {archivedExpanded && archivedSessions.length > 1 && (
+            <div className="session-list__destroy-all">
+              <button
+                className="btn btn--micro btn--danger session-list__destroy-all-btn"
+                onClick={() => setDestroyAllPending(true)}
+              >
+                ✕ DESTROY ALL
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="session-list__manage">
         <button
           className="btn session-list__manage-btn"
@@ -232,16 +305,29 @@ export default function SessionList({
         </button>
       </div>
 
-      {pendingSession && (
+      {pendingDestroySession && (
         <ConfirmDialog
-          message={`Destroy "${pendingSession.name}"?`}
-          detail="The session and its scrollback will be permanently removed."
+          message={`Destroy "${pendingDestroySession.name}"?`}
+          detail="This will permanently kill the session and any running agent. This cannot be undone."
           confirmLabel="DESTROY"
           onConfirm={() => {
-            onDestroy(pendingSession.id);
+            onDestroy(pendingDestroySession.id);
             setPendingDestroyId(null);
           }}
           onCancel={() => setPendingDestroyId(null)}
+        />
+      )}
+
+      {destroyAllPending && (
+        <ConfirmDialog
+          message={`Destroy all ${archivedSessions.length} archived sessions?`}
+          detail="This will permanently kill all archived sessions and any running agents. This cannot be undone."
+          confirmLabel="DESTROY ALL"
+          onConfirm={() => {
+            for (const s of archivedSessions) onDestroy(s.id);
+            setDestroyAllPending(false);
+          }}
+          onCancel={() => setDestroyAllPending(false)}
         />
       )}
 

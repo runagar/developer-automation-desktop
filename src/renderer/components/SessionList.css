@@ -191,3 +191,67 @@
   color: var(--c-bright);
   border-color: var(--c-dim);
 }
+
+/* =========================================================
+   ARCHIVED SESSIONS
+   ========================================================= */
+
+.session-list__archived {
+  border-top: 1px solid var(--c-dark);
+  flex-shrink: 0;
+}
+
+.session-list__archived-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.session-list__archived-arrow {
+  font-size: 0.7rem;
+}
+
+.session-list__archived-count {
+  color: var(--c-dim);
+  font-size: 0.6rem;
+}
+
+.session-list__archived-items {
+  padding: 2px 0;
+  list-style: none;
+  margin: 0;
+}
+
+.session-item--archived {
+  opacity: 0.6;
+  border-left-color: transparent !important;
+}
+
+.session-item--archived:hover {
+  opacity: 0.85;
+}
+
+.session-item__actions--archived {
+  opacity: 1;
+}
+
+.session-list__destroy-all {
+  padding: 4px 8px 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.session-list__destroy-all-btn {
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+}
