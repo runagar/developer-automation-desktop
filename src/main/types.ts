@@ -30,9 +30,9 @@ export interface IpcApi {
   createSession: (opts: { name?: string; workingDir: string; project?: string }) => Promise<Session>;
   destroySession: (id: string) => Promise<void>;
   archiveSession: (id: string) => Promise<void>;
-  unarchiveSession: (id: string) => Promise<void>;
+  unarchiveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
-  reviveSession: (id: string) => Promise<void>;
+  reviveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
 
   // PTY I/O
   ptyWrite: (sessionId: string, data: string) => void;

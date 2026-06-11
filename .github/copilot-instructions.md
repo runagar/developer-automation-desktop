@@ -27,8 +27,13 @@ src/preload/
 
 src/renderer/      React renderer process
   index.tsx        Entry point, theme + zoom init
-  App.tsx          Root component, global keyboard shortcuts
+  App.tsx          Root component, session + dashboard wiring, panel focus refs
   components/      One file per component + matching .css
+                   (Workspace, WorkspacePanel, PanelMenu, SessionList, TerminalPane, JiraPane, …)
+  dashboard/       Panel grid system (framework-agnostic)
+    layout.ts            grid math, panel ordering, presets, default layout
+    useDashboardLayout.ts  layout state + localStorage persistence + mutators
+    usePanelFocus.ts     intra-panel Tab wrapping
   styles/
     global.css     Reset, scrollbar, selection colours
     pipboy.css     All theme variables, CRT effects, shared .btn classes
@@ -50,6 +55,9 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 - **tmux is a hard requirement.** Session creation fails with a descriptive error if tmux is not installed. There is no fallback to direct node-pty spawn.
 - **State detection** is done by `capturePane()` polling in `SessionManager` (every 3s), NOT in `PtySession`. `PtySession.setState()` is public so the polling loop can update state via the existing event system.
 - **The ✕ button archives** (detaches PTY, keeps tmux alive). Permanent destruction is only available from the archived sessions list.
+- **The workspace is a 12×12 panel grid** (`src/renderer/dashboard/`). Panels are absolutely positioned; placements persist to `localStorage` (`agent-smith-dashboard`). Hidden panels stay **mounted** (never unmount terminal/jira bodies — that would dispose xterm buffers). The terminal and jira panels render one component per session internally (active shown).
+- **Reattach uses a fresh xterm at the correct size.** On restore/revive, bump the per-session `attachGen` (React key) to mount a clean xterm, fit it, then attach the tmux PTY at that exact `cols`/`rows`. Never manually replay scrollback and never resize after attach — both corrupt tmux's repaint.
+- **Panel keyboard nav is focus-gated.** `Ctrl+Tab` cycles panels (handled in `Workspace`); plain `Tab` only works inside the focused panel and is suppressed when focus is outside any panel. There is no global Tab navigation.
 
 ---
 

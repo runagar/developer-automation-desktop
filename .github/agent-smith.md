@@ -8,12 +8,37 @@ Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://g
 
 ### Multi-session management
 - Run any number of Copilot CLI sessions simultaneously, each in its own terminal pane.
-- Switch between sessions via the sidebar or with **Tab** / **Shift+Tab**.
+- Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
 - Rename any session by clicking its name in the terminal header.
 - Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.
 - Permanently destroy a session from the archived list with confirmation (kills the tmux session).
 - Revive a dead session without losing its scrollback.
+
+### Customizable dashboard
+The main workspace is a **12×12 virtual grid** of draggable, resizable panels (replacing the old fixed sidebar/terminal/jira flexbox layout). The grid system is custom-built with React + pointer events (no third-party windowing library), adapted from the pattern in `src/renderer/dashboard/`.
+
+**Panels** (one instance of each, all wrapping existing components):
+| Panel | Content |
+|---|---|
+| `sessions` | Session sidebar (`SessionList`) |
+| `terminal` | Active session's terminal (`TerminalPane`) |
+| `jira` | Jira issue pane (`JiraPane`) |
+
+- **Drag** a panel by its header to move it (snaps to grid cells, clamped to bounds).
+- **Resize** from any of 8 edge/corner handles (minimum 1×1 cell).
+- **Z-order:** clicking a panel brings it to the front; panels may overlap.
+- **Panel menu** (header, left of zoom): toggle each panel's visibility and switch between built-in layout presets (`List Left`, `Classic`, `Terminal Bottom`, `Focus Terminal`). The menu also has a **Lock layout** toggle that disables drag/resize/close (presets still work while locked). The menu stays open while clicking options.
+- **Persistence:** the full layout (placements + lock state + active preset) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch.
+- Hidden panels stay **mounted** (not unmounted) so terminal xterm buffers survive being toggled off/on.
+- The terminal and jira panels render one component **per session** internally (all mounted, only the active session shown), preserving every session's xterm buffer.
+
+#### Dashboard keyboard navigation
+Two-layer, **focus-gated** model:
+- **Ctrl+Tab / Ctrl+Shift+Tab** — cycle focus between visible panels in grid reading order (top-left → bottom-right, higher-z wins ties). Each panel has an entry point: terminal → xterm, sessions → selected item, jira → key input.
+- **Tab / Shift+Tab** — cycle focusable elements **within** the focused panel only (wraps at the ends). In the terminal panel, Tab goes to the PTY (shell autocomplete). When focus is **outside** any panel (e.g. header), plain Tab is suppressed — there is no global Tab navigation.
+- **Sessions panel:** Tab moves between session items, selecting each on focus (its terminal becomes visible). **Enter** on a focused session moves focus into the terminal panel (if visible). Per-item action buttons are excluded from the tab cycle.
+- **Ctrl+N** opens the New Session dropdown and, after a session is created, moves focus into the new terminal (if the terminal panel is visible).
 
 ### Session persistence (tmux)
 Each copilot session runs inside a **tmux session** that is independent of the Electron process. This means:
@@ -142,12 +167,19 @@ tmux server (independent process)
 └── smith-* sessions     each runs copilot CLI; survives app close
 
 Renderer process
-├── App.tsx              root state, keyboard shortcuts
-├── SessionList          sidebar: new/archive/restore/destroy, project dropdown
+├── App.tsx              root state, session/dashboard wiring, panel focus refs
+├── dashboard/           grid layout system (framework-agnostic)
+│   ├── layout.ts        grid math, panel ordering, presets, default layout
+│   ├── useDashboardLayout.ts  layout state + localStorage persistence + mutators
+│   └── usePanelFocus.ts intra-panel Tab wrapping
+├── Workspace            12×12 grid container: drag/resize, Ctrl+Tab, focus tracking
+├── WorkspacePanel       panel chrome: drag header, resize handles, close
+├── PanelMenu            header dropdown: panel toggles + layout presets + lock
+├── SessionList          sessions panel body: new/archive/restore/destroy
 │   ├── Active sessions  main list with archive button (✕)
-│   └── Archived section collapsible list with restore (↺) and destroy (✕)
+│   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
 ├── TerminalPane         xterm.js instance per session (lazy-opened)
-├── JiraPane             Jira issue overview + collapse/expand per session
+├── JiraPane             Jira issue overview per session
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
 ├── TitleBar             frameless window controls
@@ -169,10 +201,12 @@ Electron → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data →
 1. `createSession()` creates a detached tmux session running copilot, then spawns a `tmux attach-session` PTY via node-pty.
 2. PTY output is forwarded to the renderer via `pty:data` IPC events; xterm.js buffers it even for hidden panes.
 3. On archive (✕ button), the attach PTY is killed but the tmux session keeps running. The session moves to the archived list.
-4. On restore (↺ button from archived list), scrollback is replayed from `capturePaneFullScrollback()` and the attach PTY is respawned.
+4. On restore (↺ from archived list) or revive, the renderer mounts a **fresh** xterm (via a bumped `attachGen` React key), fits it to the panel, then the main process reattaches the tmux PTY **at that exact size** — so tmux repaints cleanly with no post-attach resize (avoids duplicated/garbled output and wrong sizing).
 5. On app close, `persistAll()` kills all attach PTYs and stops state polling. tmux sessions survive.
-6. On next launch, `restoreSessions()` checks for surviving tmux sessions, replays scrollback, and reattaches. If tmux sessions are gone (OS restart), fresh ones are created.
+6. On next launch, `restoreSessions()` reattaches to surviving tmux sessions (fresh xterm + tmux repaint); if a tmux session is gone (OS restart), a fresh one is created.
 7. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
+
+> Scrollback is owned by tmux; on reattach the current screen is repainted by tmux into a clean xterm. There is no manual scrollback replay (it collided with the live buffer and tmux's repaint).
 
 ---
 
@@ -182,7 +216,7 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 - **Phosphor green** (Pip-Boy 3000) or **amber** (Pip-Boy 3000a) colour scheme
 - CRT effects: rolling scanlines, periodic top-to-bottom sweep, centre phosphor bloom
 - All text in `Roboto Mono`
-- Theme and zoom level are persisted to `localStorage`
+- Theme, zoom level, and dashboard layout are persisted to `localStorage`
 
 ---
 
@@ -190,9 +224,10 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 
 | Shortcut | Action |
 |---|---|
-| **Tab** | Next session |
-| **Shift+Tab** | Previous session |
-| **Ctrl+n** | New session|
+| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Cycle focus between visible panels |
+| **Tab** / **Shift+Tab** | Cycle within the focused panel (sessions: select session; terminal: shell tab) |
+| **Enter** (on a focused session) | Move focus into the terminal panel |
+| **Ctrl+n** | New session (focuses the new terminal once created) |
 | **Ctrl+c** | Copy selection to clipboard (if text is selected); otherwise send SIGINT |
 | **Ctrl+v** | Paste from clipboard |
 | **Shift+Arrow** | Extend text selection (xterm-level) |

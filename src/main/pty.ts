@@ -34,7 +34,7 @@ export class PtySession extends EventEmitter {
    * @param sessionId   the UUID for copilot --session-id
    * @param tmuxExists  if true, skip tmux creation (session already running)
    */
-  spawn(workingDir: string, sessionId: string, tmuxExists = false): void {
+  spawn(workingDir: string, sessionId: string, tmuxExists = false, cols = 120, rows = 36): void {
     requireTmux();
 
     if (!tmuxExists) {
@@ -44,8 +44,8 @@ export class PtySession extends EventEmitter {
     this.intentionalDetach = false;
     this.ptyProcess = pty.spawn('tmux', ['attach-session', '-t', this.tmuxName], {
       name: 'xterm-256color',
-      cols: 120,
-      rows: 36,
+      cols,
+      rows,
       cwd: workingDir,
       env: process.env as Record<string, string>,
     });

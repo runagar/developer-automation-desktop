@@ -1,10 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Terminal, ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Session } from '../../main/types';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalPane.css';
+
+export interface TerminalPaneHandle {
+  focus: () => void;
+  // Fit the (typically empty, freshly-mounted) xterm to its container and
+  // return the resulting grid size, so the PTY can attach at exactly that size
+  // — avoiding any post-attach resize (which corrupts tmux's repaint).
+  fitAndMeasure: () => { cols: number; rows: number } | null;
+}
 
 interface Props {
   session: Session;
@@ -71,7 +79,10 @@ function getXtermTheme(): ITheme {
   return XTERM_THEMES[themeId] ?? XTERM_THEMES['pipboy-3000'];
 }
 
-export default function TerminalPane({ session, isActive, onRename, openDropdownWithKeyboardRef }: Props): React.ReactElement {
+const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
+  { session, isActive, onRename, openDropdownWithKeyboardRef },
+  ref
+): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -80,6 +91,17 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
   const [editingName, setEditingName] = React.useState(false);
   const [nameValue, setNameValue] = React.useState(session.name);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => termRef.current?.focus(),
+    fitAndMeasure: () => {
+      const term = termRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return null;
+      fit.fit();
+      return { cols: term.cols, rows: term.rows };
+    },
+  }), []);
 
   // Create the xterm Terminal once on mount. We don't call term.open() yet —
   // that's deferred until first activation so dimensions are available.
@@ -398,4 +420,6 @@ export default function TerminalPane({ session, isActive, onRename, openDropdown
       <div className="terminal-pane__terminal" ref={containerRef} />
     </div>
   );
-}
+});
+
+export default TerminalPane;

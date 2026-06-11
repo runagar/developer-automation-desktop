@@ -3,39 +3,8 @@
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  border-left: 1px solid var(--c-border);
   background: var(--c-bg);
   overflow: hidden;
-  transition: flex 0.15s ease;
-}
-
-.jira-pane--collapsed {
-  flex: 0 0 28px;
-  min-width: 28px;
-  max-width: 28px;
-  border-left: 1px solid var(--c-border);
-  cursor: pointer;
-}
-
-/* ── Collapse toggle ─────────────────────────────────── */
-.jira-pane__toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  cursor: pointer;
-  color: var(--c-dim);
-  font-size: 12px;
-  background: transparent;
-  border: none;
-  padding: 0;
-  transition: color 0.1s;
-}
-
-.jira-pane__toggle:hover {
-  color: var(--c-text);
 }
 
 /* ── Header ──────────────────────────────────────────── */
@@ -136,12 +105,4 @@
   font-weight: 600;
   color: var(--c-text);
   line-height: 1.4;
-}
-
-/* ── Collapsed strip ─────────────────────────────────── */
-.jira-pane--collapsed .jira-pane__toggle {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  width: 28px;
-  height: 100%;
 }

@@ -7,8 +7,7 @@ import { Session, SessionState, ProjectEntry, ProjectGroup, JiraIssue } from './
 import { BrowserWindow, app } from 'electron';
 import {
   tmuxSessionName, hasTmuxSession, capturePane,
-  capturePaneFullScrollback, getSessionInfo,
-  listSmithSessions, killTmuxSession,
+  getSessionInfo, listSmithSessions, killTmuxSession,
 } from './tmux';
 
 // Strip ANSI escape sequences for state detection
@@ -74,19 +73,6 @@ export class SessionManager {
       this.restoredIds.add(row.id);
       const tmuxName = tmuxSessionName(row.id);
       const tmuxExists = hasTmuxSession(tmuxName);
-
-      if (tmuxExists) {
-        // Replay scrollback into terminal before reattaching
-        const scrollback = capturePaneFullScrollback(tmuxName);
-        if (scrollback) {
-          this.window?.webContents.send('pty:data', row.id, scrollback);
-        }
-        this.window?.webContents.send(
-          'pty:data', row.id,
-          '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
-        );
-      }
-
       await this.spawnSession(row.id, row.working_dir, row.name, row.project, tmuxExists);
     }
 
@@ -113,7 +99,8 @@ export class SessionManager {
     workingDir: string,
     _name: string,
     _project: string | null,
-    tmuxExists: boolean
+    tmuxExists: boolean,
+    size?: { cols: number; rows: number }
   ): Promise<void> {
     const ptySession = new PtySession(id);
 
@@ -134,7 +121,7 @@ export class SessionManager {
     });
 
     try {
-      ptySession.spawn(workingDir, id, tmuxExists);
+      ptySession.spawn(workingDir, id, tmuxExists, size?.cols, size?.rows);
       this.ptySessions.set(id, ptySession);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -163,7 +150,7 @@ export class SessionManager {
   /**
    * Unarchive a session: reattach to the (possibly still running) tmux session.
    */
-  async unarchiveSession(id: string): Promise<void> {
+  async unarchiveSession(id: string, cols?: number, rows?: number): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
 
@@ -171,19 +158,8 @@ export class SessionManager {
 
     const tmuxName = tmuxSessionName(id);
     const tmuxExists = hasTmuxSession(tmuxName);
-
-    if (tmuxExists) {
-      const scrollback = capturePaneFullScrollback(tmuxName);
-      if (scrollback) {
-        this.window?.webContents.send('pty:data', id, scrollback);
-      }
-      this.window?.webContents.send(
-        'pty:data', id,
-        '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
-      );
-    }
-
-    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists);
+    const size = cols && rows ? { cols, rows } : undefined;
+    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists, size);
   }
 
   /**
@@ -205,7 +181,7 @@ export class SessionManager {
     this.db.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, id);
   }
 
-  async reviveSession(id: string): Promise<void> {
+  async reviveSession(id: string, cols?: number, rows?: number): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
 
@@ -214,18 +190,8 @@ export class SessionManager {
 
     this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
 
-    if (tmuxExists) {
-      const scrollback = capturePaneFullScrollback(tmuxName);
-      if (scrollback) {
-        this.window?.webContents.send('pty:data', id, scrollback);
-      }
-      this.window?.webContents.send(
-        'pty:data', id,
-        '\r\n\x1b[32m[Agent Smith] Reattached to running session\x1b[0m\r\n'
-      );
-    }
-
-    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists);
+    const size = cols && rows ? { cols, rows } : undefined;
+    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists, size);
   }
 
   ptyWrite(id: string, data: string): void {

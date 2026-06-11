@@ -1,0 +1,40 @@
+/* =========================================================
+   WORKSPACE (panel grid container)
+   ========================================================= */
+
+.workspace {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--c-bg);
+  overflow: hidden;
+}
+
+.workspace__all-hidden {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: var(--c-dark);
+  pointer-events: none;
+}
+
+/* Per-session slot inside the terminal/jira panel bodies. All sessions stay
+   mounted; only the active session's slot is displayed. */
+.workspace-fill {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.workspace-slot {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}

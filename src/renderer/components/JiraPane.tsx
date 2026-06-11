@@ -1,27 +1,34 @@
-import React, { useState, useCallback, useEffect, KeyboardEvent } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef, KeyboardEvent } from 'react';
 import { JiraIssue } from '../../main/types';
+import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './JiraPane.css';
+
+export interface JiraPaneHandle {
+  focus: () => void;
+}
 
 interface JiraPaneProps {
   sessionId: string;
   issue: JiraIssue | null;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   onIssueLoaded: (sessionId: string, issue: JiraIssue) => void;
   onPlan: (sessionId: string, key: string) => void;
 }
 
-export const JiraPane: React.FC<JiraPaneProps> = ({
-  sessionId,
-  issue,
-  collapsed,
-  onToggleCollapse,
-  onIssueLoaded,
-  onPlan,
-}) => {
+export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraPane(
+  { sessionId, issue, onIssueLoaded, onPlan },
+  ref
+) {
   const [inputKey, setInputKey] = useState(issue?.key ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const keyInputRef = useRef<HTMLInputElement>(null);
+
+  usePanelFocus(rootRef);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => keyInputRef.current?.focus(),
+  }), []);
 
   // Keep inputKey in sync when issue is loaded/restored from DB
   useEffect(() => {
@@ -60,27 +67,12 @@ export const JiraPane: React.FC<JiraPaneProps> = ({
     if (issue) onPlan(sessionId, issue.key);
   }, [issue, sessionId, onPlan]);
 
-  if (collapsed) {
-    return (
-      <div className="jira-pane jira-pane--collapsed" onClick={onToggleCollapse} title="Expand Jira pane">
-        <button className="jira-pane__toggle" aria-label="Expand Jira pane">◀</button>
-      </div>
-    );
-  }
-
   return (
-    <div className="jira-pane">
-      {/* Header row: collapse toggle + key input + fetch + plan buttons */}
+    <div className="jira-pane" ref={rootRef}>
+      {/* Header row: key input + fetch + plan buttons */}
       <div className="jira-pane__header">
-        <button
-          className="jira-pane__toggle"
-          onClick={onToggleCollapse}
-          title="Collapse Jira pane"
-          aria-label="Collapse Jira pane"
-        >
-          ▶
-        </button>
         <input
+          ref={keyInputRef}
           className="jira-pane__key-input"
           type="text"
           placeholder="PROJ-123"
@@ -160,4 +152,4 @@ export const JiraPane: React.FC<JiraPaneProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -6,9 +6,9 @@ const api: IpcApi = {
   createSession: (opts) => ipcRenderer.invoke('sessions:create', opts),
   destroySession: (id) => ipcRenderer.invoke('sessions:destroy', id),
   archiveSession: (id) => ipcRenderer.invoke('sessions:archive', id),
-  unarchiveSession: (id) => ipcRenderer.invoke('sessions:unarchive', id),
+  unarchiveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:unarchive', id, cols, rows),
   renameSession: (id, name) => ipcRenderer.invoke('sessions:rename', id, name),
-  reviveSession: (id) => ipcRenderer.invoke('sessions:revive', id),
+  reviveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:revive', id, cols, rows),
 
   ptyWrite: (sessionId, data) => ipcRenderer.send('pty:write', sessionId, data),
   ptyResize: (sessionId, cols, rows) => ipcRenderer.invoke('pty:resize', sessionId, cols, rows),

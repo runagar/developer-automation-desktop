@@ -1,0 +1,70 @@
+/* =========================================================
+   WORKSPACE PANEL
+   ========================================================= */
+
+.workspace-panel {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+  border: 1px solid var(--c-dark);
+  overflow: hidden;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.workspace-panel--focused {
+  border-color: var(--c-bright);
+  box-shadow: var(--glow-sm);
+}
+
+.workspace-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-dark);
+  cursor: move;
+  user-select: none;
+}
+
+.workspace-panel__title {
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--c-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-panel__close {
+  flex-shrink: 0;
+}
+
+.workspace-panel__body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Resize handles — invisible hotspots along edges and corners */
+.workspace-panel__resize {
+  position: absolute;
+  z-index: 2;
+}
+.workspace-panel__resize--n  { top: -3px; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+.workspace-panel__resize--s  { bottom: -3px; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+.workspace-panel__resize--e  { top: 8px; bottom: 8px; right: -3px; width: 6px; cursor: ew-resize; }
+.workspace-panel__resize--w  { top: 8px; bottom: 8px; left: -3px; width: 6px; cursor: ew-resize; }
+.workspace-panel__resize--ne { top: -3px; right: -3px; width: 12px; height: 12px; cursor: nesw-resize; }
+.workspace-panel__resize--nw { top: -3px; left: -3px; width: 12px; height: 12px; cursor: nwse-resize; }
+.workspace-panel__resize--se { bottom: -3px; right: -3px; width: 12px; height: 12px; cursor: nwse-resize; }
+.workspace-panel__resize--sw { bottom: -3px; left: -3px; width: 12px; height: 12px; cursor: nesw-resize; }

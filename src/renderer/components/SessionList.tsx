@@ -1,9 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Session, ProjectGroup } from '../../main/types';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import ManageWorkspacesDialog from './ManageWorkspacesDialog';
+import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './SessionList.css';
+
+export interface SessionListHandle {
+  focus: () => void;
+}
 
 interface Props {
   sessions: Session[];
@@ -11,6 +16,7 @@ interface Props {
   projectGroups: ProjectGroup[];
   onSelect: (id: string) => void;
   onCreate: (workingDir: string, project?: string) => void;
+  onActivateTerminal: () => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
   onDestroy: (id: string) => void;
@@ -26,11 +32,11 @@ interface Props {
 
 const DEFAULT_WORK_DIR = '/home/rulu/projects';
 
-export default function SessionList({
-  sessions, activeSessionId, projectGroups, onSelect, onCreate, onArchive, onUnarchive, onDestroy, onRevive,
+export default forwardRef<SessionListHandle, Props>(function SessionList({
+  sessions, activeSessionId, projectGroups, onSelect, onCreate, onActivateTerminal, onArchive, onUnarchive, onDestroy, onRevive,
   onAddProject, onRemoveProject, onAddGroup, onRemoveGroup, onMoveWorkspace, onReorderGroup,
   openDropdownWithKeyboardRef,
-}: Props): React.ReactElement {
+}: Props, ref): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   // null  = nothing highlighted (click-open default)
@@ -39,8 +45,19 @@ export default function SessionList({
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const highlightedIndexRef = useRef<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const activeItemRef = useRef<HTMLLIElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
   const [destroyAllPending, setDestroyAllPending] = useState(false);
+
+  usePanelFocus(rootRef);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      if (activeItemRef.current) activeItemRef.current.focus();
+      else rootRef.current?.focus();
+    },
+  }), []);
   const [archivedExpanded, setArchivedExpanded] = useState(() => {
     try { return localStorage.getItem('smith-archived-expanded') === 'true'; } catch { return false; }
   });
@@ -134,9 +151,7 @@ export default function SessionList({
   let flatIndex = 0;
 
   return (
-    <aside className="session-list">
-      <div className="session-list__header">SESSIONS</div>
-
+    <aside className="session-list" ref={rootRef} tabIndex={-1}>
       <div className="session-list__new" ref={dropdownRef}>
         <button
           className={[
@@ -151,7 +166,6 @@ export default function SessionList({
         <button
           className="btn btn--icon session-list__arrow"
           onClick={() => setDropdownOpen((v) => !v)}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
           title="Open in project…"
         >
           ▾
@@ -196,12 +210,16 @@ export default function SessionList({
         {activeSessions.map((session) => (
           <li
             key={session.id}
+            ref={session.id === activeSessionId ? activeItemRef : undefined}
+            tabIndex={0}
             className={[
               'session-item',
               session.id === activeSessionId ? 'session-item--active' : '',
               session.dead ? 'session-item--dead' : '',
             ].join(' ')}
             onClick={() => onSelect(session.id)}
+            onFocus={() => onSelect(session.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onActivateTerminal(); } }}
           >
             <div className="session-item__top">
               <StateIndicator state={session.dead ? 'dead' : session.state} />
@@ -210,12 +228,14 @@ export default function SessionList({
                 {session.dead && (
                   <button
                     className="btn btn--micro"
+                    tabIndex={-1}
                     title="Revive session"
                     onClick={(e) => { e.stopPropagation(); onRevive(session.id); }}
                   >↺</button>
                 )}
                 <button
                   className="btn btn--micro btn--danger"
+                  tabIndex={-1}
                   title="Archive session"
                   onClick={(e) => { e.stopPropagation(); onArchive(session.id); }}
                 >✕</button>
@@ -263,11 +283,13 @@ export default function SessionList({
                     <div className="session-item__actions session-item__actions--archived">
                       <button
                         className="btn btn--micro"
+                        tabIndex={-1}
                         title="Restore session"
                         onClick={(e) => { e.stopPropagation(); onUnarchive(session.id); }}
                       >↺</button>
                       <button
                         className="btn btn--micro btn--danger"
+                        tabIndex={-1}
                         title="Destroy session"
                         onClick={(e) => { e.stopPropagation(); setPendingDestroyId(session.id); }}
                       >✕</button>
@@ -346,4 +368,4 @@ export default function SessionList({
       )}
     </aside>
   );
-}
+});

@@ -56,23 +56,6 @@
   min-height: 0;
 }
 
-/* Main content area */
-.app-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--c-bg);
-}
-
-/* Session area: terminal + jira pane side by side */
-.session-area {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
 /* Empty state */
 .app-empty {
   display: flex;
@@ -80,6 +63,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
+  width: 100%;
   gap: 8px;
   color: var(--c-dark);
 }
@@ -91,4 +75,7 @@
 .app-empty__sub {
   font-size: 0.7rem;
   letter-spacing: 0.15em;
+}
+.app-empty--small .app-empty__sub {
+  font-size: 0.6rem;
 }

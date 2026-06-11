@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Session, ProjectEntry, ProjectGroup, JiraIssue } from '../main/types';
-import SessionList from './components/SessionList';
-import TerminalPane from './components/TerminalPane';
+import SessionList, { SessionListHandle } from './components/SessionList';
+import TerminalPane, { TerminalPaneHandle } from './components/TerminalPane';
+import { JiraPane, JiraPaneHandle } from './components/JiraPane';
+import Workspace from './components/Workspace';
+import PanelMenu from './components/PanelMenu';
 import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
 import ZoomControl from './components/ZoomControl';
-import { JiraPane } from './components/JiraPane';
+import { useDashboardLayout } from './dashboard/useDashboardLayout';
+import { PanelId } from './dashboard/layout';
 import './styles/app.css';
 
 declare global {
@@ -19,39 +23,57 @@ export default function App(): React.ReactElement {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
   const [jiraIssues, setJiraIssues] = useState<Map<string, JiraIssue>>(new Map());
-  const [jiraCollapsed, setJiraCollapsed] = useState(false);
 
-  // Always-current ref so the Tab cycling handler doesn't need to re-register
-  // every time the sessions list changes.
+  // Dashboard panel layout controller (grid placement, visibility, presets, persistence)
+  const dashboard = useDashboardLayout();
+
+  // Always-current ref so handlers don't need to re-register on every change.
   const sessionsRef = useRef<Session[]>([]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  const activeSessionIdRef = useRef<string | null>(null);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
 
   // Ref populated by SessionList; called by the Ctrl+N handler below.
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
 
-  // Tab / Shift+Tab — cycle forward / backward through sessions.
-  // Registered once; reads fresh sessions from sessionsRef.
-  // SessionList's dropdown handler uses capture phase + stopImmediatePropagation
-  // to suppress this when the dropdown is open.
-  // Archived sessions are excluded from cycling.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const activeSessions = sessionsRef.current.filter((s) => !s.archived);
-      if (activeSessions.length < 2) return;
-      e.preventDefault();
-      setActiveSessionId((current) => {
-        const idx = activeSessions.findIndex((sess) => sess.id === current);
-        if (idx === -1) return current;
-        const next = e.shiftKey
-          ? (idx - 1 + activeSessions.length) % activeSessions.length
-          : (idx + 1) % activeSessions.length;
-        return activeSessions[next].id;
-      });
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+  // Panel focus refs — used by the Workspace's Ctrl+Tab entry points.
+  const sessionListRef = useRef<SessionListHandle>(null);
+  const terminalRefs = useRef<Map<string, TerminalPaneHandle>>(new Map());
+  const jiraRefs = useRef<Map<string, JiraPaneHandle>>(new Map());
+
+  // Mirror the dashboard controller in a ref so stable callbacks can read the
+  // current layout/visibility without taking it as a dependency.
+  const dashboardRef = useRef(dashboard);
+  dashboardRef.current = dashboard;
+
+  // Focus the terminal panel for a given session, if the panel is visible.
+  const focusTerminal = useCallback((id: string) => {
+    const d = dashboardRef.current;
+    if (!d.layout.terminal.visible) return;
+    d.bringToFront('terminal');
+    terminalRefs.current.get(id)?.focus();
   }, []);
+
+  // Per-session "attach generation". Bumping it changes a TerminalPane's React
+  // key, forcing a fresh xterm to mount. This is used on reattach (unarchive /
+  // revive) so tmux's repaint lands on a clean terminal instead of colliding
+  // with the preserved buffer (which caused duplicated/garbled output).
+  const [attachGen, setAttachGen] = useState<Map<string, number>>(new Map());
+  const bumpAttachGen = useCallback((id: string) => {
+    setAttachGen((prev) => {
+      const next = new Map(prev);
+      next.set(id, (prev.get(id) ?? 0) + 1);
+      return next;
+    });
+  }, []);
+  // Give a freshly-mounted TerminalPane time to subscribe to pty:data before
+  // the main process reattaches and streams tmux's repaint.
+  const waitForRemount = () => new Promise<void>((res) => setTimeout(res, 60));
+
+  // Note: plain Tab session-cycling is removed. Session switching is now the
+  // Sessions panel's intra-panel focus cycle (focus-gated). Cross-panel movement
+  // is Ctrl+Tab, handled inside Workspace.
 
   // Ctrl+N — open the New Session dropdown with keyboard navigation
   useEffect(() => {
@@ -115,8 +137,11 @@ export default function App(): React.ReactElement {
       const session = await window.agentSmith.createSession({ workingDir, project });
       setSessions((prev) => [...prev, session]);
       setActiveSessionId(session.id);
+      // Move focus into the new session's terminal (if the panel is visible).
+      // Wait for the TerminalPane to mount and open before focusing.
+      setTimeout(() => focusTerminal(session.id), 80);
     },
-    []
+    [focusTerminal]
   );
 
   const handleDestroySession = useCallback(
@@ -142,21 +167,31 @@ export default function App(): React.ReactElement {
 
   const handleUnarchiveSession = useCallback(
     async (id: string) => {
-      await window.agentSmith.unarchiveSession(id);
+      // Mount a fresh xterm and make the session active/visible. Once it has
+      // fit to the panel, reattach at exactly that size so tmux paints correctly
+      // with no post-attach resize (which would corrupt the display).
+      bumpAttachGen(id);
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? { ...s, archived: false, dead: false } : s))
       );
       setActiveSessionId(id);
+      await waitForRemount();
+      const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
+      await window.agentSmith.unarchiveSession(id, size?.cols, size?.rows);
     },
-    []
+    [bumpAttachGen]
   );
 
   const handleReviveSession = useCallback(async (id: string) => {
-    await window.agentSmith.reviveSession(id);
+    bumpAttachGen(id);
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, dead: false, state: 'idle' } : s))
     );
-  }, []);
+    setActiveSessionId(id);
+    await waitForRemount();
+    const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
+    await window.agentSmith.reviveSession(id, size?.cols, size?.rows);
+  }, [bumpAttachGen]);
 
   const handleRenameSession = useCallback(async (id: string, name: string) => {
     await window.agentSmith.renameSession(id, name);
@@ -233,11 +268,100 @@ export default function App(): React.ReactElement {
     typeNext();
   }, []);
 
-  const handleToggleJiraCollapse = useCallback(() => {
-    setJiraCollapsed((v) => !v);
-  }, []);
+  // Panel entry-point focus actions for Ctrl+Tab navigation.
+  const focusEntry: Record<PanelId, () => void> = {
+    sessions: () => sessionListRef.current?.focus(),
+    terminal: () => {
+      const id = activeSessionIdRef.current;
+      if (id) terminalRefs.current.get(id)?.focus();
+    },
+    jira: () => {
+      const id = activeSessionIdRef.current;
+      if (id) jiraRefs.current.get(id)?.focus();
+    },
+  };
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+  // Move focus to the terminal panel for the active session (if the panel is
+  // visible). Invoked when the user presses Enter on a focused session item.
+  const handleActivateTerminal = useCallback(() => {
+    const id = activeSessionIdRef.current;
+    if (id) focusTerminal(id);
+  }, [focusTerminal]);
+
+  const bodies: Record<PanelId, React.ReactNode> = {
+    sessions: (
+      <SessionList
+        ref={sessionListRef}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        projectGroups={projectGroups}
+        onSelect={setActiveSessionId}
+        onCreate={handleCreateSession}
+        onActivateTerminal={handleActivateTerminal}
+        onArchive={handleArchiveSession}
+        onUnarchive={handleUnarchiveSession}
+        onDestroy={handleDestroySession}
+        onRevive={handleReviveSession}
+        onAddProject={handleAddProject}
+        onRemoveProject={handleRemoveProject}
+        onAddGroup={handleAddGroup}
+        onRemoveGroup={handleRemoveGroup}
+        onMoveWorkspace={handleMoveWorkspace}
+        onReorderGroup={handleReorderGroup}
+        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+      />
+    ),
+    terminal: (
+      <div className="workspace-fill">
+        {sessions.length === 0 && (
+          <div className="app-empty">
+            <div className="app-empty__text">NO ACTIVE SESSION</div>
+            <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
+          </div>
+        )}
+        {sessions.map((s) => (
+          <div
+            key={s.id}
+            className="workspace-slot"
+            style={s.id === activeSessionId ? undefined : { display: 'none' }}
+          >
+            <TerminalPane
+              key={`${s.id}:${attachGen.get(s.id) ?? 0}`}
+              ref={(h) => { if (h) terminalRefs.current.set(s.id, h); else terminalRefs.current.delete(s.id); }}
+              session={s}
+              isActive={s.id === activeSessionId}
+              onRename={handleRenameSession}
+              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+            />
+          </div>
+        ))}
+      </div>
+    ),
+    jira: (
+      <div className="workspace-fill">
+        {sessions.length === 0 && (
+          <div className="app-empty app-empty--small">
+            <div className="app-empty__sub">NO ACTIVE SESSION</div>
+          </div>
+        )}
+        {sessions.map((s) => (
+          <div
+            key={s.id}
+            className="workspace-slot"
+            style={s.id === activeSessionId ? undefined : { display: 'none' }}
+          >
+            <JiraPane
+              ref={(h) => { if (h) jiraRefs.current.set(s.id, h); else jiraRefs.current.delete(s.id); }}
+              sessionId={s.id}
+              issue={jiraIssues.get(s.id) ?? null}
+              onIssueLoaded={handleJiraIssueLoaded}
+              onPlan={handleJiraPlan}
+            />
+          </div>
+        ))}
+      </div>
+    ),
+  };
 
   return (
     <div className="app-shell">
@@ -250,59 +374,13 @@ export default function App(): React.ReactElement {
           <span className="app-header__bracket">]</span>
         </div>
         <div className="app-header__right">
+          <PanelMenu controller={dashboard} />
           <ZoomControl />
           <ThemeSelector />
         </div>
       </header>
       <div className="app-body">
-        <SessionList
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          projectGroups={projectGroups}
-          onSelect={setActiveSessionId}
-          onCreate={handleCreateSession}
-          onArchive={handleArchiveSession}
-          onUnarchive={handleUnarchiveSession}
-          onDestroy={handleDestroySession}
-          onRevive={handleReviveSession}
-          onAddProject={handleAddProject}
-          onRemoveProject={handleRemoveProject}
-          onAddGroup={handleAddGroup}
-          onRemoveGroup={handleRemoveGroup}
-          onMoveWorkspace={handleMoveWorkspace}
-          onReorderGroup={handleReorderGroup}
-          openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-        />
-        <main className="app-main">
-          {sessions.length === 0 && (
-            <div className="app-empty">
-              <div className="app-empty__text">NO ACTIVE SESSION</div>
-              <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
-            </div>
-          )}
-          {sessions.map((s) => (
-            <div
-              key={s.id}
-              className="session-area"
-              style={s.id === activeSessionId ? undefined : { display: 'none' }}
-            >
-              <TerminalPane
-                session={s}
-                isActive={s.id === activeSessionId}
-                onRename={handleRenameSession}
-                openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-              />
-              <JiraPane
-                sessionId={s.id}
-                issue={jiraIssues.get(s.id) ?? null}
-                collapsed={jiraCollapsed}
-                onToggleCollapse={handleToggleJiraCollapse}
-                onIssueLoaded={handleJiraIssueLoaded}
-                onPlan={handleJiraPlan}
-              />
-            </div>
-          ))}
-        </main>
+        <Workspace controller={dashboard} bodies={bodies} focusEntry={focusEntry} />
       </div>
     </div>
   );

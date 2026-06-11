@@ -22,16 +22,16 @@ export function registerIpcHandlers(
     sessionManager.archiveSession(id);
   });
 
-  ipcMain.handle('sessions:unarchive', (_event, id: string) =>
-    sessionManager.unarchiveSession(id)
+  ipcMain.handle('sessions:unarchive', (_event, id: string, cols?: number, rows?: number) =>
+    sessionManager.unarchiveSession(id, cols, rows)
   );
 
   ipcMain.handle('sessions:rename', (_event, id: string, name: string) => {
     sessionManager.renameSession(id, name);
   });
 
-  ipcMain.handle('sessions:revive', (_event, id: string) =>
-    sessionManager.reviveSession(id)
+  ipcMain.handle('sessions:revive', (_event, id: string, cols?: number, rows?: number) =>
+    sessionManager.reviveSession(id, cols, rows)
   );
 
   ipcMain.on('pty:write', (_event, id: string, data: string) => {

@@ -93,3 +93,10 @@ html[data-theme="pipboy-3000a"] .terminal-pane__terminal .xterm-selection div {
 .terminal-pane__terminal .xterm-viewport {
   background: var(--c-bg) !important;
 }
+/* Hide the custom scrollbar on the terminal — scrollback is handled by
+   xterm/tmux directly, so the panel scrollbar is redundant. */
+.terminal-pane__terminal .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
