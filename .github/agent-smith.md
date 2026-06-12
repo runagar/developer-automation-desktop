@@ -106,25 +106,35 @@ States are shown as coloured indicator pills in the session sidebar.
 - The polling loop is managed by `SessionManager`, not `PtySession`.
 
 ### Jira issue overview
-A collapsible Jira pane is displayed to the right of the terminal area for each session. The layout is a `flex` row inside `.session-area` with the terminal taking `flex: 2` and the Jira pane taking `flex: 1`.
+The Jira pane is a dashboard panel (`jira`) that displays issue details for the active session. It shows one Jira pane per session (all mounted, only the active session's shown).
 
 **Fetching issues:**
 - Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
-- The pane calls `GET {ATLASSIAN_BASE_URL}/rest/api/latest/issue/{key}?fields=summary,description` using a Bearer token.
+- FETCH triggers a **recursive fetch** via `jira:fetchAndPopulateVault`:
+  1. Fetches the primary issue with 12 fields (summary, description, status, priority, issuetype, assignee, reporter, labels, fixVersions, components, issuelinks, parent + discovered custom epic-link field).
+  2. Follows linked issues (BFS, depth 1, max 8 links per issue, max 30 total).
+  3. Fetches the primary's parent epic (if not the maintenance epic `NRPPRO-326`).
+  4. Fetches the epic's children belonging to the same project as the primary.
+  5. Filters by project-key whitelist (configurable via `<dataDir>/jira-whitelist.json`).
+  6. Writes all fetched issues to the **Jira vault** as Markdown notes with YAML frontmatter and `[[wikilinks]]`.
 - Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/jira.ts` in order:
   1. Environment variables (highest priority)
   2. `~/.config/agent-smith/agent-smith/credentials.env`
   3. Error with actionable message if neither source provides both values
 
-**Display order:** SUMMARY → ACCEPTANCE CRITERIA → DESCRIPTION. Acceptance Criteria are extracted from the description by splitting on the first line matching `/acceptance criteri/i`, reading until the next capitalised section header.
+**Display:** SUMMARY → STATUS · PRIORITY · TYPE (metadata row) → LABELS → FIX VERSIONS → ACCEPTANCE CRITERIA → DESCRIPTION → DEVELOPER TASKS → RELEASE NOTES → LINKED ISSUES. All text is plain (no coloured pills). Linked issues display as `{relation} KEY`.
 
-**PLAN button:** Sends `"Fetch {key} and implement it\n"` to the active session's PTY.
+**PLAN button:** Sends `Plan <KEY>\r` to the active session's PTY as a single-shot write. The user's Copilot skills (`plan-jira-issue`, `implement-jira-issue`) are responsible for making the agent read the vault notes.
 
-**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Issues are restored on startup and pre-populated into the `jiraIssues` Map in `App.tsx`.
+**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body with `[[wikilinks]]` between linked issues and parent epic. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup.
 
-**Collapse/expand:** A ◀ / ▶ toggle button in the top-left of the pane collapses it to a 28 px-wide strip. Collapse state is global (not per-session) and not persisted. The terminal's `ResizeObserver` automatically calls `fitAddon.fit()` when the pane width changes.
+**Project-key whitelist:** `<dataDir>/jira-whitelist.json` with named profiles. Default profile created on first run with the team's 9 project prefixes. Active profile is global (per-workspace profiles deferred).
 
-**IPC channels:** `jira:fetchIssue`, `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal input is scanned for Jira key patterns. Detected keys are fetched (single issue, non-recursive) and written to the vault silently — the Jira pane is NOT updated. Per-session dedup prevents re-fetching. Toggle persisted to `localStorage`.
+
+**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Issues are restored on startup and pre-populated into the `jiraIssues` Map in `App.tsx`. The type includes `__schemaVersion: 2` for forward compatibility; legacy cached data (missing new fields) degrades gracefully.
+
+**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Workspace management
 A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:

@@ -18,6 +18,7 @@ interface Props {
   session: Session;
   isActive: boolean;
   onRename: (id: string, name: string) => void;
+  onTerminalInput?: (sessionId: string, data: string) => void;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
@@ -80,7 +81,7 @@ function getXtermTheme(): ITheme {
 }
 
 const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
-  { session, isActive, onRename, openDropdownWithKeyboardRef },
+  { session, isActive, onRename, onTerminalInput, openDropdownWithKeyboardRef },
   ref
 ): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +92,8 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
   const [editingName, setEditingName] = React.useState(false);
   const [nameValue, setNameValue] = React.useState(session.name);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const onTerminalInputRef = useRef(onTerminalInput);
+  onTerminalInputRef.current = onTerminalInput;
 
   useImperativeHandle(ref, () => ({
     focus: () => termRef.current?.focus(),
@@ -123,6 +126,7 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
 
     term.onData((data) => {
       window.agentSmith.ptyWrite(session.id, data);
+      onTerminalInputRef.current?.(session.id, data);
     });
 
     // Intercept Ctrl+N before xterm consumes it so the New Session dropdown

@@ -255,17 +255,51 @@ export default function App(): React.ReactElement {
   }, []);
 
   const handleJiraPlan = useCallback((sessionId: string, key: string) => {
-    const text = `Fetch ${key} and implement it`;
-    let i = 0;
-    const typeNext = () => {
-      if (i < text.length) {
-        window.agentSmith.ptyWrite(sessionId, text[i++]);
-        setTimeout(typeNext, 8);
-      } else {
-        setTimeout(() => window.agentSmith.ptyWrite(sessionId, '\r'), 50);
-      }
-    };
-    typeNext();
+    window.agentSmith.ptyWrite(sessionId, `Plan ${key}\r`);
+  }, []);
+
+  // --- Jira auto-detect ---
+  const jiraKeyBuffer = useRef<Map<string, string>>(new Map());
+  const jiraKeyCache = useRef<Map<string, Set<string>>>(new Map());
+  const [autoFetchEnabled, setAutoFetchEnabled] = useState(() => {
+    try { return localStorage.getItem('agent-smith-jira-autodetect') !== 'false'; } catch { return true; }
+  });
+  const autoFetchRef = useRef(autoFetchEnabled);
+  autoFetchRef.current = autoFetchEnabled;
+
+  const handleAutoFetchToggle = useCallback(() => {
+    setAutoFetchEnabled((v) => {
+      const next = !v;
+      try { localStorage.setItem('agent-smith-jira-autodetect', String(next)); } catch { /* ok */ }
+      return next;
+    });
+  }, []);
+
+  const handleTerminalInput = useCallback((sessionId: string, data: string) => {
+    if (!autoFetchRef.current) return;
+
+    const buf = (jiraKeyBuffer.current.get(sessionId) ?? '') + data;
+    jiraKeyBuffer.current.set(sessionId, buf);
+
+    const re = /\b([A-Z][A-Z0-9]+-\d+)\b(?=[\s\r,;:.!?]|$)/g;
+    let match;
+    while ((match = re.exec(buf)) !== null) {
+      const key = match[1];
+      const cache = jiraKeyCache.current.get(sessionId) ?? new Set();
+      if (cache.has(key)) continue;
+      cache.add(key);
+      jiraKeyCache.current.set(sessionId, cache);
+
+      window.agentSmith.fetchJiraIssue(key)
+        .then((issue) => {
+          window.agentSmith.writeToVault(issue);
+        })
+        .catch(() => {});
+    }
+
+    // Keep only trailing partial-key fragment
+    const lastBoundary = buf.search(/[A-Z][A-Z0-9]*-?\d*$/);
+    jiraKeyBuffer.current.set(sessionId, lastBoundary >= 0 ? buf.slice(lastBoundary) : '');
   }, []);
 
   // Panel entry-point focus actions for Ctrl+Tab navigation.
@@ -331,6 +365,7 @@ export default function App(): React.ReactElement {
               session={s}
               isActive={s.id === activeSessionId}
               onRename={handleRenameSession}
+              onTerminalInput={handleTerminalInput}
               openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
             />
           </div>
@@ -354,6 +389,8 @@ export default function App(): React.ReactElement {
               ref={(h) => { if (h) jiraRefs.current.set(s.id, h); else jiraRefs.current.delete(s.id); }}
               sessionId={s.id}
               issue={jiraIssues.get(s.id) ?? null}
+              autoFetchEnabled={autoFetchEnabled}
+              onAutoFetchToggle={handleAutoFetchToggle}
               onIssueLoaded={handleJiraIssueLoaded}
               onPlan={handleJiraPlan}
             />

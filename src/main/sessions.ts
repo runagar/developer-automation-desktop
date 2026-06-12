@@ -9,6 +9,7 @@ import {
   tmuxSessionName, hasTmuxSession, capturePane,
   getSessionInfo, listSmithSessions, killTmuxSession,
 } from './tmux';
+import { ensureWhitelistConfig } from './whitelist';
 
 // Strip ANSI escape sequences for state detection
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
@@ -53,6 +54,9 @@ export class SessionManager {
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_key TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_data TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
+
+    // Ensure Jira whitelist config exists (creates default on first run)
+    ensureWhitelistConfig(this.dataDir);
   }
 
   // Called from the renderer:ready IPC event, after the window is set,

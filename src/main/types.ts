@@ -1,12 +1,29 @@
 export type SessionState = 'idle' | 'running' | 'awaiting';
 
+export interface JiraLinkedIssue {
+  key: string;
+  summary: string;
+  relation: string;             // e.g. "is blocked by", "relates to"
+}
+
 export interface JiraIssue {
+  __schemaVersion?: number;     // 2 for the expanded format; absent in legacy cached data
   key: string;
   summary: string;
   description: string;
   acceptanceCriteria: string;
   releaseNotes: string;
   developerTasks: string;
+  status: string;
+  priority: string;
+  issueType: string;
+  assignee: string | null;
+  reporter: string | null;
+  labels: string[];
+  fixVersions: string[];
+  components: string[];
+  parentKey: string | null;
+  linkedIssues: JiraLinkedIssue[];
 }
 
 export interface Session {
@@ -50,6 +67,8 @@ export interface IpcApi {
 
   // Jira
   fetchJiraIssue: (key: string) => Promise<JiraIssue>;
+  fetchAndPopulateVault: (key: string) => Promise<JiraIssue>;
+  writeToVault: (issue: JiraIssue) => Promise<void>;
   saveJiraIssue: (sessionId: string, issue: JiraIssue) => Promise<void>;
   clearJiraIssue: (sessionId: string) => Promise<void>;
 

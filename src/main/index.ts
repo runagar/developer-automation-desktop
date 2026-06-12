@@ -68,7 +68,7 @@ async function initialize(): Promise<void> {
   sessionManager = new SessionManager(dataDir);
   await sessionManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, () => mainWindow);
+  registerIpcHandlers(ipcMain, sessionManager, () => mainWindow, dataDir);
 }
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash,

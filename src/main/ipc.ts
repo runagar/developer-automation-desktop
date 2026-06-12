@@ -1,12 +1,15 @@
 import { IpcMain, BrowserWindow, clipboard } from 'electron';
 import { SessionManager } from './sessions';
-import { fetchJiraIssue } from './jira';
+import { fetchJiraIssue, fetchIssueGraph } from './jira';
 import { JiraIssue } from './types';
+import { writeIssueNote, getVaultRoot } from './vault';
+import { loadWhitelist } from './whitelist';
 
 export function registerIpcHandlers(
   ipcMain: IpcMain,
   sessionManager: SessionManager,
-  getWindow: () => BrowserWindow | null
+  getWindow: () => BrowserWindow | null,
+  dataDir: string
 ): void {
   ipcMain.handle('sessions:get', () => sessionManager.getSessions());
 
@@ -71,6 +74,22 @@ export function registerIpcHandlers(
 
   // Jira
   ipcMain.handle('jira:fetchIssue', (_event, key: string) => fetchJiraIssue(key));
+
+  ipcMain.handle('jira:fetchAndPopulateVault', async (_event, key: string) => {
+    const whitelist = loadWhitelist(dataDir);
+    const { primary, related, filtered } = await fetchIssueGraph(key, {
+      linkedDepth: 1, linkLimit: 8, maxIssues: 30,
+      whitelist, maintenanceEpic: 'NRPPRO-326',
+    });
+    const vaultRoot = getVaultRoot(dataDir);
+    writeIssueNote(vaultRoot, primary, filtered);
+    for (const issue of related) writeIssueNote(vaultRoot, issue);
+    return primary;
+  });
+
+  ipcMain.handle('jira:writeToVault', (_event, issue: JiraIssue) => {
+    writeIssueNote(getVaultRoot(dataDir), issue);
+  });
 
   ipcMain.handle('jira:saveIssue', (_event, sessionId: string, issue: JiraIssue) => {
     sessionManager.saveJiraIssue(sessionId, issue);

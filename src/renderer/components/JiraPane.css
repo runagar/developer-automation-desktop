@@ -106,3 +106,50 @@
   color: var(--c-text);
   line-height: 1.4;
 }
+
+/* Metadata row: status · priority · type */
+.jira-pane__meta-row {
+  font-size: 0.68rem;
+  color: var(--c-dim);
+  letter-spacing: 0.08em;
+}
+
+/* Label / fixVersion chips */
+.jira-pane__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.jira-pane__chip {
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border: 1px solid var(--c-dark);
+  color: var(--c-bright);
+  letter-spacing: 0.05em;
+}
+
+/* Linked issues */
+.jira-pane__links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.jira-pane__link {
+  font-size: 0.68rem;
+  color: var(--c-dim);
+}
+.jira-pane__link-key {
+  color: var(--c-bright);
+  font-weight: 600;
+}
+
+/* Auto-detect toggle */
+.jira-pane__auto-toggle {
+  opacity: 0.4;
+  font-size: 0.8rem;
+  padding: 2px 4px;
+}
+.jira-pane__auto-toggle--on {
+  opacity: 1;
+  color: var(--c-bright);
+}

@@ -10,12 +10,14 @@ export interface JiraPaneHandle {
 interface JiraPaneProps {
   sessionId: string;
   issue: JiraIssue | null;
+  autoFetchEnabled: boolean;
+  onAutoFetchToggle: () => void;
   onIssueLoaded: (sessionId: string, issue: JiraIssue) => void;
   onPlan: (sessionId: string, key: string) => void;
 }
 
 export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraPane(
-  { sessionId, issue, onIssueLoaded, onPlan },
+  { sessionId, issue, autoFetchEnabled, onAutoFetchToggle, onIssueLoaded, onPlan },
   ref
 ) {
   const [inputKey, setInputKey] = useState(issue?.key ?? '');
@@ -43,7 +45,7 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
     setError(null);
 
     try {
-      const fetched = await window.agentSmith.fetchJiraIssue(key);
+      const fetched = await window.agentSmith.fetchAndPopulateVault(key);
       await window.agentSmith.saveJiraIssue(sessionId, fetched);
       onIssueLoaded(sessionId, fetched);
     } catch (err: any) {
@@ -69,7 +71,7 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
 
   return (
     <div className="jira-pane" ref={rootRef}>
-      {/* Header row: key input + fetch + plan buttons */}
+      {/* Header row: key input + fetch + plan + auto-detect toggle */}
       <div className="jira-pane__header">
         <input
           ref={keyInputRef}
@@ -92,9 +94,16 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
           className="btn btn--primary btn--micro jira-pane__action-btn"
           onClick={handlePlan}
           disabled={!issue}
-          title={issue ? `Send 'Fetch ${issue.key} and implement it' to the terminal` : 'Fetch an issue first'}
+          title={issue ? `Send 'Plan ${issue.key}' to the terminal` : 'Fetch an issue first'}
         >
           PLAN
+        </button>
+        <button
+          className={`btn btn--micro jira-pane__auto-toggle${autoFetchEnabled ? ' jira-pane__auto-toggle--on' : ''}`}
+          onClick={onAutoFetchToggle}
+          title={autoFetchEnabled ? 'Auto-detect Jira keys: ON' : 'Auto-detect Jira keys: OFF'}
+        >
+          {autoFetchEnabled ? '⚡' : '⚡̸'}
         </button>
       </div>
 
@@ -116,7 +125,36 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
               <div className="jira-pane__summary">{issue.key} — {issue.summary}</div>
             </div>
 
-            {/* Acceptance Criteria (before description) */}
+            {/* Metadata row */}
+            {(issue.status || issue.priority || issue.issueType) && (
+              <div className="jira-pane__section">
+                <div className="jira-pane__meta-row">
+                  {[issue.status, issue.priority, issue.issueType].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            )}
+
+            {/* Labels */}
+            {issue.labels && issue.labels.length > 0 && (
+              <div className="jira-pane__section">
+                <div className="jira-pane__section-label">Labels</div>
+                <div className="jira-pane__chips">
+                  {issue.labels.map((l) => <span key={l} className="jira-pane__chip">{l}</span>)}
+                </div>
+              </div>
+            )}
+
+            {/* Fix Versions */}
+            {issue.fixVersions && issue.fixVersions.length > 0 && (
+              <div className="jira-pane__section">
+                <div className="jira-pane__section-label">Fix Versions</div>
+                <div className="jira-pane__chips">
+                  {issue.fixVersions.map((v) => <span key={v} className="jira-pane__chip">{v}</span>)}
+                </div>
+              </div>
+            )}
+
+            {/* Acceptance Criteria */}
             {issue.acceptanceCriteria && (
               <div className="jira-pane__section">
                 <div className="jira-pane__section-label">Acceptance Criteria</div>
@@ -132,7 +170,15 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
               </div>
             )}
 
-            {/* Release Notes — always shown; "N/A" if absent */}
+            {/* Developer Tasks */}
+            {issue.developerTasks && (
+              <div className="jira-pane__section">
+                <div className="jira-pane__section-label">Developer Tasks</div>
+                <div className="jira-pane__section-text">{issue.developerTasks}</div>
+              </div>
+            )}
+
+            {/* Release Notes */}
             <div className="jira-pane__section">
               <div className="jira-pane__section-label">Release Notes</div>
               <div className="jira-pane__section-text">
@@ -140,11 +186,17 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
               </div>
             </div>
 
-            {/* Developer Tasks — only shown when present */}
-            {issue.developerTasks && (
+            {/* Linked Issues */}
+            {issue.linkedIssues && issue.linkedIssues.length > 0 && (
               <div className="jira-pane__section">
-                <div className="jira-pane__section-label">Developer Tasks</div>
-                <div className="jira-pane__section-text">{issue.developerTasks}</div>
+                <div className="jira-pane__section-label">Linked Issues</div>
+                <div className="jira-pane__links">
+                  {issue.linkedIssues.map((li) => (
+                    <div key={li.key} className="jira-pane__link">
+                      {li.relation} <span className="jira-pane__link-key">{li.key}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </>
