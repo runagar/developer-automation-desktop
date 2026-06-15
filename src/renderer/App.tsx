@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Session, ProjectEntry, ProjectGroup, JiraIssue } from '../main/types';
 import SessionList, { SessionListHandle } from './components/SessionList';
 import TerminalPane, { TerminalPaneHandle } from './components/TerminalPane';
+import ShellPane, { ShellPaneHandle } from './components/ShellPane';
 import { JiraPane, JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
@@ -40,6 +41,7 @@ export default function App(): React.ReactElement {
   // Panel focus refs — used by the Workspace's Ctrl+Tab entry points.
   const sessionListRef = useRef<SessionListHandle>(null);
   const terminalRefs = useRef<Map<string, TerminalPaneHandle>>(new Map());
+  const shellRefs = useRef<Map<string, ShellPaneHandle>>(new Map());
   const jiraRefs = useRef<Map<string, JiraPaneHandle>>(new Map());
 
   // Mirror the dashboard controller in a ref so stable callbacks can read the
@@ -313,6 +315,10 @@ export default function App(): React.ReactElement {
       const id = activeSessionIdRef.current;
       if (id) jiraRefs.current.get(id)?.focus();
     },
+    shell: () => {
+      const id = activeSessionIdRef.current;
+      if (id) shellRefs.current.get(id)?.focus();
+    },
   };
 
   // Move focus to the terminal panel for the active session (if the panel is
@@ -398,6 +404,47 @@ export default function App(): React.ReactElement {
         ))}
       </div>
     ),
+    shell: (
+      <div className="workspace-fill">
+        {sessions.length === 0 && (
+          <div className="app-empty">
+            <div className="app-empty__text">NO ACTIVE SESSION</div>
+            <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
+          </div>
+        )}
+        {sessions.map((s) => (
+          <div
+            key={s.id}
+            className="workspace-slot"
+            style={s.id === activeSessionId ? undefined : { display: 'none' }}
+          >
+            <ShellPane
+              ref={(h) => { if (h) shellRefs.current.set(s.id, h); else shellRefs.current.delete(s.id); }}
+              session={s}
+              isActive={s.id === activeSessionId}
+              panelVisible={dashboard.layout.shell.visible}
+              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+            />
+          </div>
+        ))}
+      </div>
+    ),
+  };
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+
+  const titles: Partial<Record<PanelId, React.ReactNode>> = {
+    shell: (
+      <>
+        Shell
+        {activeSession?.project && (
+          <span className="terminal-pane__project">[ {activeSession.project} ]</span>
+        )}
+        {activeSession && (
+          <span className="terminal-pane__dir">{activeSession.workingDir}</span>
+        )}
+      </>
+    ),
   };
 
   return (
@@ -417,7 +464,7 @@ export default function App(): React.ReactElement {
         </div>
       </header>
       <div className="app-body">
-        <Workspace controller={dashboard} bodies={bodies} focusEntry={focusEntry} />
+        <Workspace controller={dashboard} bodies={bodies} titles={titles} focusEntry={focusEntry} />
       </div>
     </div>
   );

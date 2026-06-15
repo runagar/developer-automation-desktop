@@ -9,6 +9,7 @@ import './Workspace.css';
 interface Props {
   controller: DashboardController;
   bodies: Record<PanelId, React.ReactNode>;
+  titles?: Partial<Record<PanelId, React.ReactNode>>;
   focusEntry: Record<PanelId, () => void>;
 }
 
@@ -16,14 +17,14 @@ type Interaction =
   | { kind: 'move'; id: PanelId; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement }
   | { kind: 'resize'; id: PanelId; handle: ResizeHandle; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement };
 
-export default function Workspace({ controller, bodies, focusEntry }: Props): React.ReactElement {
+export default function Workspace({ controller, bodies, titles, focusEntry }: Props): React.ReactElement {
   const { layout, locked, setPlacement, bringToFront } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<Interaction | null>(null);
   const [focusedPanel, setFocusedPanel] = useState<PanelId | null>(null);
 
   const panelRefs = useRef<Record<PanelId, PanelHandle | null>>({
-    sessions: null, terminal: null, jira: null,
+    sessions: null, terminal: null, jira: null, shell: null,
   });
 
   // --- Pointer drag / resize ---
@@ -160,7 +161,7 @@ export default function Workspace({ controller, bodies, focusEntry }: Props): Re
         <WorkspacePanel
           key={id}
           id={id}
-          title={PANEL_LABELS[id]}
+          title={titles?.[id] ?? PANEL_LABELS[id]}
           placement={layout[id]}
           locked={locked}
           isFocused={focusedPanel === id}

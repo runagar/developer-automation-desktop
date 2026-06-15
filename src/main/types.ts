@@ -86,8 +86,16 @@ export interface IpcApi {
   setZoom: (factor: number) => void;
   getZoom: () => number;
 
+  // Shell (standalone shell PTY, not tied to copilot/tmux)
+  shellSpawn: (sessionId: string, workingDir: string) => Promise<void>;
+  shellWrite: (sessionId: string, data: string) => void;
+  shellResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
+  shellKill: (sessionId: string) => Promise<void>;
+
   // Events (renderer listens)
   onPtyData: (callback: (sessionId: string, data: string) => void) => () => void;
+  onShellData: (callback: (sessionId: string, data: string) => void) => () => void;
+  onShellExit: (callback: (sessionId: string) => void) => () => void;
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;

@@ -2,14 +2,15 @@
 // The workspace is a 12x12 virtual grid; placements are expressed in grid cells
 // and converted to percentages so the layout scales with window size.
 
-export type PanelId = 'sessions' | 'terminal' | 'jira';
+export type PanelId = 'sessions' | 'terminal' | 'jira' | 'shell';
 
-export const PANEL_IDS: PanelId[] = ['sessions', 'terminal', 'jira'];
+export const PANEL_IDS: PanelId[] = ['sessions', 'terminal', 'jira', 'shell'];
 
 export const PANEL_LABELS: Record<PanelId, string> = {
   sessions: 'Sessions',
   terminal: 'Terminal',
   jira: 'Jira',
+  shell: 'Shell',
 };
 
 export interface DashboardPanelPlacement {
@@ -76,6 +77,7 @@ export const DEFAULT_LAYOUT: DashboardLayout = {
   sessions: { x: 0, y: 0, w: 2, h: 12, visible: true, z: 1 },
   terminal: { x: 2, y: 0, w: 7, h: 12, visible: true, z: 2 },
   jira: { x: 9, y: 0, w: 3, h: 12, visible: true, z: 1 },
+  shell: { x: 2, y: 0, w: 7, h: 12, visible: false, z: 0 },
 };
 
 export interface LayoutPreset {
@@ -94,6 +96,7 @@ export const PRESETS: LayoutPreset[] = [
       terminal: { x: 0, y: 0, w: 7, h: 12, visible: true, z: 2 },
       sessions: { x: 7, y: 0, w: 2, h: 12, visible: true, z: 1 },
       jira: { x: 9, y: 0, w: 3, h: 12, visible: true, z: 1 },
+      shell: { x: 0, y: 0, w: 7, h: 12, visible: false, z: 0 },
     },
   },
   {
@@ -102,6 +105,7 @@ export const PRESETS: LayoutPreset[] = [
       sessions: { x: 0, y: 0, w: 6, h: 5, visible: true, z: 1 },
       jira: { x: 6, y: 0, w: 6, h: 5, visible: true, z: 1 },
       terminal: { x: 0, y: 5, w: 12, h: 7, visible: true, z: 2 },
+      shell: { x: 0, y: 5, w: 12, h: 7, visible: false, z: 0 },
     },
   },
   {
@@ -110,6 +114,16 @@ export const PRESETS: LayoutPreset[] = [
       sessions: { x: 0, y: 0, w: 2, h: 12, visible: true, z: 1 },
       terminal: { x: 2, y: 0, w: 10, h: 12, visible: true, z: 2 },
       jira: { x: 9, y: 0, w: 3, h: 12, visible: false, z: 1 },
+      shell: { x: 2, y: 0, w: 10, h: 12, visible: false, z: 0 },
+    },
+  },
+  {
+    name: 'Dev',
+    layout: {
+      sessions: { x: 0, y: 0, w: 2, h: 12, visible: true, z: 1 },
+      terminal: { x: 2, y: 0, w: 7, h: 6, visible: true, z: 2 },
+      shell: { x: 2, y: 6, w: 7, h: 6, visible: true, z: 2 },
+      jira: { x: 9, y: 0, w: 3, h: 12, visible: true, z: 1 },
     },
   },
 ];
@@ -118,11 +132,11 @@ export const DEFAULT_PRESET = PRESETS[0].name;
 
 // Deep clone a layout so presets/defaults are never mutated by reference.
 export function cloneLayout(layout: DashboardLayout): DashboardLayout {
-  return {
-    sessions: { ...layout.sessions },
-    terminal: { ...layout.terminal },
-    jira: { ...layout.jira },
-  };
+  const out = {} as DashboardLayout;
+  for (const id of PANEL_IDS) {
+    out[id] = { ...layout[id] };
+  }
+  return out;
 }
 
 export function defaultState(): DashboardState {
@@ -139,7 +153,12 @@ export function validateState(value: unknown): DashboardState | null {
   const out = {} as DashboardLayout;
   for (const id of PANEL_IDS) {
     const p = layout[id] as Record<string, unknown> | undefined;
-    if (!p) return null;
+    if (!p) {
+      // Missing panel (e.g. saved layout from before shell was added) —
+      // inject default placement instead of rejecting the whole state.
+      out[id] = { ...DEFAULT_LAYOUT[id] };
+      continue;
+    }
     if (
       typeof p.x !== 'number' || typeof p.y !== 'number' ||
       typeof p.w !== 'number' || typeof p.h !== 'number' ||

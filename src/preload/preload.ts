@@ -29,6 +29,12 @@ const api: IpcApi = {
   saveJiraIssue: (sessionId, issue) => ipcRenderer.invoke('jira:saveIssue', sessionId, issue),
   clearJiraIssue: (sessionId) => ipcRenderer.invoke('jira:clearIssue', sessionId),
 
+  // Shell (standalone shell PTY)
+  shellSpawn: (sessionId, workingDir) => ipcRenderer.invoke('shell:spawn', sessionId, workingDir),
+  shellWrite: (sessionId, data) => ipcRenderer.send('shell:write', sessionId, data),
+  shellResize: (sessionId, cols, rows) => ipcRenderer.invoke('shell:resize', sessionId, cols, rows),
+  shellKill: (sessionId) => ipcRenderer.invoke('shell:kill', sessionId),
+
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
@@ -53,6 +59,20 @@ const api: IpcApi = {
       callback(sessionId, data);
     ipcRenderer.on('pty:data', listener);
     return () => ipcRenderer.removeListener('pty:data', listener);
+  },
+
+  onShellData: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string, data: string) =>
+      callback(sessionId, data);
+    ipcRenderer.on('shell:data', listener);
+    return () => ipcRenderer.removeListener('shell:data', listener);
+  },
+
+  onShellExit: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+      callback(sessionId);
+    ipcRenderer.on('shell:exit', listener);
+    return () => ipcRenderer.removeListener('shell:exit', listener);
   },
 
   onSessionStateChange: (callback) => {

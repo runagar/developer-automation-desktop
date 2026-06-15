@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, screen } from 'electron';
 import * as path from 'path';
 import { SessionManager } from './sessions';
+import { ShellManager } from './shell';
 import { registerIpcHandlers } from './ipc';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -8,6 +9,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
+let shellManager: ShellManager;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -29,6 +31,7 @@ function createWindow(): void {
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   mainWindow.setMenuBarVisibility(false);
   sessionManager.setWindow(mainWindow);
+  shellManager.setWindow(mainWindow);
 
   // Fix invisible OS resize-shadow border offset when maximized (WSLg / Windows).
   // Without this, the window content is pushed ~7px right and down on maximize.
@@ -60,15 +63,17 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
     sessionManager.setWindow(null);
+    shellManager.setWindow(null);
   });
 }
 
 async function initialize(): Promise<void> {
   const dataDir = path.join(app.getPath('userData'), 'agent-smith');
   sessionManager = new SessionManager(dataDir);
+  shellManager = new ShellManager();
   await sessionManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, () => mainWindow, dataDir);
+  registerIpcHandlers(ipcMain, sessionManager, shellManager, () => mainWindow, dataDir);
 }
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash,
@@ -85,6 +90,7 @@ app.on('ready', async () => {
 });
 
 app.on('window-all-closed', async () => {
+  shellManager.killAll();
   await sessionManager.persistAll();
   if (process.platform !== 'darwin') {
     app.quit();

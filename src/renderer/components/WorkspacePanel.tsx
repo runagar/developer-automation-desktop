@@ -12,7 +12,7 @@ export interface PanelHandle {
 
 interface Props {
   id: PanelId;
-  title: string;
+  title: React.ReactNode;
   placement: DashboardPanelPlacement;
   locked: boolean;
   isFocused: boolean;

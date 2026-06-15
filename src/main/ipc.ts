@@ -1,5 +1,6 @@
 import { IpcMain, BrowserWindow, clipboard } from 'electron';
 import { SessionManager } from './sessions';
+import { ShellManager } from './shell';
 import { fetchJiraIssue, fetchIssueGraph } from './jira';
 import { JiraIssue } from './types';
 import { writeIssueNote, getVaultRoot } from './vault';
@@ -8,6 +9,7 @@ import { loadWhitelist } from './whitelist';
 export function registerIpcHandlers(
   ipcMain: IpcMain,
   sessionManager: SessionManager,
+  shellManager: ShellManager,
   getWindow: () => BrowserWindow | null,
   dataDir: string
 ): void {
@@ -18,10 +20,12 @@ export function registerIpcHandlers(
   );
 
   ipcMain.handle('sessions:destroy', (_event, id: string) => {
+    shellManager.kill(id);
     sessionManager.destroySession(id);
   });
 
   ipcMain.handle('sessions:archive', (_event, id: string) => {
+    shellManager.kill(id);
     sessionManager.archiveSession(id);
   });
 
@@ -128,5 +132,22 @@ export function registerIpcHandlers(
 
   ipcMain.on('clipboard:read', (event) => {
     event.returnValue = clipboard.readText();
+  });
+
+  // Shell (standalone shell PTY, not tied to copilot/tmux)
+  ipcMain.handle('shell:spawn', (_event, sessionId: string, workingDir: string) => {
+    shellManager.spawn(sessionId, workingDir);
+  });
+
+  ipcMain.on('shell:write', (_event, sessionId: string, data: string) => {
+    shellManager.write(sessionId, data);
+  });
+
+  ipcMain.handle('shell:resize', (_event, sessionId: string, cols: number, rows: number) => {
+    shellManager.resize(sessionId, cols, rows);
+  });
+
+  ipcMain.handle('shell:kill', (_event, sessionId: string) => {
+    shellManager.kill(sessionId);
   });
 }
