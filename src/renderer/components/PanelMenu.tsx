@@ -1,13 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { DashboardController } from '../dashboard/useDashboardLayout';
+import { useLayoutStore } from '../stores/layoutStore';
 import { PANEL_IDS, PANEL_LABELS, PRESETS } from '../dashboard/layout';
 import './PanelMenu.css';
 
-interface Props {
-  controller: DashboardController;
-}
+export default function PanelMenu(): React.ReactElement {
+  const layout = useLayoutStore((s) => s.layout);
+  const locked = useLayoutStore((s) => s.locked);
+  const preset = useLayoutStore((s) => s.preset);
+  const toggleVisible = useLayoutStore((s) => s.toggleVisible);
+  const applyPreset = useLayoutStore((s) => s.applyPreset);
+  const setLocked = useLayoutStore((s) => s.setLocked);
 
-export default function PanelMenu({ controller }: Props): React.ReactElement {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -41,10 +44,10 @@ export default function PanelMenu({ controller }: Props): React.ReactElement {
             <button
               key={id}
               className="panel-menu__item"
-              onClick={() => controller.toggleVisible(id)}
+              onClick={() => toggleVisible(id)}
             >
               <span className="panel-menu__check">
-                {controller.layout[id].visible ? '✔' : ''}
+                {layout[id].visible ? '✔' : ''}
               </span>
               {PANEL_LABELS[id]}
             </button>
@@ -56,11 +59,11 @@ export default function PanelMenu({ controller }: Props): React.ReactElement {
           {PRESETS.map((p) => (
             <button
               key={p.name}
-              className={`panel-menu__item${controller.preset === p.name ? ' panel-menu__item--active' : ''}`}
-              onClick={() => controller.applyPreset(p.name)}
+              className={`panel-menu__item${preset === p.name ? ' panel-menu__item--active' : ''}`}
+              onClick={() => applyPreset(p.name)}
             >
               <span className="panel-menu__check">
-                {controller.preset === p.name ? '✔' : ''}
+                {preset === p.name ? '✔' : ''}
               </span>
               {p.name}
             </button>
@@ -70,9 +73,9 @@ export default function PanelMenu({ controller }: Props): React.ReactElement {
 
           <button
             className="panel-menu__item"
-            onClick={() => controller.setLocked(!controller.locked)}
+            onClick={() => setLocked(!locked)}
           >
-            <span className="panel-menu__check">{controller.locked ? '✔' : ''}</span>
+            <span className="panel-menu__check">{locked ? '✔' : ''}</span>
             Lock layout
           </button>
         </div>

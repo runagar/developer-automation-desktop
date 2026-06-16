@@ -1,80 +1,121 @@
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
+
+function execTmux(args: string[], options?: { maxBuffer?: number }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'tmux',
+      args,
+      {
+        encoding: 'utf-8' as BufferEncoding,
+        ...options,
+      },
+      (err, stdout) => {
+        if (err) reject(err);
+        else resolve((stdout as string) ?? '');
+      }
+    );
+  });
+}
+
+function execTmuxQuiet(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile('tmux', args, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
 
 export function tmuxSessionName(sessionId: string): string {
   return `smith-${sessionId.slice(0, 12)}`;
 }
 
-export function hasTmuxSession(name: string): boolean {
+export async function hasTmuxSession(name: string): Promise<boolean> {
   try {
-    execFileSync('tmux', ['has-session', '-t', name], { stdio: 'ignore' });
+    await execTmuxQuiet(['has-session', '-t', name]);
     return true;
   } catch {
     return false;
   }
 }
 
-export function createTmuxSession(sessionId: string, workingDir: string): string {
+export async function createTmuxSession(sessionId: string, workingDir: string): Promise<string> {
   const name = tmuxSessionName(sessionId);
 
-  if (hasTmuxSession(name)) {
+  if (await hasTmuxSession(name)) {
     console.log(`[tmux] Session ${name} already exists, reusing`);
-    configureTmuxSession(name);
+    await configureTmuxSession(name);
     return name;
   }
 
   console.log(`[tmux] Creating session ${name} for copilot --session-id ${sessionId}`);
 
-  execFileSync('tmux', [
-    'new-session', '-d',
-    '-s', name,
-    '-x', '120',
-    '-y', '40',
-    '-c', workingDir,
-    '--',
-    'copilot', '--session-id', sessionId, '--banner',
-  ], {
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
-    stdio: 'ignore',
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      'tmux',
+      [
+        'new-session', '-d',
+        '-s', name,
+        '-x', '120',
+        '-y', '40',
+        '-c', workingDir,
+        '--',
+        'copilot', '--session-id', sessionId, '--banner',
+      ],
+      {
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+      },
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
   });
 
-  configureTmuxSession(name);
+  await configureTmuxSession(name);
   console.log(`[tmux] Session ${name} created`);
   return name;
 }
 
-export function killTmuxSession(name: string): void {
-  if (!hasTmuxSession(name)) return;
+export async function killTmuxSession(name: string): Promise<void> {
+  if (!await hasTmuxSession(name)) return;
   console.log(`[tmux] Killing session ${name}`);
   try {
-    execFileSync('tmux', ['kill-session', '-t', name], { stdio: 'ignore' });
-  } catch { /* already dead */ }
+    await execTmuxQuiet(['kill-session', '-t', name]);
+  } catch {
+    // already dead
+  }
 }
 
-function configureTmuxSession(name: string): void {
-  const setOption = (key: string, value: string) => {
-    try {
-      execFileSync('tmux', ['set-option', '-t', name, key, value], { stdio: 'ignore' });
-    } catch { /* non-fatal */ }
-  };
-  setOption('mouse', 'on');
-  setOption('status', 'off');
-  setOption('history-limit', '50000');
-  setOption('allow-passthrough', 'on');
-  setOption('set-clipboard', 'on');
+async function configureTmuxSession(name: string): Promise<void> {
+  const options: Array<[string, string]> = [
+    ['mouse', 'on'],
+    ['status', 'off'],
+    ['history-limit', '50000'],
+    ['allow-passthrough', 'on'],
+    ['set-clipboard', 'on'],
+  ];
+
+  await Promise.all(
+    options.map(async ([key, value]) => {
+      try {
+        await execTmuxQuiet(['set-option', '-t', name, key, value]);
+      } catch {
+        // non-fatal
+      }
+    })
+  );
 }
 
 /**
  * Capture the current visible pane content (stripped of ANSI escapes).
  * Used for state detection polling.
  */
-export function capturePane(name: string): string {
+export async function capturePane(name: string): Promise<string> {
   try {
-    const raw = execFileSync('tmux', ['capture-pane', '-t', name, '-p'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const raw = await execTmux(['capture-pane', '-t', name, '-p']);
     return raw.replace(ANSI_RE, '');
   } catch {
     return '';
@@ -85,11 +126,9 @@ export function capturePane(name: string): string {
  * Capture the entire scrollback buffer (with ANSI escapes preserved).
  * Used on reattach to replay history into xterm.
  */
-export function capturePaneFullScrollback(name: string): string {
+export async function capturePaneFullScrollback(name: string): Promise<string> {
   try {
-    return execFileSync('tmux', ['capture-pane', '-t', name, '-p', '-S', '-'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+    return await execTmux(['capture-pane', '-t', name, '-p', '-S', '-'], {
       maxBuffer: 50 * 1024 * 1024,
     });
   } catch {
@@ -101,13 +140,14 @@ export function capturePaneFullScrollback(name: string): string {
  * Query tmux session metadata.
  * Returns last activity epoch (seconds) and number of attached clients.
  */
-export function getSessionInfo(name: string): { activity: number; attached: number } | null {
+export async function getSessionInfo(name: string): Promise<{ activity: number; attached: number } | null> {
   try {
-    const output = execFileSync(
-      'tmux',
-      ['display-message', '-t', name, '-p', '#{session_activity} #{session_attached}'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
-    ).trim();
+    const output = (await execTmux([
+      'display-message',
+      '-t', name,
+      '-p',
+      '#{session_activity} #{session_attached}',
+    ])).trim();
     const [actStr, attStr] = output.split(' ');
     return { activity: parseInt(actStr, 10) || 0, attached: parseInt(attStr, 10) || 0 };
   } catch {
@@ -118,13 +158,13 @@ export function getSessionInfo(name: string): { activity: number; attached: numb
 /**
  * List all smith-* tmux sessions with metadata.
  */
-export function listSmithSessions(): Array<{ name: string; activity: number; attached: number }> {
+export async function listSmithSessions(): Promise<Array<{ name: string; activity: number; attached: number }>> {
   try {
-    const output = execFileSync(
-      'tmux',
-      ['list-sessions', '-F', '#{session_name} #{session_activity} #{session_attached}'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
-    ).trim();
+    const output = (await execTmux([
+      'list-sessions',
+      '-F',
+      '#{session_name} #{session_activity} #{session_attached}',
+    ])).trim();
     if (!output) return [];
     return output
       .split('\n')
@@ -141,9 +181,9 @@ export function listSmithSessions(): Array<{ name: string; activity: number; att
 /**
  * Check if tmux is installed. Throws a descriptive error if not.
  */
-export function requireTmux(): void {
+export async function requireTmux(): Promise<void> {
   try {
-    execFileSync('tmux', ['-V'], { stdio: 'ignore' });
+    await execTmuxQuiet(['-V']);
   } catch {
     throw new Error(
       'tmux is not installed. Agent Smith requires tmux for session persistence. ' +

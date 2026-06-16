@@ -1,15 +1,31 @@
 import { IpcMain, BrowserWindow, clipboard } from 'electron';
 import { SessionManager } from './sessions';
 import { ShellManager } from './shell';
+import { ProjectManager } from './projects';
+import { StatePoller } from './statePoller';
 import { fetchJiraIssue, fetchIssueGraph } from './jira';
 import { JiraIssue } from './types';
 import { writeIssueNote, getVaultRoot } from './vault';
 import { loadWhitelist } from './whitelist';
 
+let statePoller: StatePoller | null = null;
+
+export function getRegisteredStatePoller(): StatePoller | null {
+  return statePoller;
+}
+
+export function stopRegisteredStatePoller(): void {
+  if (statePoller) {
+    statePoller.stop();
+    statePoller = null;
+  }
+}
+
 export function registerIpcHandlers(
   ipcMain: IpcMain,
   sessionManager: SessionManager,
   shellManager: ShellManager,
+  projectManager: ProjectManager,
   getWindow: () => BrowserWindow | null,
   dataDir: string
 ): void {
@@ -19,9 +35,9 @@ export function registerIpcHandlers(
     sessionManager.createSession(opts)
   );
 
-  ipcMain.handle('sessions:destroy', (_event, id: string) => {
+  ipcMain.handle('sessions:destroy', async (_event, id: string) => {
     shellManager.kill(id);
-    sessionManager.destroySession(id);
+    await sessionManager.destroySession(id);
   });
 
   ipcMain.handle('sessions:archive', (_event, id: string) => {
@@ -49,31 +65,31 @@ export function registerIpcHandlers(
     sessionManager.ptyResize(id, cols, rows);
   });
 
-  ipcMain.handle('projects:get', () => sessionManager.getProjectEntries());
-  ipcMain.handle('projects:getGroups', () => sessionManager.getProjectGroups());
+  ipcMain.handle('projects:get', () => projectManager.getEntries());
+  ipcMain.handle('projects:getGroups', () => projectManager.getGroups());
 
   ipcMain.handle('projects:add', (_event, entry: { key: string; repo: string; group: string }) =>
-    sessionManager.addProject(entry.key, entry.repo, entry.group)
+    projectManager.addProject(entry.key, entry.repo, entry.group)
   );
 
   ipcMain.handle('projects:remove', (_event, key: string) =>
-    sessionManager.removeProject(key)
+    projectManager.removeProject(key)
   );
 
   ipcMain.handle('projects:addGroup', (_event, name: string) =>
-    sessionManager.addGroup(name)
+    projectManager.addGroup(name)
   );
 
   ipcMain.handle('projects:removeGroup', (_event, name: string) =>
-    sessionManager.removeGroup(name)
+    projectManager.removeGroup(name)
   );
 
   ipcMain.handle('projects:move', (_event, key: string, toGroup: string, toIndex: number) =>
-    sessionManager.moveWorkspace(key, toGroup, toIndex)
+    projectManager.moveWorkspace(key, toGroup, toIndex)
   );
 
   ipcMain.handle('projects:reorderGroup', (_event, name: string, toIndex: number) =>
-    sessionManager.reorderGroup(name, toIndex)
+    projectManager.reorderGroup(name, toIndex)
   );
 
   // Jira
@@ -117,10 +133,23 @@ export function registerIpcHandlers(
   // then restore sessions so PTY events are never fired while window is null.
   ipcMain.on('renderer:ready', () => {
     const win = getWindow();
-    if (win) {
-      sessionManager.setWindow(win);
-      sessionManager.restoreSessions();
-    }
+    if (!win) return;
+
+    sessionManager.setWindow(win);
+    void (async () => {
+      await sessionManager.restoreSessions();
+      if (!statePoller) {
+        statePoller = new StatePoller({
+          pollMs: 3000,
+          getSessionIds: () => sessionManager.getNonDeadSessions(),
+          onStateChange: (id, state) => sessionManager.handleStateChange(id, state),
+          onDied: (id) => sessionManager.handleDied(id),
+        });
+        statePoller.start();
+      }
+    })().catch((error) => {
+      console.error('[renderer:ready] Failed to restore sessions', error);
+    });
   });
 
   // Clipboard — synchronous IPC so the key event handler can read/write

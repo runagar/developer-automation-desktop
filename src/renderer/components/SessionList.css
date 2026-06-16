@@ -37,16 +37,15 @@
   padding: 4px 10px;
 }
 
-/* Dropdown */
+/* Dropdown — uses fixed positioning to escape panel overflow:hidden */
 .dropdown {
-  position: absolute;
-  top: 100%;
-  left: 8px;
-  right: 8px;
-  z-index: 100;
+  position: fixed;
+  z-index: 600;
   background: var(--c-panel);
   border: 1px solid var(--c-bright);
   box-shadow: var(--glow);
+  max-height: 60vh;
+  overflow-y: auto;
 }
 .dropdown__header {
   padding: 6px 10px;

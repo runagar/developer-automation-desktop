@@ -34,11 +34,11 @@ export class PtySession extends EventEmitter {
    * @param sessionId   the UUID for copilot --session-id
    * @param tmuxExists  if true, skip tmux creation (session already running)
    */
-  spawn(workingDir: string, sessionId: string, tmuxExists = false, cols = 120, rows = 36): void {
-    requireTmux();
+  async spawn(workingDir: string, sessionId: string, tmuxExists = false, cols = 120, rows = 36): Promise<void> {
+    await requireTmux();
 
     if (!tmuxExists) {
-      createTmuxSession(sessionId, workingDir);
+      await createTmuxSession(sessionId, workingDir);
     }
 
     this.intentionalDetach = false;
@@ -58,9 +58,15 @@ export class PtySession extends EventEmitter {
       this.ptyProcess = null;
       if (this.intentionalDetach) return;
       // Check if the tmux session is still alive — if not, copilot actually exited
-      if (!hasTmuxSession(this.tmuxName)) {
-        this.emit('died');
-      }
+      void hasTmuxSession(this.tmuxName)
+        .then((exists) => {
+          if (!exists) {
+            this.emit('died');
+          }
+        })
+        .catch(() => {
+          this.emit('died');
+        });
     });
   }
 
@@ -88,9 +94,9 @@ export class PtySession extends EventEmitter {
    * Permanently destroy both the attach PTY and the tmux session.
    * Used only when the user explicitly destroys a session from the archived list.
    */
-  destroyTmux(): void {
+  async destroyTmux(): Promise<void> {
     this.kill();
-    killTmuxSession(this.tmuxName);
+    await killTmuxSession(this.tmuxName);
   }
 
   getState(): SessionState {
@@ -108,7 +114,7 @@ export class PtySession extends EventEmitter {
     return this.ptyProcess !== null;
   }
 
-  hasTmux(): boolean {
+  async hasTmux(): Promise<boolean> {
     return hasTmuxSession(this.tmuxName);
   }
 }

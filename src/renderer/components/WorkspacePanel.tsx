@@ -1,5 +1,6 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { DashboardPanelPlacement, PanelId, toPct } from '../dashboard/layout';
+import PanelErrorBoundary from './PanelErrorBoundary';
 import './WorkspacePanel.css';
 
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -73,7 +74,11 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
         )}
       </header>
 
-      <div className="workspace-panel__body">{children}</div>
+      <div className="workspace-panel__body">
+        <PanelErrorBoundary panelId={id}>
+          {children}
+        </PanelErrorBoundary>
+      </div>
 
       {!locked && HANDLES.map((h) => (
         <div

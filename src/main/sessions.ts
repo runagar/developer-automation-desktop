@@ -3,16 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
-import { Session, SessionState, ProjectEntry, ProjectGroup, JiraIssue } from './types';
-import { BrowserWindow, app } from 'electron';
+import { Session, SessionState, JiraIssue } from './types';
+import { BrowserWindow } from 'electron';
 import {
-  tmuxSessionName, hasTmuxSession, capturePane,
+  tmuxSessionName, hasTmuxSession,
   getSessionInfo, listSmithSessions, killTmuxSession,
 } from './tmux';
 import { ensureWhitelistConfig } from './whitelist';
-
-// Strip ANSI escape sequences for state detection
-const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
 
 export class SessionManager {
   private db!: Database.Database;
@@ -22,8 +19,6 @@ export class SessionManager {
   private sessionsRestored = false;
   // IDs of sessions resumed from the previous run — runtime only, not persisted.
   private restoredIds = new Set<string>();
-  private statePollingInterval: ReturnType<typeof setInterval> | null = null;
-  private readonly STATE_POLL_MS = 3000;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -66,7 +61,7 @@ export class SessionManager {
     this.sessionsRestored = true;
 
     // Clean up orphaned tmux sessions (no matching DB row)
-    this.cleanupOrphanedSessions();
+    await this.cleanupOrphanedSessions();
 
     // Restore non-dead, non-archived sessions
     const rows = this.db.prepare(
@@ -76,11 +71,9 @@ export class SessionManager {
     for (const row of rows) {
       this.restoredIds.add(row.id);
       const tmuxName = tmuxSessionName(row.id);
-      const tmuxExists = hasTmuxSession(tmuxName);
+      const tmuxExists = await hasTmuxSession(tmuxName);
       await this.spawnSession(row.id, row.working_dir, row.name, row.project, tmuxExists);
     }
-
-    this.startStatePolling();
   }
 
   async createSession(opts: { name?: string; workingDir: string; project?: string | null }): Promise<Session> {
@@ -119,13 +112,11 @@ export class SessionManager {
     });
 
     ptySession.on('died', () => {
-      this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
-      this.ptySessions.delete(id);
-      this.window?.webContents.send('session:died', id);
+      this.handleDied(id);
     });
 
     try {
-      ptySession.spawn(workingDir, id, tmuxExists, size?.cols, size?.rows);
+      await ptySession.spawn(workingDir, id, tmuxExists, size?.cols, size?.rows);
       this.ptySessions.set(id, ptySession);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -161,7 +152,7 @@ export class SessionManager {
     this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
 
     const tmuxName = tmuxSessionName(id);
-    const tmuxExists = hasTmuxSession(tmuxName);
+    const tmuxExists = await hasTmuxSession(tmuxName);
     const size = cols && rows ? { cols, rows } : undefined;
     await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists, size);
   }
@@ -169,14 +160,14 @@ export class SessionManager {
   /**
    * Permanently destroy a session: kill tmux session and delete DB row.
    */
-  destroySession(id: string): void {
+  async destroySession(id: string): Promise<void> {
     const pty = this.ptySessions.get(id);
     if (pty) {
-      pty.destroyTmux();
+      await pty.destroyTmux();
       this.ptySessions.delete(id);
     } else {
       // No active PTY (archived) — kill tmux directly
-      killTmuxSession(tmuxSessionName(id));
+      await killTmuxSession(tmuxSessionName(id));
     }
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
@@ -190,7 +181,7 @@ export class SessionManager {
     if (!row) return;
 
     const tmuxName = tmuxSessionName(id);
-    const tmuxExists = hasTmuxSession(tmuxName);
+    const tmuxExists = await hasTmuxSession(tmuxName);
 
     this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
 
@@ -217,9 +208,6 @@ export class SessionManager {
   }
 
   async persistAll(): Promise<void> {
-    // Stop state detection polling
-    this.stopStatePolling();
-
     // Update last_active for all live sessions
     this.db.prepare('UPDATE sessions SET last_active = ? WHERE dead = 0')
       .run(new Date().toISOString());
@@ -231,67 +219,37 @@ export class SessionManager {
     this.ptySessions.clear();
   }
 
-  // --- State detection polling ---
-
-  private startStatePolling(): void {
-    if (this.statePollingInterval) return;
-    this.statePollingInterval = setInterval(() => this.pollAllStates(), this.STATE_POLL_MS);
+  getNonDeadSessions(): { id: string; state: SessionState }[] {
+    const rows = this.db.prepare('SELECT id, state FROM sessions WHERE dead = 0').all() as Array<{ id: string; state: string }>;
+    return rows.map((row) => ({ id: row.id, state: row.state as SessionState }));
   }
 
-  private stopStatePolling(): void {
-    if (this.statePollingInterval) {
-      clearInterval(this.statePollingInterval);
-      this.statePollingInterval = null;
+  handleStateChange(id: string, state: SessionState): void {
+    const pty = this.ptySessions.get(id);
+    if (pty) {
+      pty.setState(state);
+      return;
     }
+
+    this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
+      .run(state, new Date().toISOString(), id);
+    this.window?.webContents.send('session:stateChange', id, state);
   }
 
-  private pollAllStates(): void {
-    // Poll all non-dead sessions (active + archived)
-    const rows = this.db.prepare('SELECT id, state FROM sessions WHERE dead = 0').all() as any[];
-
-    for (const row of rows) {
-      const tmuxName = tmuxSessionName(row.id);
-      if (!hasTmuxSession(tmuxName)) {
-        // tmux session died (maybe copilot exited while archived)
-        if (row.state !== 'idle') {
-          this.db.prepare('UPDATE sessions SET dead = 1, state = ? WHERE id = ?').run('idle', row.id);
-          this.ptySessions.delete(row.id);
-          this.window?.webContents.send('session:died', row.id);
-        }
-        continue;
-      }
-
-      const paneContent = capturePane(tmuxName);
-      if (!paneContent) continue;
-
-      const newState = this.detectStateFromPane(paneContent, row.state as SessionState);
-      if (newState && newState !== row.state) {
-        // Update via PtySession if it exists (keeps internal state in sync)
-        const pty = this.ptySessions.get(row.id);
-        if (pty) {
-          pty.setState(newState); // triggers 'stateChange' event → DB + IPC
-        } else {
-          // Archived session — update directly
-          this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
-            .run(newState, new Date().toISOString(), row.id);
-          this.window?.webContents.send('session:stateChange', row.id, newState);
-        }
-      }
+  handleDied(id: string): void {
+    const pty = this.ptySessions.get(id);
+    if (pty) {
+      pty.kill();
+      this.ptySessions.delete(id);
     }
-  }
-
-  private detectStateFromPane(content: string, currentState: SessionState): SessionState | null {
-    const plain = content.replace(ANSI_RE, '');
-    if (plain.includes('esc cancel')) return 'running';
-    if (plain.includes('enter to select') || plain.includes('enter to confirm') || plain.includes('Asking user')) return 'awaiting';
-    if (plain.includes('❯')) return 'idle';
-    return null;
+    this.db.prepare('UPDATE sessions SET dead = 1, state = ? WHERE id = ?').run('idle', id);
+    this.window?.webContents.send('session:died', id);
   }
 
   // --- Orphan cleanup ---
 
-  private cleanupOrphanedSessions(): void {
-    const tmuxSessions = listSmithSessions();
+  private async cleanupOrphanedSessions(): Promise<void> {
+    const tmuxSessions = await listSmithSessions();
     const dbIds = new Set<string>(
       (this.db.prepare('SELECT id FROM sessions').all() as any[]).map((r) => r.id)
     );
@@ -302,110 +260,15 @@ export class SessionManager {
       const hasDbRow = Array.from(dbIds).some((id) => id.startsWith(prefix));
       if (!hasDbRow) {
         console.log(`[tmux] Cleaning up orphaned tmux session: ${ts.name}`);
-        killTmuxSession(ts.name);
+        await killTmuxSession(ts.name);
       }
     }
   }
 
   // --- tmux metadata for renderer ---
 
-  getSessionTmuxInfo(id: string): { activity: number; attached: number } | null {
+  async getSessionTmuxInfo(id: string): Promise<{ activity: number; attached: number } | null> {
     return getSessionInfo(tmuxSessionName(id));
-  }
-
-  getProjectGroups(): ProjectGroup[] {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    try {
-      const content = fs.readFileSync(configPath, 'utf-8');
-      return JSON.parse(content) as ProjectGroup[];
-    } catch {
-      return [];
-    }
-  }
-
-  getProjectEntries(): ProjectEntry[] {
-    return this.getProjectGroups().flatMap((g) => g.workspaces);
-  }
-
-  addProject(key: string, repo: string, group: string): ProjectEntry {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    if (groups.some((g) => g.workspaces.some((w) => w.key === key))) {
-      throw new Error(`Workspace key "${key}" already exists`);
-    }
-    const targetGroup = groups.find((g) => g.group === group);
-    if (!targetGroup) {
-      throw new Error(`Group "${group}" does not exist`);
-    }
-    const newEntry: ProjectEntry = {
-      key,
-      repo,
-      workingDir: `/home/rulu/projects/${repo}`,
-    };
-    targetGroup.workspaces.push(newEntry);
-    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
-    return newEntry;
-  }
-
-  removeProject(key: string): void {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    for (const g of groups) {
-      g.workspaces = g.workspaces.filter((w) => w.key !== key);
-    }
-    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
-  }
-
-  addGroup(name: string): void {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    if (groups.some((g) => g.group === name)) {
-      throw new Error(`Group "${name}" already exists`);
-    }
-    groups.push({ group: name, workspaces: [] });
-    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
-  }
-
-  removeGroup(name: string): void {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    const target = groups.find((g) => g.group === name);
-    if (!target) return;
-    if (target.workspaces.length > 0) {
-      throw new Error(`Group "${name}" still has workspaces`);
-    }
-    const filtered = groups.filter((g) => g.group !== name);
-    fs.writeFileSync(configPath, JSON.stringify(filtered, null, 2), 'utf-8');
-  }
-
-  reorderGroup(name: string, toIndex: number): void {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    const fromIndex = groups.findIndex((g) => g.group === name);
-    if (fromIndex === -1) return;
-    const [group] = groups.splice(fromIndex, 1);
-    const clampedIndex = Math.min(toIndex, groups.length);
-    groups.splice(clampedIndex, 0, group);
-    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
-  }
-
-  moveWorkspace(key: string, toGroup: string, toIndex: number): void {
-    const configPath = path.join(app.getAppPath(), 'projects.json');
-    const groups = this.getProjectGroups();
-    let workspace: ProjectEntry | undefined;
-    for (const g of groups) {
-      const idx = g.workspaces.findIndex((w) => w.key === key);
-      if (idx !== -1) {
-        [workspace] = g.workspaces.splice(idx, 1);
-        break;
-      }
-    }
-    if (!workspace) return;
-    const target = groups.find((g) => g.group === toGroup);
-    if (!target) return;
-    const clampedIndex = Math.min(toIndex, target.workspaces.length);
-    target.workspaces.splice(clampedIndex, 0, workspace);
-    fs.writeFileSync(configPath, JSON.stringify(groups, null, 2), 'utf-8');
   }
 
   private getSessionCount(): number {

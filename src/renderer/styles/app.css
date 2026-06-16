@@ -20,6 +20,8 @@
   border-bottom: var(--panel-border);
   background: var(--c-panel);
   flex-shrink: 0;
+  position: relative;
+  z-index: 500;
 }
 .app-header__logo {
   display: flex;

@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import WorkspacePanel, { PanelHandle, ResizeHandle } from './WorkspacePanel';
-import { DashboardController } from '../dashboard/useDashboardLayout';
+import { useLayoutStore } from '../stores/layoutStore';
 import {
   PanelId, PANEL_IDS, PANEL_LABELS, panelOrder, DashboardPanelPlacement,
 } from '../dashboard/layout';
 import './Workspace.css';
 
 interface Props {
-  controller: DashboardController;
   bodies: Record<PanelId, React.ReactNode>;
   titles?: Partial<Record<PanelId, React.ReactNode>>;
   focusEntry: Record<PanelId, () => void>;
@@ -17,8 +16,12 @@ type Interaction =
   | { kind: 'move'; id: PanelId; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement }
   | { kind: 'resize'; id: PanelId; handle: ResizeHandle; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement };
 
-export default function Workspace({ controller, bodies, titles, focusEntry }: Props): React.ReactElement {
-  const { layout, locked, setPlacement, bringToFront } = controller;
+export default function Workspace({ bodies, titles, focusEntry }: Props): React.ReactElement {
+  const layout = useLayoutStore((s) => s.layout);
+  const locked = useLayoutStore((s) => s.locked);
+  const setPlacement = useLayoutStore((s) => s.setPlacement);
+  const bringToFront = useLayoutStore((s) => s.bringToFront);
+  const toggleVisible = useLayoutStore((s) => s.toggleVisible);
   const rootRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<Interaction | null>(null);
   const [focusedPanel, setFocusedPanel] = useState<PanelId | null>(null);
@@ -170,7 +173,7 @@ export default function Workspace({ controller, bodies, titles, focusEntry }: Pr
           onDragStart={handleDragStart(id)}
           onResizeStart={handleResizeStart(id)}
           onActivate={() => bringToFront(id)}
-          onClose={() => controller.toggleVisible(id)}
+          onClose={() => toggleVisible(id)}
         >
           {bodies[id]}
         </WorkspacePanel>

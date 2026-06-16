@@ -31,7 +31,7 @@ The main workspace is a **12×12 virtual grid** of draggable, resizable panels (
 - **Panel menu** (header, left of zoom): toggle each panel's visibility and switch between built-in layout presets (`List Left`, `Classic`, `Terminal Bottom`, `Focus Terminal`). The menu also has a **Lock layout** toggle that disables drag/resize/close (presets still work while locked). The menu stays open while clicking options.
 - **Persistence:** the full layout (placements + lock state + active preset) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch.
 - Hidden panels stay **mounted** (not unmounted) so terminal xterm buffers survive being toggled off/on.
-- The terminal and jira panels render one component **per session** internally (all mounted, only the active session shown), preserving every session's xterm buffer.
+- The terminal, jira, and shell panels use an **LRU mounting strategy**: at most 3 sessions are mounted per panel type (the active session + 2 recently-used). Evicted sessions unmount their xterm; on reactivation, a fresh xterm mounts and tmux repaints the screen. This bounds memory usage regardless of total session count.
 
 #### Dashboard keyboard navigation
 Two-layer, **focus-gated** model:
@@ -103,7 +103,7 @@ States are shown as coloured indicator pills in the session sidebar.
 - Polling works for **both active and archived sessions** — no attach PTY needed for state detection.
 - ~3 second latency on state changes (acceptable since indicators are informational).
 - No chunk-tail bridging needed — `capture-pane` returns complete lines.
-- The polling loop is managed by `SessionManager`, not `PtySession`.
+- The polling loop is managed by `StatePoller`, not `PtySession`.
 
 ### Jira issue overview
 The Jira pane is a dashboard panel (`jira`) that displays issue details for the active session. It shows one Jira pane per session (all mounted, only the active session's shown).
@@ -144,7 +144,7 @@ A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a 
 - **Reorder workspaces** within and across groups by drag-and-dropping workspace rows.
 - **Reorder groups** by drag-and-dropping the group name cell (dragging a group never merges it into another group).
 
-Changes are written back to `projects.json` immediately and the in-memory projects list is refreshed so the New Session dropdown reflects the change without restarting. The dropdown renders one header per group with its workspaces listed beneath.
+Changes are written back to `<userData>/agent-smith/projects.json` immediately and the in-memory projects list is refreshed so the New Session dropdown reflects the change without restarting. The dropdown renders one header per group with its workspaces listed beneath.
 
 Tab focus is constrained to the dialog while it is open (session Tab-cycling is suppressed). When the add-workspace form is active the Tab cycle is: KEY → REPO → GROUP → ADD → CANCEL → KEY. When the add-group form is active: GROUP NAME → ADD → CANCEL → GROUP NAME.
 
@@ -168,7 +168,9 @@ Tab focus is constrained to the dialog while it is open (session Tab-cycling is 
 
 ```
 Main process
-├── SessionManager       SQLite session store + lifecycle + capturePane polling
+├── SessionManager       SQLite session store + session lifecycle
+├── ProjectManager       userData-backed workspace config manager
+├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture/query sessions)
 ├── PtySession(s)        node-pty wrapper for tmux attach-session client
 └── IPC handlers         bridges main ↔ renderer via contextBridge
@@ -177,19 +179,30 @@ tmux server (independent process)
 └── smith-* sessions     each runs copilot CLI; survives app close
 
 Renderer process
-├── App.tsx              root state, session/dashboard wiring, panel focus refs
+├── App.tsx              root wiring, PTY/shell data dispatchers, panel focus refs
+├── stores/              Zustand state stores
+│   ├── sessionStore.ts  sessions, activeSessionId, attachGen, lifecycle actions
+│   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
+│   ├── projectStore.ts  projectGroups, CRUD actions
+│   └── layoutStore.ts   dashboard placements, lock, preset (localStorage-persisted)
+├── hooks/
+│   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys
 ├── dashboard/           grid layout system (framework-agnostic)
 │   ├── layout.ts        grid math, panel ordering, presets, default layout
-│   ├── useDashboardLayout.ts  layout state + localStorage persistence + mutators
 │   └── usePanelFocus.ts intra-panel Tab wrapping
 ├── Workspace            12×12 grid container: drag/resize, Ctrl+Tab, focus tracking
-├── WorkspacePanel       panel chrome: drag header, resize handles, close
+├── WorkspacePanel       panel chrome: drag header, resize handles, close, error boundary
 ├── PanelMenu            header dropdown: panel toggles + layout presets + lock
 ├── SessionList          sessions panel body: new/archive/restore/destroy
 │   ├── Active sessions  main list with archive button (✕)
 │   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
-├── TerminalPane         xterm.js instance per session (lazy-opened)
+├── TerminalPanelBody    LRU-mounted terminal panes (max 3), PTY write dispatch
+├── ShellPanelBody       LRU-mounted shell panes (max 3), shell write dispatch
+├── JiraPanelBody        LRU-mounted Jira panes (max 3)
+├── TerminalPane         xterm.js instance (uses useXterm hook), rename UI
+├── ShellPane            xterm.js instance (uses useXterm hook), shell spawn
 ├── JiraPane             Jira issue overview per session
+├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
 ├── TitleBar             frameless window controls
@@ -261,7 +274,7 @@ OSC 52 clipboard-write sequences from CLI applications are intercepted in the PT
 ## Configuration
 
 ### `projects.json`
-Maps project keys to repository names and working directories, organised into named groups. Loaded at runtime via `app.getAppPath()` so it works in both dev and packaged builds.
+Maps project keys to repository names and working directories, organised into named groups. On first launch, Agent Smith copies `assets/default-projects.json` into `<userData>/agent-smith/projects.json`; runtime reads and writes use the userData copy.
 
 ```json
 [
@@ -282,7 +295,7 @@ $XDG_CONFIG_HOME/agent-smith/sessions.db
 On WSLg this resolves to `~/.config/agent-smith/sessions.db`. The directory is created automatically on first launch.
 
 ### State detection patterns
-Defined in `src/main/sessions.ts` (`detectStateFromPane()` method). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed. State is polled from tmux `capture-pane` output every 3 seconds.
+Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed. State is polled from tmux `capture-pane` output every 3 seconds.
 
 ---
 

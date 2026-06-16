@@ -38,6 +38,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   openDropdownWithKeyboardRef,
 }: Props, ref): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const [manageOpen, setManageOpen] = useState(false);
   // null  = nothing highlighted (click-open default)
   // -1    = "New Session" button highlighted
@@ -79,11 +80,23 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
     if (dropdownOpen) return;
     setDropdownOpen(true);
     setHighlightedIndex(-1);
+    // Position will be computed by the useEffect above
   };
 
   // Reset highlight whenever the dropdown closes
   useEffect(() => {
     if (!dropdownOpen) setHighlightedIndex(null);
+  }, [dropdownOpen]);
+
+  // Compute fixed position for the dropdown (escapes panel overflow:hidden)
+  useEffect(() => {
+    if (!dropdownOpen || !dropdownRef.current) return;
+    const rect = dropdownRef.current.getBoundingClientRect();
+    setDropdownStyle({
+      top: rect.bottom,
+      left: rect.left,
+      width: rect.width,
+    });
   }, [dropdownOpen]);
 
   // Close dropdown when clicking outside
@@ -172,7 +185,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         </button>
 
         {dropdownOpen && (
-          <div className="dropdown">
+          <div className="dropdown" style={dropdownStyle}>
             {projectGroups.length === 0 && (
               <div className="dropdown__empty">No projects found</div>
             )}

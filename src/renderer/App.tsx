@@ -1,16 +1,25 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Session, ProjectEntry, ProjectGroup, JiraIssue } from '../main/types';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { PanelId } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
-import TerminalPane, { TerminalPaneHandle } from './components/TerminalPane';
-import ShellPane, { ShellPaneHandle } from './components/ShellPane';
-import { JiraPane, JiraPaneHandle } from './components/JiraPane';
+import ShellPanelBody from './components/ShellPanelBody';
+import TerminalPanelBody from './components/TerminalPanelBody';
+import JiraPanelBody from './components/JiraPanelBody';
+import { JiraPaneHandle } from './components/JiraPane';
+import { ShellPaneHandle } from './components/ShellPane';
+import { TerminalPaneHandle } from './components/TerminalPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
 import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
 import ZoomControl from './components/ZoomControl';
-import { useDashboardLayout } from './dashboard/useDashboardLayout';
-import { PanelId } from './dashboard/layout';
+import { useJiraStore, initJiraStore } from './stores/jiraStore';
+import { useLayoutStore } from './stores/layoutStore';
+import { useProjectStore } from './stores/projectStore';
+import {
+  initSessionStore,
+  registerSessionListeners,
+  useSessionStore,
+} from './stores/sessionStore';
 import './styles/app.css';
 
 declare global {
@@ -20,64 +29,28 @@ declare global {
 }
 
 export default function App(): React.ReactElement {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
-  const [jiraIssues, setJiraIssues] = useState<Map<string, JiraIssue>>(new Map());
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
+  const projectGroups = useProjectStore((s) => s.groups);
 
-  // Dashboard panel layout controller (grid placement, visibility, presets, persistence)
-  const dashboard = useDashboardLayout();
-
-  // Always-current ref so handlers don't need to re-register on every change.
-  const sessionsRef = useRef<Session[]>([]);
-  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
-
-  const activeSessionIdRef = useRef<string | null>(null);
-  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
-
-  // Ref populated by SessionList; called by the Ctrl+N handler below.
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
-
-  // Panel focus refs — used by the Workspace's Ctrl+Tab entry points.
   const sessionListRef = useRef<SessionListHandle>(null);
   const terminalRefs = useRef<Map<string, TerminalPaneHandle>>(new Map());
   const shellRefs = useRef<Map<string, ShellPaneHandle>>(new Map());
   const jiraRefs = useRef<Map<string, JiraPaneHandle>>(new Map());
+  const ptyWriters = useRef<Map<string, (data: string) => void>>(new Map());
+  const shellWriters = useRef<Map<string, (data: string) => void>>(new Map());
 
-  // Mirror the dashboard controller in a ref so stable callbacks can read the
-  // current layout/visibility without taking it as a dependency.
-  const dashboardRef = useRef(dashboard);
-  dashboardRef.current = dashboard;
+  const waitForRemount = () => new Promise<void>((resolve) => setTimeout(resolve, 60));
 
-  // Focus the terminal panel for a given session, if the panel is visible.
   const focusTerminal = useCallback((id: string) => {
-    const d = dashboardRef.current;
-    if (!d.layout.terminal.visible) return;
-    d.bringToFront('terminal');
+    const layoutStore = useLayoutStore.getState();
+    if (!layoutStore.layout.terminal.visible) return;
+    layoutStore.bringToFront('terminal');
     terminalRefs.current.get(id)?.focus();
   }, []);
 
-  // Per-session "attach generation". Bumping it changes a TerminalPane's React
-  // key, forcing a fresh xterm to mount. This is used on reattach (unarchive /
-  // revive) so tmux's repaint lands on a clean terminal instead of colliding
-  // with the preserved buffer (which caused duplicated/garbled output).
-  const [attachGen, setAttachGen] = useState<Map<string, number>>(new Map());
-  const bumpAttachGen = useCallback((id: string) => {
-    setAttachGen((prev) => {
-      const next = new Map(prev);
-      next.set(id, (prev.get(id) ?? 0) + 1);
-      return next;
-    });
-  }, []);
-  // Give a freshly-mounted TerminalPane time to subscribe to pty:data before
-  // the main process reattaches and streams tmux's repaint.
-  const waitForRemount = () => new Promise<void>((res) => setTimeout(res, 60));
-
-  // Note: plain Tab session-cycling is removed. Session switching is now the
-  // Sessions panel's intra-panel focus cycle (focus-gated). Cross-panel movement
-  // is Ctrl+Tab, handled inside Workspace.
-
-  // Ctrl+N — open the New Session dropdown with keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
@@ -90,241 +63,143 @@ export default function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    window.agentSmith.getSessions().then((s) => {
-      setSessions(s);
-      const firstActive = s.find((sess) => !sess.archived);
-      if (firstActive) setActiveSessionId(firstActive.id);
-      const map = new Map<string, JiraIssue>();
-      for (const sess of s) {
-        if (sess.jiraData) map.set(sess.id, sess.jiraData);
-      }
-      setJiraIssues(map);
-    });
-    window.agentSmith.getProjectGroups().then(setProjectGroups);
+    let cancelled = false;
+    let cleanup = () => {};
 
-    const unsubState = window.agentSmith.onSessionStateChange((id, state) => {
-      setSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, state } : s))
-      );
-    });
-
-    const unsubDied = window.agentSmith.onSessionDied((id) => {
-      setSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, dead: true, state: 'idle' } : s))
-      );
-    });
-
-    const unsubArchived = window.agentSmith.onSessionArchived((id) => {
-      setSessions((prev) => {
-        const next = prev.map((s) => (s.id === id ? { ...s, archived: true } : s));
-        // If the archived session was active, switch to first non-archived session
-        setActiveSessionId((current) => {
-          if (current !== id) return current;
-          const firstActive = next.find((s) => !s.archived);
-          return firstActive?.id ?? null;
-        });
-        return next;
-      });
-    });
+    void (async () => {
+      await initSessionStore();
+      if (cancelled) return;
+      initJiraStore(useSessionStore.getState().sessions);
+      cleanup = registerSessionListeners();
+      void useProjectStore.getState().loadGroups();
+    })();
 
     return () => {
-      unsubState();
-      unsubDied();
-      unsubArchived();
+      cancelled = true;
+      cleanup();
     };
+  }, []);
+
+  const handleTerminalInput = useCallback((sessionId: string, data: string) => {
+    useJiraStore.getState().handleTerminalInput(sessionId, data);
+  }, []);
+
+  useEffect(() => {
+    const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
+    const unsub = window.agentSmith.onPtyData((sessionId, data) => {
+      osc52Re.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = osc52Re.exec(data)) !== null) {
+        try {
+          window.agentSmith.clipboardWrite(atob(match[1]));
+        } catch {
+          // Ignore invalid base64 clipboard payloads.
+        }
+      }
+      ptyWriters.current.get(sessionId)?.(data);
+      handleTerminalInput(sessionId, data);
+    });
+    return unsub;
+  }, [handleTerminalInput]);
+
+  useEffect(() => {
+    const unsub = window.agentSmith.onShellData((sessionId, data) => {
+      shellWriters.current.get(sessionId)?.(data);
+    });
+    return unsub;
   }, []);
 
   const handleCreateSession = useCallback(
     async (workingDir: string, project?: string) => {
       const session = await window.agentSmith.createSession({ workingDir, project });
-      setSessions((prev) => [...prev, session]);
-      setActiveSessionId(session.id);
-      // Move focus into the new session's terminal (if the panel is visible).
-      // Wait for the TerminalPane to mount and open before focusing.
+      const store = useSessionStore.getState();
+      store.addSession(session);
+      store.setActiveSessionId(session.id);
       setTimeout(() => focusTerminal(session.id), 80);
     },
     [focusTerminal]
   );
 
-  const handleDestroySession = useCallback(
-    async (id: string) => {
-      await window.agentSmith.destroySession(id);
-      setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        setActiveSessionId((activeId) =>
-          activeId === id ? (next.find((s) => !s.archived)?.id ?? null) : activeId
-        );
-        return next;
-      });
-    },
-    []
-  );
+  const handleDestroySession = useCallback(async (id: string) => {
+    await window.agentSmith.destroySession(id);
+    useSessionStore.getState().removeSession(id);
+  }, []);
 
-  const handleArchiveSession = useCallback(
-    async (id: string) => {
-      await window.agentSmith.archiveSession(id);
-    },
-    []
-  );
+  const handleArchiveSession = useCallback(async (id: string) => {
+    await window.agentSmith.archiveSession(id);
+  }, []);
 
-  const handleUnarchiveSession = useCallback(
-    async (id: string) => {
-      // Mount a fresh xterm and make the session active/visible. Once it has
-      // fit to the panel, reattach at exactly that size so tmux paints correctly
-      // with no post-attach resize (which would corrupt the display).
-      bumpAttachGen(id);
-      setSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, archived: false, dead: false } : s))
-      );
-      setActiveSessionId(id);
-      await waitForRemount();
-      const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
-      await window.agentSmith.unarchiveSession(id, size?.cols, size?.rows);
-    },
-    [bumpAttachGen]
-  );
+  const handleUnarchiveSession = useCallback(async (id: string) => {
+    const store = useSessionStore.getState();
+    store.bumpAttachGen(id);
+    store.updateSession(id, { archived: false, dead: false });
+    store.setActiveSessionId(id);
+    await waitForRemount();
+    const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
+    await window.agentSmith.unarchiveSession(id, size?.cols, size?.rows);
+  }, []);
 
   const handleReviveSession = useCallback(async (id: string) => {
-    bumpAttachGen(id);
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, dead: false, state: 'idle' } : s))
-    );
-    setActiveSessionId(id);
+    const store = useSessionStore.getState();
+    store.bumpAttachGen(id);
+    store.updateSession(id, { dead: false, state: 'idle' });
+    store.setActiveSessionId(id);
     await waitForRemount();
     const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
     await window.agentSmith.reviveSession(id, size?.cols, size?.rows);
-  }, [bumpAttachGen]);
+  }, []);
 
   const handleRenameSession = useCallback(async (id: string, name: string) => {
     await window.agentSmith.renameSession(id, name);
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
+    useSessionStore.getState().updateSession(id, { name });
   }, []);
 
-  const refreshProjects = useCallback(() => {
-    window.agentSmith.getProjectGroups().then(setProjectGroups);
+  const handleAddProject = useCallback((key: string, repo: string, group: string) => {
+    return useProjectStore.getState().addProject(key, repo, group);
   }, []);
 
-  const handleAddProject = useCallback(
-    async (key: string, repo: string, group: string) => {
-      await window.agentSmith.addProject({ key, repo, group });
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
+  const handleRemoveProject = useCallback((key: string) => {
+    return useProjectStore.getState().removeProject(key);
+  }, []);
 
-  const handleRemoveProject = useCallback(
-    async (key: string) => {
-      await window.agentSmith.removeProject(key);
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
+  const handleAddGroup = useCallback((name: string) => {
+    return useProjectStore.getState().addGroup(name);
+  }, []);
 
-  const handleAddGroup = useCallback(
-    async (name: string) => {
-      await window.agentSmith.addGroup(name);
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
+  const handleRemoveGroup = useCallback((name: string) => {
+    return useProjectStore.getState().removeGroup(name);
+  }, []);
 
-  const handleRemoveGroup = useCallback(
-    async (name: string) => {
-      await window.agentSmith.removeGroup(name);
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
+  const handleMoveWorkspace = useCallback((key: string, toGroup: string, toIndex: number) => {
+    return useProjectStore.getState().moveWorkspace(key, toGroup, toIndex);
+  }, []);
 
-  const handleReorderGroup = useCallback(
-    async (name: string, toIndex: number) => {
-      await window.agentSmith.reorderGroup(name, toIndex);
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
-
-  const handleMoveWorkspace = useCallback(
-    async (key: string, toGroup: string, toIndex: number) => {
-      await window.agentSmith.moveWorkspace(key, toGroup, toIndex);
-      refreshProjects();
-    },
-    [refreshProjects]
-  );
-
-  const handleJiraIssueLoaded = useCallback((sessionId: string, issue: JiraIssue) => {
-    setJiraIssues((prev) => new Map(prev).set(sessionId, issue));
+  const handleReorderGroup = useCallback((name: string, toIndex: number) => {
+    return useProjectStore.getState().reorderGroup(name, toIndex);
   }, []);
 
   const handleJiraPlan = useCallback((sessionId: string, key: string) => {
     window.agentSmith.ptyWrite(sessionId, `Plan ${key}\r`);
   }, []);
 
-  // --- Jira auto-detect ---
-  const jiraKeyBuffer = useRef<Map<string, string>>(new Map());
-  const jiraKeyCache = useRef<Map<string, Set<string>>>(new Map());
-  const [autoFetchEnabled, setAutoFetchEnabled] = useState(() => {
-    try { return localStorage.getItem('agent-smith-jira-autodetect') !== 'false'; } catch { return true; }
-  });
-  const autoFetchRef = useRef(autoFetchEnabled);
-  autoFetchRef.current = autoFetchEnabled;
-
-  const handleAutoFetchToggle = useCallback(() => {
-    setAutoFetchEnabled((v) => {
-      const next = !v;
-      try { localStorage.setItem('agent-smith-jira-autodetect', String(next)); } catch { /* ok */ }
-      return next;
-    });
-  }, []);
-
-  const handleTerminalInput = useCallback((sessionId: string, data: string) => {
-    if (!autoFetchRef.current) return;
-
-    const buf = (jiraKeyBuffer.current.get(sessionId) ?? '') + data;
-    jiraKeyBuffer.current.set(sessionId, buf);
-
-    const re = /\b([A-Z][A-Z0-9]+-\d+)\b(?=[\s\r,;:.!?]|$)/g;
-    let match;
-    while ((match = re.exec(buf)) !== null) {
-      const key = match[1];
-      const cache = jiraKeyCache.current.get(sessionId) ?? new Set();
-      if (cache.has(key)) continue;
-      cache.add(key);
-      jiraKeyCache.current.set(sessionId, cache);
-
-      window.agentSmith.fetchJiraIssue(key)
-        .then((issue) => {
-          window.agentSmith.writeToVault(issue);
-        })
-        .catch(() => {});
-    }
-
-    // Keep only trailing partial-key fragment
-    const lastBoundary = buf.search(/[A-Z][A-Z0-9]*-?\d*$/);
-    jiraKeyBuffer.current.set(sessionId, lastBoundary >= 0 ? buf.slice(lastBoundary) : '');
-  }, []);
-
-  // Panel entry-point focus actions for Ctrl+Tab navigation.
   const focusEntry: Record<PanelId, () => void> = {
     sessions: () => sessionListRef.current?.focus(),
     terminal: () => {
-      const id = activeSessionIdRef.current;
+      const id = useSessionStore.getState().activeSessionId;
       if (id) terminalRefs.current.get(id)?.focus();
     },
     jira: () => {
-      const id = activeSessionIdRef.current;
+      const id = useSessionStore.getState().activeSessionId;
       if (id) jiraRefs.current.get(id)?.focus();
     },
     shell: () => {
-      const id = activeSessionIdRef.current;
+      const id = useSessionStore.getState().activeSessionId;
       if (id) shellRefs.current.get(id)?.focus();
     },
   };
 
-  // Move focus to the terminal panel for the active session (if the panel is
-  // visible). Invoked when the user presses Enter on a focused session item.
   const handleActivateTerminal = useCallback(() => {
-    const id = activeSessionIdRef.current;
+    const id = useSessionStore.getState().activeSessionId;
     if (id) focusTerminal(id);
   }, [focusTerminal]);
 
@@ -352,86 +227,25 @@ export default function App(): React.ReactElement {
       />
     ),
     terminal: (
-      <div className="workspace-fill">
-        {sessions.length === 0 && (
-          <div className="app-empty">
-            <div className="app-empty__text">NO ACTIVE SESSION</div>
-            <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
-          </div>
-        )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className="workspace-slot"
-            style={s.id === activeSessionId ? undefined : { display: 'none' }}
-          >
-            <TerminalPane
-              key={`${s.id}:${attachGen.get(s.id) ?? 0}`}
-              ref={(h) => { if (h) terminalRefs.current.set(s.id, h); else terminalRefs.current.delete(s.id); }}
-              session={s}
-              isActive={s.id === activeSessionId}
-              onRename={handleRenameSession}
-              onTerminalInput={handleTerminalInput}
-              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-            />
-          </div>
-        ))}
-      </div>
+      <TerminalPanelBody
+        onRename={handleRenameSession}
+        onTerminalInput={handleTerminalInput}
+        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+        ptyWriters={ptyWriters}
+        terminalRefs={terminalRefs}
+      />
     ),
-    jira: (
-      <div className="workspace-fill">
-        {sessions.length === 0 && (
-          <div className="app-empty app-empty--small">
-            <div className="app-empty__sub">NO ACTIVE SESSION</div>
-          </div>
-        )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className="workspace-slot"
-            style={s.id === activeSessionId ? undefined : { display: 'none' }}
-          >
-            <JiraPane
-              ref={(h) => { if (h) jiraRefs.current.set(s.id, h); else jiraRefs.current.delete(s.id); }}
-              sessionId={s.id}
-              issue={jiraIssues.get(s.id) ?? null}
-              autoFetchEnabled={autoFetchEnabled}
-              onAutoFetchToggle={handleAutoFetchToggle}
-              onIssueLoaded={handleJiraIssueLoaded}
-              onPlan={handleJiraPlan}
-            />
-          </div>
-        ))}
-      </div>
-    ),
+    jira: <JiraPanelBody onPlan={handleJiraPlan} jiraRefs={jiraRefs} />,
     shell: (
-      <div className="workspace-fill">
-        {sessions.length === 0 && (
-          <div className="app-empty">
-            <div className="app-empty__text">NO ACTIVE SESSION</div>
-            <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
-          </div>
-        )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className="workspace-slot"
-            style={s.id === activeSessionId ? undefined : { display: 'none' }}
-          >
-            <ShellPane
-              ref={(h) => { if (h) shellRefs.current.set(s.id, h); else shellRefs.current.delete(s.id); }}
-              session={s}
-              isActive={s.id === activeSessionId}
-              panelVisible={dashboard.layout.shell.visible}
-              openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-            />
-          </div>
-        ))}
-      </div>
+      <ShellPanelBody
+        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+        shellWriters={shellWriters}
+        shellRefs={shellRefs}
+      />
     ),
   };
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
 
   const titles: Partial<Record<PanelId, React.ReactNode>> = {
     shell: (
@@ -458,13 +272,13 @@ export default function App(): React.ReactElement {
           <span className="app-header__bracket">]</span>
         </div>
         <div className="app-header__right">
-          <PanelMenu controller={dashboard} />
+          <PanelMenu />
           <ZoomControl />
           <ThemeSelector />
         </div>
       </header>
       <div className="app-body">
-        <Workspace controller={dashboard} bodies={bodies} titles={titles} focusEntry={focusEntry} />
+        <Workspace bodies={bodies} titles={titles} focusEntry={focusEntry} />
       </div>
     </div>
   );
