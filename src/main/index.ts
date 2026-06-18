@@ -38,18 +38,6 @@ function createWindow(): void {
   sessionManager.setWindow(mainWindow);
   shellTmuxManager.setWindow(mainWindow);
 
-  // Fix invisible OS resize-shadow border offset when maximized (WSLg / Windows).
-  // Without this, the window content is pushed ~7px right and down on maximize.
-  // setBounds must be deferred — calling it synchronously inside 'maximize' crashes.
-  mainWindow.on('maximize', () => {
-    setImmediate(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        const display = screen.getDisplayMatching(mainWindow.getBounds());
-        mainWindow.setBounds(display.workArea);
-      }
-    });
-    mainWindow?.webContents.send('window:maximized', true);
-  });
   mainWindow.on('unmaximize', () =>
     mainWindow?.webContents.send('window:maximized', false)
   );
@@ -90,8 +78,7 @@ async function initialize(): Promise<void> {
   registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, projectManager, () => mainWindow, dataDir);
 }
 
-// WSLg: run GPU thread in-process to prevent separate GPU process crash,
-// while still allowing GPU-accelerated compositing for smooth CSS animations.
+// WSLg: run GPU thread in-process to prevent separate GPU process crash.
 app.commandLine.appendSwitch('in-process-gpu');
 
 app.on('ready', async () => {
