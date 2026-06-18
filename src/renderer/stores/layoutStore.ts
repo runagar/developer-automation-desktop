@@ -1,22 +1,40 @@
 import { create } from 'zustand';
 import {
-  DashboardLayout, DashboardPanelPlacement, DashboardState, PanelId,
-  STORAGE_KEY, GRID, PRESETS,
-  defaultState, validateState, clampPlacement, cloneLayout, maxZ,
+  DashboardState, Placement, PanelInstance, PanelType,
+  STORAGE_KEY, SINGLETON_TYPES,
+  defaultState, validateState, clampPlacement, maxZ, panelOrder,
+  generatePanelId, findSpawnPlacement,
 } from '../dashboard/layout';
 
-type DockTarget = 'left' | 'right' | 'top' | 'bottom' | 'center';
-
 interface LayoutStore {
-  layout: DashboardLayout;
+  instances: PanelInstance[];
   locked: boolean;
-  preset: string;
-  setPlacement: (id: PanelId, p: DashboardPanelPlacement) => void;
-  bringToFront: (id: PanelId) => void;
-  toggleVisible: (id: PanelId) => void;
-  applyPreset: (name: string) => void;
+
+  // Instance CRUD
+  setPlacement: (id: string, placement: Placement) => void;
+  bringToFront: (id: string) => void;
+
+  // Sessions panel visibility toggle
+  toggleSessionsVisible: () => void;
+
+  // Layout lock
   setLocked: (locked: boolean) => void;
-  dock: (id: PanelId, target: DockTarget) => void;
+
+  // Spawning
+  spawnPanel: (type: PanelType, sessionId: string) => string | null;
+
+  // Closing
+  destroyPanel: (id: string) => void;
+  destroyLinkedPanels: (sessionId: string) => void;
+
+  // Default panel management
+  switchDefaultPanels: (sessionId: string) => void;
+
+  // Helpers (non-reactive — read from getState())
+  getInstance: (id: string) => PanelInstance | undefined;
+  getDefaultPanel: (type: PanelType) => PanelInstance | undefined;
+  getInstancesOfType: (type: PanelType) => PanelInstance[];
+  findLinkedPanel: (type: PanelType, sessionId: string) => PanelInstance | undefined;
 }
 
 function loadState(): DashboardState {
@@ -39,9 +57,8 @@ function persistState(state: DashboardState): void {
   persistTimer = setTimeout(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        layout: state.layout,
+        instances: state.instances,
         locked: state.locked,
-        preset: state.preset,
       }));
     } catch {
       /* storage full / unavailable — non-fatal */
@@ -52,17 +69,15 @@ function persistState(state: DashboardState): void {
 const initial = loadState();
 
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
-  layout: initial.layout,
+  instances: initial.instances,
   locked: initial.locked,
-  preset: initial.preset,
 
   setPlacement: (id, placement) => {
     set((s) => {
-      const next = {
-        layout: { ...s.layout, [id]: clampPlacement(placement) },
-        locked: s.locked,
-        preset: 'custom',
-      };
+      const instances = s.instances.map((inst) =>
+        inst.id === id ? { ...inst, placement: clampPlacement(placement) } : inst
+      );
+      const next = { instances, locked: s.locked };
       persistState(next);
       return next;
     });
@@ -70,34 +85,25 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 
   bringToFront: (id) => {
     set((s) => {
-      if (s.layout[id].z === maxZ(s.layout)) return s;
-      const next = {
-        layout: { ...s.layout, [id]: { ...s.layout[id], z: maxZ(s.layout) + 1 } },
-        locked: s.locked,
-        preset: s.preset,
-      };
+      const inst = s.instances.find((i) => i.id === id);
+      if (!inst || inst.placement.z === maxZ(s.instances)) return s;
+      const instances = s.instances.map((i) =>
+        i.id === id ? { ...i, placement: { ...i.placement, z: maxZ(s.instances) + 1 } } : i
+      );
+      const next = { instances, locked: s.locked };
       persistState(next);
       return next;
     });
   },
 
-  toggleVisible: (id) => {
+  toggleSessionsVisible: () => {
     set((s) => {
-      const next = {
-        layout: { ...s.layout, [id]: { ...s.layout[id], visible: !s.layout[id].visible } },
-        locked: s.locked,
-        preset: 'custom',
-      };
-      persistState(next);
-      return next;
-    });
-  },
-
-  applyPreset: (name) => {
-    const preset = PRESETS.find((p) => p.name === name);
-    if (!preset) return;
-    set(() => {
-      const next = { layout: cloneLayout(preset.layout), locked: get().locked, preset: name };
+      const instances = s.instances.map((inst) =>
+        inst.type === 'sessions'
+          ? { ...inst, placement: { ...inst.placement, visible: !inst.placement.visible } }
+          : inst
+      );
+      const next = { instances, locked: s.locked };
       persistState(next);
       return next;
     });
@@ -105,32 +111,151 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 
   setLocked: (locked) => {
     set((s) => {
-      const next = { layout: s.layout, locked, preset: s.preset };
+      const next = { instances: s.instances, locked };
       persistState(next);
       return next;
     });
   },
 
-  dock: (id, target) => {
-    set((s) => {
-      const half = GRID / 2;
-      const base = s.layout[id];
-      let p: DashboardPanelPlacement;
-      switch (target) {
-        case 'left':   p = { ...base, x: 0, y: 0, w: half, h: GRID }; break;
-        case 'right':  p = { ...base, x: half, y: 0, w: half, h: GRID }; break;
-        case 'top':    p = { ...base, x: 0, y: 0, w: GRID, h: half }; break;
-        case 'bottom': p = { ...base, x: 0, y: half, w: GRID, h: half }; break;
-        case 'center': p = { ...base, x: GRID / 4, y: GRID / 4, w: half, h: half }; break;
-        default:       p = base;
+  spawnPanel: (type, sessionId) => {
+    const s = get();
+
+    // Singletons can't be spawned as multi-instance
+    if (SINGLETON_TYPES.has(type)) return null;
+
+    // If a linked panel for this session+type already exists, return null (focus-move)
+    const existing = s.instances.find(
+      (inst) => inst.type === type && inst.mode === 'linked' && inst.linkedSessionId === sessionId
+    );
+    if (existing) return null;
+
+    // Determine mode: default if no panel of this type exists, otherwise linked
+    const hasTypeInstance = s.instances.some((inst) => inst.type === type);
+    const mode = hasTypeInstance ? 'linked' as const : 'default' as const;
+
+    const { placement, splitInstanceId, splitPlacement } = findSpawnPlacement(s.instances, type);
+    const id = generatePanelId(type);
+
+    const newInstance: PanelInstance = {
+      id,
+      type,
+      placement,
+      mode,
+      linkedSessionId: mode === 'linked' ? sessionId : undefined,
+      currentSessionId: sessionId,
+    };
+
+    set((current) => {
+      let instances = [...current.instances, newInstance];
+      // If a split happened, update the source panel
+      if (splitInstanceId && splitPlacement) {
+        instances = instances.map((inst) =>
+          inst.id === splitInstanceId
+            ? { ...inst, placement: clampPlacement(splitPlacement) }
+            : inst
+        );
       }
-      const next = {
-        layout: { ...s.layout, [id]: clampPlacement(p) },
-        locked: s.locked,
-        preset: 'custom',
-      };
+      const next = { instances, locked: current.locked };
+      persistState(next);
+      return next;
+    });
+
+    return id;
+  },
+
+  destroyPanel: (id) => {
+    set((s) => {
+      const inst = s.instances.find((i) => i.id === id);
+      if (!inst) return s;
+
+      // Sessions panel: toggle visibility instead of destroying
+      if (inst.type === 'sessions') {
+        const instances = s.instances.map((i) =>
+          i.id === id ? { ...i, placement: { ...i.placement, visible: false } } : i
+        );
+        const next = { instances, locked: s.locked };
+        persistState(next);
+        return next;
+      }
+
+      const wasDefault = inst.mode === 'default';
+      const type = inst.type;
+      let instances = s.instances.filter((i) => i.id !== id);
+
+      // Default promotion: if we removed the default, promote the first of same type
+      if (wasDefault) {
+        const ordered = panelOrder(instances).filter((i) => i.type === type);
+        // If none visible, try any of same type
+        const candidates = ordered.length > 0
+          ? ordered
+          : instances.filter((i) => i.type === type);
+        if (candidates.length > 0) {
+          const promoteId = candidates[0].id;
+          instances = instances.map((i) =>
+            i.id === promoteId
+              ? { ...i, mode: 'default' as const, linkedSessionId: undefined }
+              : i
+          );
+        }
+      }
+
+      const next = { instances, locked: s.locked };
       persistState(next);
       return next;
     });
   },
+
+  destroyLinkedPanels: (sessionId) => {
+    set((s) => {
+      const instances = s.instances.filter(
+        (inst) => !(inst.mode === 'linked' && inst.linkedSessionId === sessionId)
+      );
+      if (instances.length === s.instances.length) return s;
+      const next = { instances, locked: s.locked };
+      persistState(next);
+      return next;
+    });
+  },
+
+  switchDefaultPanels: (sessionId) => {
+    set((s) => {
+      let changed = false;
+      const instances = s.instances.map((inst) => {
+        if (inst.mode !== 'default') return inst;
+        // If sessionId is empty, clear the panel
+        if (!sessionId) {
+          if (inst.currentSessionId) {
+            changed = true;
+            return { ...inst, currentSessionId: undefined };
+          }
+          return inst;
+        }
+        // Skip if a linked panel of this type already exists for the session (A4/A9)
+        const hasLinked = s.instances.some(
+          (i) => i.type === inst.type && i.mode === 'linked' && i.linkedSessionId === sessionId
+        );
+        if (hasLinked) return inst;
+        if (inst.currentSessionId === sessionId) return inst;
+        changed = true;
+        return { ...inst, currentSessionId: sessionId };
+      });
+      if (!changed) return s;
+      const next = { instances, locked: s.locked };
+      persistState(next);
+      return next;
+    });
+  },
+
+  // --- Non-reactive helpers (use via getState()) ---
+
+  getInstance: (id) => get().instances.find((i) => i.id === id),
+
+  getDefaultPanel: (type) => get().instances.find((i) => i.type === type && i.mode === 'default'),
+
+  getInstancesOfType: (type) => get().instances.filter((i) => i.type === type),
+
+  findLinkedPanel: (type, sessionId) =>
+    get().instances.find(
+      (i) => i.type === type && i.mode === 'linked' && i.linkedSessionId === sessionId
+    ),
 }));

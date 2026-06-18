@@ -2,33 +2,31 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import WorkspacePanel, { PanelHandle, ResizeHandle } from './WorkspacePanel';
 import { useLayoutStore } from '../stores/layoutStore';
 import {
-  PanelId, PANEL_IDS, PANEL_LABELS, panelOrder, DashboardPanelPlacement,
+  PanelInstance, PANEL_LABELS, panelOrder, Placement, GRID,
 } from '../dashboard/layout';
 import './Workspace.css';
 
 interface Props {
-  bodies: Record<PanelId, React.ReactNode>;
-  titles?: Partial<Record<PanelId, React.ReactNode>>;
-  focusEntry: Record<PanelId, () => void>;
+  renderBody: (instance: PanelInstance) => React.ReactNode;
+  renderTitle?: (instance: PanelInstance) => React.ReactNode;
+  focusEntry: (instance: PanelInstance) => (() => void) | undefined;
 }
 
 type Interaction =
-  | { kind: 'move'; id: PanelId; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement }
-  | { kind: 'resize'; id: PanelId; handle: ResizeHandle; startX: number; startY: number; cellW: number; cellH: number; start: DashboardPanelPlacement };
+  | { kind: 'move'; id: string; startX: number; startY: number; cellW: number; cellH: number; start: Placement }
+  | { kind: 'resize'; id: string; handle: ResizeHandle; startX: number; startY: number; cellW: number; cellH: number; start: Placement };
 
-export default function Workspace({ bodies, titles, focusEntry }: Props): React.ReactElement {
-  const layout = useLayoutStore((s) => s.layout);
+export default function Workspace({ renderBody, renderTitle, focusEntry }: Props): React.ReactElement {
+  const instances = useLayoutStore((s) => s.instances);
   const locked = useLayoutStore((s) => s.locked);
   const setPlacement = useLayoutStore((s) => s.setPlacement);
   const bringToFront = useLayoutStore((s) => s.bringToFront);
-  const toggleVisible = useLayoutStore((s) => s.toggleVisible);
+  const destroyPanel = useLayoutStore((s) => s.destroyPanel);
   const rootRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<Interaction | null>(null);
-  const [focusedPanel, setFocusedPanel] = useState<PanelId | null>(null);
+  const [focusedInstanceId, setFocusedInstanceId] = useState<string | null>(null);
 
-  const panelRefs = useRef<Record<PanelId, PanelHandle | null>>({
-    sessions: null, terminal: null, jira: null, shell: null,
-  });
+  const panelRefs = useRef<Map<string, PanelHandle>>(new Map());
 
   // --- Pointer drag / resize ---
 
@@ -68,22 +66,22 @@ export default function Workspace({ bodies, titles, focusEntry }: Props): React.
 
   const cellSize = useCallback(() => {
     const rect = rootRef.current?.getBoundingClientRect();
-    return { cellW: (rect?.width ?? 1) / 12, cellH: (rect?.height ?? 1) / 12 };
+    return { cellW: (rect?.width ?? 1) / GRID, cellH: (rect?.height ?? 1) / GRID };
   }, []);
 
-  const handleDragStart = useCallback((id: PanelId) => (e: React.PointerEvent) => {
+  const handleDragStart = useCallback((id: string, placement: Placement) => (e: React.PointerEvent) => {
     if (locked) return;
     e.preventDefault();
     const { cellW, cellH } = cellSize();
-    beginInteraction({ kind: 'move', id, startX: e.clientX, startY: e.clientY, cellW, cellH, start: layout[id] });
-  }, [locked, layout, cellSize, beginInteraction]);
+    beginInteraction({ kind: 'move', id, startX: e.clientX, startY: e.clientY, cellW, cellH, start: placement });
+  }, [locked, cellSize, beginInteraction]);
 
-  const handleResizeStart = useCallback((id: PanelId) => (e: React.PointerEvent, handle: ResizeHandle) => {
+  const handleResizeStart = useCallback((id: string, placement: Placement) => (e: React.PointerEvent, handle: ResizeHandle) => {
     if (locked) return;
     e.preventDefault();
     const { cellW, cellH } = cellSize();
-    beginInteraction({ kind: 'resize', id, handle, startX: e.clientX, startY: e.clientY, cellW, cellH, start: layout[id] });
-  }, [locked, layout, cellSize, beginInteraction]);
+    beginInteraction({ kind: 'resize', id, handle, startX: e.clientX, startY: e.clientY, cellW, cellH, start: placement });
+  }, [locked, cellSize, beginInteraction]);
 
   useEffect(() => endInteraction, [endInteraction]);
 
@@ -95,15 +93,15 @@ export default function Workspace({ bodies, titles, focusEntry }: Props): React.
 
     const onFocusIn = (e: FocusEvent): void => {
       const el = (e.target as HTMLElement | null)?.closest('[data-panel-id]');
-      const id = el?.getAttribute('data-panel-id') as PanelId | undefined;
-      setFocusedPanel(id ?? null);
+      const id = el?.getAttribute('data-panel-id') ?? null;
+      setFocusedInstanceId(id);
     };
     const onFocusOut = (): void => {
       requestAnimationFrame(() => {
         const active = document.activeElement as HTMLElement | null;
         const el = active?.closest('[data-panel-id]');
-        const id = el?.getAttribute('data-panel-id') as PanelId | undefined;
-        if (!id) setFocusedPanel(null);
+        const id = el?.getAttribute('data-panel-id') ?? null;
+        if (!id) setFocusedInstanceId(null);
       });
     };
 
@@ -117,10 +115,10 @@ export default function Workspace({ bodies, titles, focusEntry }: Props): React.
 
   // --- Cross-panel Ctrl+Tab cycling (window capture, before xterm) ---
 
-  const focusedRef = useRef<PanelId | null>(null);
-  focusedRef.current = focusedPanel;
-  const layoutRef = useRef(layout);
-  layoutRef.current = layout;
+  const focusedRef = useRef<string | null>(null);
+  focusedRef.current = focusedInstanceId;
+  const instancesRef = useRef(instances);
+  instancesRef.current = instances;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -128,27 +126,23 @@ export default function Workspace({ bodies, titles, focusEntry }: Props): React.
 
       if (e.ctrlKey) {
         // Cross-panel cycling
-        const order = panelOrder(layoutRef.current);
+        const order = panelOrder(instancesRef.current);
         if (order.length === 0) return;
         e.preventDefault();
         e.stopPropagation();
 
         const current = focusedRef.current;
-        const idx = current ? order.indexOf(current) : -1;
+        const idx = current ? order.findIndex((inst) => inst.id === current) : -1;
         const next = e.shiftKey
           ? order[(idx - 1 + order.length) % order.length]
           : order[(idx + 1) % order.length];
 
-        bringToFront(next);
-        panelRefs.current[next]?.focus();
+        bringToFront(next.id);
+        panelRefs.current.get(next.id)?.focus();
         return;
       }
 
       // Plain Tab: only allowed when focus is inside a panel (intra-panel cycle).
-      // When focus is outside any panel (header, body background), block the
-      // default focus traversal — there is no global Tab navigation. We only
-      // preventDefault (not stopPropagation) so other capture handlers such as
-      // the New Session dropdown navigation can still run.
       const active = document.activeElement as HTMLElement | null;
       if (!active?.closest('[data-panel-id]')) {
         e.preventDefault();
@@ -158,30 +152,36 @@ export default function Workspace({ bodies, titles, focusEntry }: Props): React.
     return () => window.removeEventListener('keydown', handler, true);
   }, [bringToFront]);
 
+  const visibleInstances = panelOrder(instances);
+
   return (
     <div className="workspace" ref={rootRef}>
-      {PANEL_IDS.map((id) => (
+      {instances.map((inst) => (
         <WorkspacePanel
-          key={id}
-          id={id}
-          title={titles?.[id] ?? PANEL_LABELS[id]}
-          placement={layout[id]}
+          key={inst.id}
+          id={inst.id}
+          title={renderTitle ? renderTitle(inst) : PANEL_LABELS[inst.type]}
+          placement={inst.placement}
+          mode={inst.mode}
           locked={locked}
-          isFocused={focusedPanel === id}
-          focusEntry={focusEntry[id]}
-          ref={(h) => { panelRefs.current[id] = h; }}
-          onDragStart={handleDragStart(id)}
-          onResizeStart={handleResizeStart(id)}
-          onActivate={() => bringToFront(id)}
-          onClose={() => toggleVisible(id)}
+          isFocused={focusedInstanceId === inst.id}
+          focusEntry={focusEntry(inst)}
+          ref={(h) => {
+            if (h) panelRefs.current.set(inst.id, h);
+            else panelRefs.current.delete(inst.id);
+          }}
+          onDragStart={handleDragStart(inst.id, inst.placement)}
+          onResizeStart={handleResizeStart(inst.id, inst.placement)}
+          onActivate={() => bringToFront(inst.id)}
+          onClose={() => destroyPanel(inst.id)}
         >
-          {bodies[id]}
+          {renderBody(inst)}
         </WorkspacePanel>
       ))}
 
-      {panelOrder(layout).length === 0 && (
+      {visibleInstances.length === 0 && (
         <div className="workspace__all-hidden">
-          ALL PANELS HIDDEN — REOPEN FROM THE PANEL MENU
+          ALL PANELS HIDDEN — REOPEN FROM THE PANEL MENU OR DOUBLE-CLICK A SESSION
         </div>
       )}
     </div>

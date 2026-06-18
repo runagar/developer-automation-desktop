@@ -4,7 +4,6 @@ import React, {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState,
 } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { Session } from '../../main/types';
@@ -21,8 +20,7 @@ export interface TerminalPaneHandle {
 interface Props {
   session: Session;
   isActive: boolean;
-  onRename: (id: string, name: string) => void;
-  onTerminalInput?: (sessionId: string, data: string) => void;
+  panelInstanceId?: string;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
@@ -32,12 +30,9 @@ type ShiftSelection = {
 };
 
 const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
-  { session, isActive, onRename, onTerminalInput, openDropdownWithKeyboardRef },
+  { session, isActive, panelInstanceId, openDropdownWithKeyboardRef },
   ref
 ): React.ReactElement {
-  const [editingName, setEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState(session.name);
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const shiftSelectionRef = useRef<ShiftSelection | null>(null);
   const termForKeysRef = useRef<Terminal | null>(null);
 
@@ -144,19 +139,26 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
     if (!term) return;
 
     const onDataDisposable = term.onData((data) => {
-      window.agentSmith.ptyWrite(session.id, data);
-      onTerminalInput?.(session.id, data);
+      if (panelInstanceId) {
+        window.agentSmith.ptyWritePanel(panelInstanceId, data);
+      } else {
+        window.agentSmith.ptyWrite(session.id, data);
+      }
     });
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      void window.agentSmith.ptyResize(session.id, cols, rows);
+      if (panelInstanceId) {
+        void window.agentSmith.ptyResizePanel(panelInstanceId, cols, rows);
+      } else {
+        void window.agentSmith.ptyResize(session.id, cols, rows);
+      }
     });
 
     return () => {
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
     };
-  }, [onTerminalInput, session.id, termRef]);
+  }, [panelInstanceId, session.id, termRef]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -165,68 +167,17 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const size = fitAndMeasure();
       if (size) {
-        void window.agentSmith.ptyResize(session.id, size.cols, size.rows);
+        if (panelInstanceId) {
+          void window.agentSmith.ptyResizePanel(panelInstanceId, size.cols, size.rows);
+        } else {
+          void window.agentSmith.ptyResize(session.id, size.cols, size.rows);
+        }
       }
     }));
-  }, [activate, fitAndMeasure, isActive, session.id]);
-
-  useEffect(() => {
-    setNameValue(session.name);
-    setEditingName(false);
-  }, [session.id, session.name]);
-
-  function startEditing(): void {
-    setNameValue(session.name);
-    setEditingName(true);
-    setTimeout(() => nameInputRef.current?.select(), 0);
-  }
-
-  function commitRename(): void {
-    const trimmed = nameValue.trim();
-    if (trimmed && trimmed !== session.name) {
-      onRename(session.id, trimmed);
-    } else {
-      setNameValue(session.name);
-    }
-    setEditingName(false);
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-    if (e.key === 'Enter') commitRename();
-    if (e.key === 'Escape') {
-      setNameValue(session.name);
-      setEditingName(false);
-    }
-  }
+  }, [activate, fitAndMeasure, isActive, panelInstanceId, session.id]);
 
   return (
     <div className="terminal-pane" style={isActive ? undefined : { display: 'none' }}>
-      <div className="terminal-pane__header">
-        {editingName ? (
-          <input
-            ref={nameInputRef}
-            className="terminal-pane__name-input"
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={onKeyDown}
-            spellCheck={false}
-            autoComplete="off"
-          />
-        ) : (
-          <span
-            className="terminal-pane__name terminal-pane__name--editable"
-            title="Click to rename"
-            onClick={startEditing}
-          >
-            {session.name}
-          </span>
-        )}
-        {session.project && (
-          <span className="terminal-pane__project">[ {session.project} ]</span>
-        )}
-        <span className="terminal-pane__dir">{session.workingDir}</span>
-      </div>
       {session.dead && (
         <div className="terminal-pane__dead-banner">
           ⚠ SESSION TERMINATED — SCROLLBACK PRESERVED

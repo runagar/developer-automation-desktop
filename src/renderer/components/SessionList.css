@@ -148,6 +148,17 @@
   white-space: nowrap;
   color: var(--c-bright);
 }
+.session-item__rename-input {
+  flex: 1;
+  font-size: 0.78rem;
+  font-family: var(--font);
+  color: var(--c-bright);
+  background: var(--c-bg);
+  border: 1px solid var(--c-dim);
+  padding: 1px 4px;
+  outline: none;
+  min-width: 0;
+}
 .session-item__actions {
   display: flex;
   gap: 4px;

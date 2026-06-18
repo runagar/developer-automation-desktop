@@ -1,15 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLayoutStore } from '../stores/layoutStore';
-import { PANEL_IDS, PANEL_LABELS, PRESETS } from '../dashboard/layout';
 import './PanelMenu.css';
 
 export default function PanelMenu(): React.ReactElement {
-  const layout = useLayoutStore((s) => s.layout);
+  const instances = useLayoutStore((s) => s.instances);
   const locked = useLayoutStore((s) => s.locked);
-  const preset = useLayoutStore((s) => s.preset);
-  const toggleVisible = useLayoutStore((s) => s.toggleVisible);
-  const applyPreset = useLayoutStore((s) => s.applyPreset);
+  const toggleSessionsVisible = useLayoutStore((s) => s.toggleSessionsVisible);
   const setLocked = useLayoutStore((s) => s.setLocked);
+
+  const sessionsVisible = instances.find((i) => i.type === 'sessions')?.placement.visible ?? false;
 
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -40,34 +39,15 @@ export default function PanelMenu(): React.ReactElement {
       {open && (
         <div className="panel-menu__dropdown" onMouseDown={(e) => e.stopPropagation()}>
           <div className="panel-menu__section-label">PANELS</div>
-          {PANEL_IDS.map((id) => (
-            <button
-              key={id}
-              className="panel-menu__item"
-              onClick={() => toggleVisible(id)}
-            >
-              <span className="panel-menu__check">
-                {layout[id].visible ? '✔' : ''}
-              </span>
-              {PANEL_LABELS[id]}
-            </button>
-          ))}
-
-          <div className="panel-menu__divider" />
-
-          <div className="panel-menu__section-label">LAYOUT PRESETS</div>
-          {PRESETS.map((p) => (
-            <button
-              key={p.name}
-              className={`panel-menu__item${preset === p.name ? ' panel-menu__item--active' : ''}`}
-              onClick={() => applyPreset(p.name)}
-            >
-              <span className="panel-menu__check">
-                {preset === p.name ? '✔' : ''}
-              </span>
-              {p.name}
-            </button>
-          ))}
+          <button
+            className="panel-menu__item"
+            onClick={() => toggleSessionsVisible()}
+          >
+            <span className="panel-menu__check">
+              {sessionsVisible ? '✔' : ''}
+            </span>
+            Sessions
+          </button>
 
           <div className="panel-menu__divider" />
 

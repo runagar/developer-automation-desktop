@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SessionManager } from './sessions';
-import { ShellManager } from './shell';
+import { ShellTmuxManager } from './shellTmux';
 import { ProjectManager } from './projects';
 import type { StatePoller } from './statePoller';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
@@ -12,7 +12,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
-let shellManager: ShellManager;
+let shellTmuxManager: ShellTmuxManager;
 let projectManager: ProjectManager;
 let statePoller: StatePoller | null = null;
 
@@ -36,7 +36,7 @@ function createWindow(): void {
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   mainWindow.setMenuBarVisibility(false);
   sessionManager.setWindow(mainWindow);
-  shellManager.setWindow(mainWindow);
+  shellTmuxManager.setWindow(mainWindow);
 
   // Fix invisible OS resize-shadow border offset when maximized (WSLg / Windows).
   // Without this, the window content is pushed ~7px right and down on maximize.
@@ -68,7 +68,7 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
     sessionManager.setWindow(null);
-    shellManager.setWindow(null);
+    shellTmuxManager.setWindow(null);
   });
 }
 
@@ -83,11 +83,11 @@ async function initialize(): Promise<void> {
   }
 
   sessionManager = new SessionManager(dataDir);
-  shellManager = new ShellManager();
+  shellTmuxManager = new ShellTmuxManager();
   projectManager = new ProjectManager(projectsPath);
   await sessionManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, shellManager, projectManager, () => mainWindow, dataDir);
+  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, projectManager, () => mainWindow, dataDir);
 }
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash,
@@ -104,7 +104,7 @@ app.on('ready', async () => {
 });
 
 app.on('window-all-closed', async () => {
-  shellManager.killAll();
+  shellTmuxManager.killAll();
   statePoller = getRegisteredStatePoller();
   statePoller?.stop();
   stopRegisteredStatePoller();

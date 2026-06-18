@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Session, ProjectGroup } from '../../main/types';
+import { PanelType } from '../dashboard/layout';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import ManageWorkspacesDialog from './ManageWorkspacesDialog';
+import SessionContextMenu from './SessionContextMenu';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './SessionList.css';
 
@@ -16,7 +18,6 @@ interface Props {
   projectGroups: ProjectGroup[];
   onSelect: (id: string) => void;
   onCreate: (workingDir: string, project?: string) => void;
-  onActivateTerminal: () => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
   onDestroy: (id: string) => void;
@@ -27,14 +28,18 @@ interface Props {
   onRemoveGroup: (name: string) => Promise<void>;
   onMoveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   onReorderGroup: (name: string, toIndex: number) => Promise<void>;
+  onDoubleClickSession: (id: string) => void;
+  onContextMenuSpawn: (type: PanelType, sessionId: string) => void;
+  onRename: (id: string, name: string) => void;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
 const DEFAULT_WORK_DIR = '/home/rulu/projects';
 
 export default forwardRef<SessionListHandle, Props>(function SessionList({
-  sessions, activeSessionId, projectGroups, onSelect, onCreate, onActivateTerminal, onArchive, onUnarchive, onDestroy, onRevive,
+  sessions, activeSessionId, projectGroups, onSelect, onCreate, onArchive, onUnarchive, onDestroy, onRevive,
   onAddProject, onRemoveProject, onAddGroup, onRemoveGroup, onMoveWorkspace, onReorderGroup,
+  onDoubleClickSession, onContextMenuSpawn, onRename,
   openDropdownWithKeyboardRef,
 }: Props, ref): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -50,6 +55,9 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   const activeItemRef = useRef<HTMLLIElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
   const [destroyAllPending, setDestroyAllPending] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   usePanelFocus(rootRef);
 
@@ -232,11 +240,51 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
             ].join(' ')}
             onClick={() => onSelect(session.id)}
             onFocus={() => onSelect(session.id)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onActivateTerminal(); } }}
+            onDoubleClick={() => {
+              if (!session.archived && !session.dead) {
+                onDoubleClickSession(session.id);
+              }
+            }}
+            onContextMenu={(e) => {
+              if (session.archived || session.dead) return;
+              e.preventDefault();
+              setContextMenu({ sessionId: session.id, x: e.clientX, y: e.clientY });
+            }}
           >
             <div className="session-item__top">
               <StateIndicator state={session.dead ? 'dead' : session.state} />
-              <span className="session-item__name">{session.name}</span>
+              {renamingId === session.id ? (
+                <input
+                  className="session-item__rename-input"
+                  value={renameValue}
+                  autoFocus
+                  spellCheck={false}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = renameValue.trim();
+                    if (trimmed && trimmed !== session.name) onRename(session.id, trimmed);
+                    setRenamingId(null);
+                    // Re-focus the session list item
+                    requestAnimationFrame(() => activeItemRef.current?.focus());
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const trimmed = renameValue.trim();
+                      if (trimmed && trimmed !== session.name) onRename(session.id, trimmed);
+                      setRenamingId(null);
+                      requestAnimationFrame(() => activeItemRef.current?.focus());
+                    }
+                    if (e.key === 'Escape') {
+                      setRenamingId(null);
+                      requestAnimationFrame(() => activeItemRef.current?.focus());
+                    }
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="session-item__name">{session.name}</span>
+              )}
               <div className="session-item__actions">
                 {session.dead && (
                   <button
@@ -288,7 +336,6 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                 <li
                   key={session.id}
                   className="session-item session-item--archived"
-                  onClick={() => onSelect(session.id)}
                 >
                   <div className="session-item__top">
                     <StateIndicator state={session.dead ? 'dead' : session.state} />
@@ -377,6 +424,22 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
           onMove={onMoveWorkspace}
           onReorderGroup={onReorderGroup}
           onClose={() => setManageOpen(false)}
+        />
+      )}
+
+      {contextMenu && (
+        <SessionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onSpawnPanel={(type) => onContextMenuSpawn(type, contextMenu.sessionId)}
+          onRename={() => {
+            const session = sessions.find((s) => s.id === contextMenu.sessionId);
+            if (session) {
+              setRenameValue(session.name);
+              setRenamingId(session.id);
+            }
+          }}
+          onClose={() => setContextMenu(null)}
         />
       )}
     </aside>

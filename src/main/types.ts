@@ -51,7 +51,7 @@ export interface IpcApi {
   renameSession: (id: string, name: string) => Promise<void>;
   reviveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
 
-  // PTY I/O
+  // PTY I/O (legacy — kept for state poller / session creation only)
   ptyWrite: (sessionId: string, data: string) => void;
   ptyResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
 
@@ -86,16 +86,23 @@ export interface IpcApi {
   setZoom: (factor: number) => void;
   getZoom: () => number;
 
-  // Shell (standalone shell PTY, not tied to copilot/tmux)
-  shellSpawn: (sessionId: string, workingDir: string) => Promise<void>;
-  shellWrite: (sessionId: string, data: string) => void;
-  shellResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
-  shellKill: (sessionId: string) => Promise<void>;
+  // PTY attach/detach (panel-instance-aware)
+  ptyAttach: (sessionId: string, panelInstanceId: string, cols?: number, rows?: number) => Promise<void>;
+  ptyDetach: (panelInstanceId: string) => Promise<void>;
+  ptyWritePanel: (panelInstanceId: string, data: string) => void;
+  ptyResizePanel: (panelInstanceId: string, cols: number, rows: number) => Promise<void>;
+
+  // Shell (tmux-backed, panel-instance-aware)
+  shellAttach: (sessionId: string, panelInstanceId: string, workingDir: string, cols?: number, rows?: number) => Promise<void>;
+  shellDetach: (panelInstanceId: string) => Promise<void>;
+  shellWritePanel: (panelInstanceId: string, data: string) => void;
+  shellResizePanel: (panelInstanceId: string, cols: number, rows: number) => Promise<void>;
+  shellDestroyTmux: (sessionId: string) => Promise<void>;
 
   // Events (renderer listens)
-  onPtyData: (callback: (sessionId: string, data: string) => void) => () => void;
-  onShellData: (callback: (sessionId: string, data: string) => void) => () => void;
-  onShellExit: (callback: (sessionId: string) => void) => () => void;
+  onPtyData: (callback: (panelInstanceId: string, data: string) => void) => () => void;
+  onShellData: (callback: (panelInstanceId: string, data: string) => void) => () => void;
+  onShellExit: (callback: (panelInstanceId: string) => void) => () => void;
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;

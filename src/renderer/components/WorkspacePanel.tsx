@@ -1,5 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
-import { DashboardPanelPlacement, PanelId, toPct } from '../dashboard/layout';
+import { Placement, PanelMode, toPct } from '../dashboard/layout';
 import PanelErrorBoundary from './PanelErrorBoundary';
 import './WorkspacePanel.css';
 
@@ -12,9 +12,10 @@ export interface PanelHandle {
 }
 
 interface Props {
-  id: PanelId;
+  id: string;
   title: React.ReactNode;
-  placement: DashboardPanelPlacement;
+  placement: Placement;
+  mode: PanelMode;
   locked: boolean;
   isFocused: boolean;
   // Entry-point focus action invoked when the panel gains focus via Ctrl+Tab.
@@ -27,7 +28,7 @@ interface Props {
 }
 
 const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
-  { id, title, placement, locked, isFocused, focusEntry, onDragStart, onResizeStart, onActivate, onClose, children },
+  { id, title, placement, mode, locked, isFocused, focusEntry, onDragStart, onResizeStart, onActivate, onClose, children },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,11 +64,14 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
         onPointerDown={locked ? undefined : onDragStart}
         style={locked ? { cursor: 'default' } : undefined}
       >
+        {mode === 'default' && (
+          <span className="workspace-panel__default-badge" title="Default panel">⌂</span>
+        )}
         <span className="workspace-panel__title">{title}</span>
         {!locked && (
           <button
             className="btn btn--micro btn--danger workspace-panel__close"
-            title="Hide panel"
+            title={mode === 'singleton' ? 'Hide panel' : 'Close panel'}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onClose(); }}
           >✕</button>

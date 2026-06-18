@@ -29,11 +29,22 @@ const api: IpcApi = {
   saveJiraIssue: (sessionId, issue) => ipcRenderer.invoke('jira:saveIssue', sessionId, issue),
   clearJiraIssue: (sessionId) => ipcRenderer.invoke('jira:clearIssue', sessionId),
 
-  // Shell (standalone shell PTY)
-  shellSpawn: (sessionId, workingDir) => ipcRenderer.invoke('shell:spawn', sessionId, workingDir),
-  shellWrite: (sessionId, data) => ipcRenderer.send('shell:write', sessionId, data),
-  shellResize: (sessionId, cols, rows) => ipcRenderer.invoke('shell:resize', sessionId, cols, rows),
-  shellKill: (sessionId) => ipcRenderer.invoke('shell:kill', sessionId),
+  // PTY attach/detach (panel-instance-aware)
+  ptyAttach: (sessionId, panelInstanceId, cols, rows) =>
+    ipcRenderer.invoke('pty:attach', sessionId, panelInstanceId, cols, rows),
+  ptyDetach: (panelInstanceId) => ipcRenderer.invoke('pty:detach', panelInstanceId),
+  ptyWritePanel: (panelInstanceId, data) => ipcRenderer.send('pty:writePanel', panelInstanceId, data),
+  ptyResizePanel: (panelInstanceId, cols, rows) =>
+    ipcRenderer.invoke('pty:resizePanel', panelInstanceId, cols, rows),
+
+  // Shell tmux (panel-instance-aware)
+  shellAttach: (sessionId, panelInstanceId, workingDir, cols, rows) =>
+    ipcRenderer.invoke('shell:attach', sessionId, panelInstanceId, workingDir, cols, rows),
+  shellDetach: (panelInstanceId) => ipcRenderer.invoke('shell:detach', panelInstanceId),
+  shellWritePanel: (panelInstanceId, data) => ipcRenderer.send('shell:writePanel', panelInstanceId, data),
+  shellResizePanel: (panelInstanceId, cols, rows) =>
+    ipcRenderer.invoke('shell:resizePanel', panelInstanceId, cols, rows),
+  shellDestroyTmux: (sessionId) => ipcRenderer.invoke('shell:destroyTmux', sessionId),
 
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
@@ -55,22 +66,22 @@ const api: IpcApi = {
   getZoom: () => webFrame.getZoomFactor(),
 
   onPtyData: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, sessionId: string, data: string) =>
-      callback(sessionId, data);
+    const listener = (_event: Electron.IpcRendererEvent, panelInstanceId: string, data: string) =>
+      callback(panelInstanceId, data);
     ipcRenderer.on('pty:data', listener);
     return () => ipcRenderer.removeListener('pty:data', listener);
   },
 
   onShellData: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, sessionId: string, data: string) =>
-      callback(sessionId, data);
+    const listener = (_event: Electron.IpcRendererEvent, panelInstanceId: string, data: string) =>
+      callback(panelInstanceId, data);
     ipcRenderer.on('shell:data', listener);
     return () => ipcRenderer.removeListener('shell:data', listener);
   },
 
   onShellExit: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, sessionId: string) =>
-      callback(sessionId);
+    const listener = (_event: Electron.IpcRendererEvent, panelInstanceId: string) =>
+      callback(panelInstanceId);
     ipcRenderer.on('shell:exit', listener);
     return () => ipcRenderer.removeListener('shell:exit', listener);
   },

@@ -1,6 +1,6 @@
 import { IpcMain, BrowserWindow, clipboard } from 'electron';
 import { SessionManager } from './sessions';
-import { ShellManager } from './shell';
+import { ShellTmuxManager } from './shellTmux';
 import { ProjectManager } from './projects';
 import { StatePoller } from './statePoller';
 import { fetchJiraIssue, fetchIssueGraph } from './jira';
@@ -24,7 +24,7 @@ export function stopRegisteredStatePoller(): void {
 export function registerIpcHandlers(
   ipcMain: IpcMain,
   sessionManager: SessionManager,
-  shellManager: ShellManager,
+  shellTmuxManager: ShellTmuxManager,
   projectManager: ProjectManager,
   getWindow: () => BrowserWindow | null,
   dataDir: string
@@ -36,12 +36,13 @@ export function registerIpcHandlers(
   );
 
   ipcMain.handle('sessions:destroy', async (_event, id: string) => {
-    shellManager.kill(id);
+    shellTmuxManager.detachAllForSession(id);
+    await shellTmuxManager.destroy(id);
     await sessionManager.destroySession(id);
   });
 
   ipcMain.handle('sessions:archive', (_event, id: string) => {
-    shellManager.kill(id);
+    shellTmuxManager.detachAllForSession(id);
     sessionManager.archiveSession(id);
   });
 
@@ -163,20 +164,41 @@ export function registerIpcHandlers(
     event.returnValue = clipboard.readText();
   });
 
-  // Shell (standalone shell PTY, not tied to copilot/tmux)
-  ipcMain.handle('shell:spawn', (_event, sessionId: string, workingDir: string) => {
-    shellManager.spawn(sessionId, workingDir);
+  // PTY attach/detach (panel-instance-aware)
+  ipcMain.handle('pty:attach', (_event, sessionId: string, panelInstanceId: string, cols?: number, rows?: number) =>
+    sessionManager.ptyAttach(sessionId, panelInstanceId, cols, rows)
+  );
+
+  ipcMain.handle('pty:detach', (_event, panelInstanceId: string) => {
+    sessionManager.ptyDetach(panelInstanceId);
   });
 
-  ipcMain.on('shell:write', (_event, sessionId: string, data: string) => {
-    shellManager.write(sessionId, data);
+  ipcMain.on('pty:writePanel', (_event, panelInstanceId: string, data: string) => {
+    sessionManager.ptyWritePanel(panelInstanceId, data);
   });
 
-  ipcMain.handle('shell:resize', (_event, sessionId: string, cols: number, rows: number) => {
-    shellManager.resize(sessionId, cols, rows);
+  ipcMain.handle('pty:resizePanel', (_event, panelInstanceId: string, cols: number, rows: number) => {
+    sessionManager.ptyResizePanel(panelInstanceId, cols, rows);
   });
 
-  ipcMain.handle('shell:kill', (_event, sessionId: string) => {
-    shellManager.kill(sessionId);
+  // Shell tmux (panel-instance-aware)
+  ipcMain.handle('shell:attach', (_event, sessionId: string, panelInstanceId: string, workingDir: string, cols?: number, rows?: number) =>
+    shellTmuxManager.attach(sessionId, panelInstanceId, workingDir, cols, rows)
+  );
+
+  ipcMain.handle('shell:detach', (_event, panelInstanceId: string) => {
+    shellTmuxManager.detach(panelInstanceId);
   });
+
+  ipcMain.on('shell:writePanel', (_event, panelInstanceId: string, data: string) => {
+    shellTmuxManager.write(panelInstanceId, data);
+  });
+
+  ipcMain.handle('shell:resizePanel', (_event, panelInstanceId: string, cols: number, rows: number) => {
+    shellTmuxManager.resize(panelInstanceId, cols, rows);
+  });
+
+  ipcMain.handle('shell:destroyTmux', (_event, sessionId: string) =>
+    shellTmuxManager.destroy(sessionId)
+  );
 }

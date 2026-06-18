@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { PanelId } from './dashboard/layout';
+import { PanelInstance, PanelType, PANEL_LABELS } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
-import ShellPanelBody from './components/ShellPanelBody';
-import TerminalPanelBody from './components/TerminalPanelBody';
-import JiraPanelBody from './components/JiraPanelBody';
+import TerminalPanelInstance from './components/TerminalPanelInstance';
+import ShellPanelInstance from './components/ShellPanelInstance';
+import JiraPanelInstance from './components/JiraPanelInstance';
 import { JiraPaneHandle } from './components/JiraPane';
-import { ShellPaneHandle } from './components/ShellPane';
-import { TerminalPaneHandle } from './components/TerminalPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
 import ThemeSelector from './components/ThemeSelector';
@@ -36,20 +34,7 @@ export default function App(): React.ReactElement {
 
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
   const sessionListRef = useRef<SessionListHandle>(null);
-  const terminalRefs = useRef<Map<string, TerminalPaneHandle>>(new Map());
-  const shellRefs = useRef<Map<string, ShellPaneHandle>>(new Map());
   const jiraRefs = useRef<Map<string, JiraPaneHandle>>(new Map());
-  const ptyWriters = useRef<Map<string, (data: string) => void>>(new Map());
-  const shellWriters = useRef<Map<string, (data: string) => void>>(new Map());
-
-  const waitForRemount = () => new Promise<void>((resolve) => setTimeout(resolve, 60));
-
-  const focusTerminal = useCallback((id: string) => {
-    const layoutStore = useLayoutStore.getState();
-    if (!layoutStore.layout.terminal.visible) return;
-    layoutStore.bringToFront('terminal');
-    terminalRefs.current.get(id)?.focus();
-  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -80,13 +65,24 @@ export default function App(): React.ReactElement {
     };
   }, []);
 
-  const handleTerminalInput = useCallback((sessionId: string, data: string) => {
-    useJiraStore.getState().handleTerminalInput(sessionId, data);
-  }, []);
+  // When activeSessionId changes, switch default panels
+  const prevActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeSessionId !== prevActiveRef.current) {
+      if (activeSessionId) {
+        useLayoutStore.getState().switchDefaultPanels(activeSessionId);
+      } else {
+        // No active session — clear all default panels' currentSessionId
+        useLayoutStore.getState().switchDefaultPanels('');
+      }
+    }
+    prevActiveRef.current = activeSessionId;
+  }, [activeSessionId]);
 
+  // OSC52 clipboard handling for PTY data
   useEffect(() => {
     const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
-    const unsub = window.agentSmith.onPtyData((sessionId, data) => {
+    const unsub = window.agentSmith.onPtyData((_panelInstanceId, data) => {
       osc52Re.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = osc52Re.exec(data)) !== null) {
@@ -96,15 +92,6 @@ export default function App(): React.ReactElement {
           // Ignore invalid base64 clipboard payloads.
         }
       }
-      ptyWriters.current.get(sessionId)?.(data);
-      handleTerminalInput(sessionId, data);
-    });
-    return unsub;
-  }, [handleTerminalInput]);
-
-  useEffect(() => {
-    const unsub = window.agentSmith.onShellData((sessionId, data) => {
-      shellWriters.current.get(sessionId)?.(data);
     });
     return unsub;
   }, []);
@@ -115,17 +102,18 @@ export default function App(): React.ReactElement {
       const store = useSessionStore.getState();
       store.addSession(session);
       store.setActiveSessionId(session.id);
-      setTimeout(() => focusTerminal(session.id), 80);
     },
-    [focusTerminal]
+    []
   );
 
   const handleDestroySession = useCallback(async (id: string) => {
+    useLayoutStore.getState().destroyLinkedPanels(id);
     await window.agentSmith.destroySession(id);
     useSessionStore.getState().removeSession(id);
   }, []);
 
   const handleArchiveSession = useCallback(async (id: string) => {
+    useLayoutStore.getState().destroyLinkedPanels(id);
     await window.agentSmith.archiveSession(id);
   }, []);
 
@@ -134,9 +122,7 @@ export default function App(): React.ReactElement {
     store.bumpAttachGen(id);
     store.updateSession(id, { archived: false, dead: false });
     store.setActiveSessionId(id);
-    await waitForRemount();
-    const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
-    await window.agentSmith.unarchiveSession(id, size?.cols, size?.rows);
+    // PTY attach is handled by panel instance components when they detect the new currentSessionId
   }, []);
 
   const handleReviveSession = useCallback(async (id: string) => {
@@ -144,9 +130,7 @@ export default function App(): React.ReactElement {
     store.bumpAttachGen(id);
     store.updateSession(id, { dead: false, state: 'idle' });
     store.setActiveSessionId(id);
-    await waitForRemount();
-    const size = terminalRefs.current.get(id)?.fitAndMeasure() ?? null;
-    await window.agentSmith.reviveSession(id, size?.cols, size?.rows);
+    await window.agentSmith.reviveSession(id);
   }, []);
 
   const handleRenameSession = useCallback(async (id: string, name: string) => {
@@ -182,84 +166,132 @@ export default function App(): React.ReactElement {
     window.agentSmith.ptyWrite(sessionId, `Plan ${key}\r`);
   }, []);
 
-  const focusEntry: Record<PanelId, () => void> = {
-    sessions: () => sessionListRef.current?.focus(),
-    terminal: () => {
-      const id = useSessionStore.getState().activeSessionId;
-      if (id) terminalRefs.current.get(id)?.focus();
-    },
-    jira: () => {
-      const id = useSessionStore.getState().activeSessionId;
-      if (id) jiraRefs.current.get(id)?.focus();
-    },
-    shell: () => {
-      const id = useSessionStore.getState().activeSessionId;
-      if (id) shellRefs.current.get(id)?.focus();
-    },
-  };
+  // --- Spawn panels from context menu / double-click ---
 
-  const handleActivateTerminal = useCallback(() => {
-    const id = useSessionStore.getState().activeSessionId;
-    if (id) focusTerminal(id);
-  }, [focusTerminal]);
+  const handleSpawnPanel = useCallback((type: PanelType, sessionId: string): string | null => {
+    const store = useLayoutStore.getState();
+    return store.spawnPanel(type, sessionId);
+  }, []);
 
-  const bodies: Record<PanelId, React.ReactNode> = {
-    sessions: (
-      <SessionList
-        ref={sessionListRef}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        projectGroups={projectGroups}
-        onSelect={setActiveSessionId}
-        onCreate={handleCreateSession}
-        onActivateTerminal={handleActivateTerminal}
-        onArchive={handleArchiveSession}
-        onUnarchive={handleUnarchiveSession}
-        onDestroy={handleDestroySession}
-        onRevive={handleReviveSession}
-        onAddProject={handleAddProject}
-        onRemoveProject={handleRemoveProject}
-        onAddGroup={handleAddGroup}
-        onRemoveGroup={handleRemoveGroup}
-        onMoveWorkspace={handleMoveWorkspace}
-        onReorderGroup={handleReorderGroup}
-        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-      />
-    ),
-    terminal: (
-      <TerminalPanelBody
-        onRename={handleRenameSession}
-        onTerminalInput={handleTerminalInput}
-        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-        ptyWriters={ptyWriters}
-        terminalRefs={terminalRefs}
-      />
-    ),
-    jira: <JiraPanelBody onPlan={handleJiraPlan} jiraRefs={jiraRefs} />,
-    shell: (
-      <ShellPanelBody
-        openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
-        shellWriters={shellWriters}
-        shellRefs={shellRefs}
-      />
-    ),
-  };
+  const focusPanelById = useCallback((panelId: string) => {
+    useLayoutStore.getState().bringToFront(panelId);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-panel-id="${panelId}"]`) as HTMLElement | null;
+      el?.focus();
+    });
+  }, []);
 
-  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const handleDoubleClickSession = useCallback((sessionId: string) => {
+    const types: PanelType[] = ['terminal', 'shell', 'jira'];
+    for (const type of types) {
+      handleSpawnPanel(type, sessionId);
+    }
+    // Activate the session (switches default panels) — focus stays on Sessions panel
+    useSessionStore.getState().setActiveSessionId(sessionId);
+  }, [handleSpawnPanel]);
 
-  const titles: Partial<Record<PanelId, React.ReactNode>> = {
-    shell: (
+  const handleContextMenuSpawn = useCallback((type: PanelType, sessionId: string) => {
+    const store = useLayoutStore.getState();
+    const spawned = handleSpawnPanel(type, sessionId);
+    if (spawned) {
+      // New panel created — focus it
+      focusPanelById(spawned);
+    } else {
+      // Panel already existed — focus the existing one
+      const existing = store.findLinkedPanel(type, sessionId);
+      if (existing) {
+        focusPanelById(existing.id);
+      }
+    }
+    // Activate the session after spawning (per A4)
+    useSessionStore.getState().setActiveSessionId(sessionId);
+  }, [handleSpawnPanel, focusPanelById]);
+
+  // --- Render body / title / focusEntry for each panel instance ---
+
+  const renderBody = useCallback((instance: PanelInstance): React.ReactNode => {
+    switch (instance.type) {
+      case 'sessions':
+        return (
+          <SessionList
+            ref={sessionListRef}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            projectGroups={projectGroups}
+            onSelect={setActiveSessionId}
+            onCreate={handleCreateSession}
+            onArchive={handleArchiveSession}
+            onUnarchive={handleUnarchiveSession}
+            onDestroy={handleDestroySession}
+            onRevive={handleReviveSession}
+            onAddProject={handleAddProject}
+            onRemoveProject={handleRemoveProject}
+            onAddGroup={handleAddGroup}
+            onRemoveGroup={handleRemoveGroup}
+            onMoveWorkspace={handleMoveWorkspace}
+            onReorderGroup={handleReorderGroup}
+            onDoubleClickSession={handleDoubleClickSession}
+            onContextMenuSpawn={handleContextMenuSpawn}
+            onRename={handleRenameSession}
+            openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+          />
+        );
+      case 'terminal':
+        return (
+          <TerminalPanelInstance
+            instance={instance}
+            openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+          />
+        );
+      case 'shell':
+        return (
+          <ShellPanelInstance
+            instance={instance}
+            openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
+          />
+        );
+      case 'jira':
+        return (
+          <JiraPanelInstance
+            instance={instance}
+            onPlan={handleJiraPlan}
+            jiraRefs={jiraRefs}
+          />
+        );
+      default:
+        return null;
+    }
+  }, [
+    sessions, activeSessionId, projectGroups, setActiveSessionId,
+    handleCreateSession, handleArchiveSession, handleUnarchiveSession,
+    handleDestroySession, handleReviveSession, handleRenameSession,
+    handleAddProject, handleRemoveProject, handleAddGroup, handleRemoveGroup,
+    handleMoveWorkspace, handleReorderGroup, handleDoubleClickSession,
+    handleContextMenuSpawn, handleJiraPlan,
+  ]);
+
+  const renderTitle = useCallback((instance: PanelInstance): React.ReactNode => {
+    if (instance.type === 'sessions') return PANEL_LABELS[instance.type];
+
+    const sid = instance.currentSessionId;
+    const session = sid ? sessions.find((s) => s.id === sid) : null;
+    return (
       <>
-        Shell
-        {activeSession?.project && (
-          <span className="terminal-pane__project">[ {activeSession.project} ]</span>
-        )}
-        {activeSession && (
-          <span className="terminal-pane__dir">{activeSession.workingDir}</span>
+        <span className="workspace-panel__title-main">{PANEL_LABELS[instance.type]}</span>
+        {session && (
+          <span className="workspace-panel__title-sub">{session.name}</span>
         )}
       </>
-    ),
-  };
+    );
+  }, [sessions]);
+
+  const focusEntry = useCallback((instance: PanelInstance): (() => void) | undefined => {
+    if (instance.type === 'sessions') {
+      return () => sessionListRef.current?.focus();
+    }
+    // Terminal, shell, jira — xterm/jira pane handles focus internally
+    return undefined;
+  }, []);
 
   return (
     <div className="app-shell">
@@ -278,7 +310,7 @@ export default function App(): React.ReactElement {
         </div>
       </header>
       <div className="app-body">
-        <Workspace bodies={bodies} titles={titles} focusEntry={focusEntry} />
+        <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
       </div>
     </div>
   );

@@ -6,14 +6,16 @@ import { PtySession } from './pty';
 import { Session, SessionState, JiraIssue } from './types';
 import { BrowserWindow } from 'electron';
 import {
-  tmuxSessionName, hasTmuxSession,
+  tmuxSessionName, hasTmuxSession, createTmuxSession,
   getSessionInfo, listSmithSessions, killTmuxSession,
 } from './tmux';
 import { ensureWhitelistConfig } from './whitelist';
 
 export class SessionManager {
   private db!: Database.Database;
-  private ptySessions: Map<string, PtySession> = new Map();
+  // Panel-instance-keyed PTY attachments (multiple panels can attach to the same session's tmux)
+  private ptyAttachments: Map<string, PtySession> = new Map();
+  private panelToSession: Map<string, string> = new Map();
   private dataDir: string;
   private window: BrowserWindow | null = null;
   private sessionsRestored = false;
@@ -63,16 +65,21 @@ export class SessionManager {
     // Clean up orphaned tmux sessions (no matching DB row)
     await this.cleanupOrphanedSessions();
 
-    // Restore non-dead, non-archived sessions
+    // Mark non-dead, non-archived sessions as restored.
+    // PTY attachment is deferred to renderer-driven ptyAttach calls.
     const rows = this.db.prepare(
       'SELECT * FROM sessions WHERE dead = 0 AND archived = 0'
     ).all() as any[];
 
     for (const row of rows) {
       this.restoredIds.add(row.id);
+      // Ensure the tmux session exists (may have been killed externally)
       const tmuxName = tmuxSessionName(row.id);
       const tmuxExists = await hasTmuxSession(tmuxName);
-      await this.spawnSession(row.id, row.working_dir, row.name, row.project, tmuxExists);
+      if (!tmuxExists) {
+        // Re-create the tmux session so copilot can restart
+        await this.ensureTmuxSession(row.id, row.working_dir);
+      }
     }
   }
 
@@ -86,89 +93,141 @@ export class SessionManager {
       VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?)
     `).run(id, name, opts.workingDir, opts.project ?? null, now, now);
 
-    await this.spawnSession(id, opts.workingDir, name, opts.project ?? null, false);
+    await this.ensureTmuxSession(id, opts.workingDir);
 
     return this.getSession(id)!;
   }
 
-  private async spawnSession(
-    id: string,
-    workingDir: string,
-    _name: string,
-    _project: string | null,
-    tmuxExists: boolean,
-    size?: { cols: number; rows: number }
-  ): Promise<void> {
-    const ptySession = new PtySession(id);
+  /**
+   * Ensure the tmux session exists for a given app session. Creates it if needed.
+   * Does NOT attach a PTY — the renderer drives attachment via ptyAttach.
+   */
+  private async ensureTmuxSession(id: string, workingDir: string): Promise<void> {
+    const tmuxName = tmuxSessionName(id);
+    if (!await hasTmuxSession(tmuxName)) {
+      try {
+        await createTmuxSession(id, workingDir);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.window?.webContents.send(
+          'pty:data', id,
+          `\r\n\x1b[31m[Agent Smith] Failed to start session: ${msg}\x1b[0m\r\n`
+        );
+        this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
+        this.window?.webContents.send('session:died', id);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Panel-instance-keyed PTY attachment
+  // -----------------------------------------------------------------------
+
+  /**
+   * Attach a panel instance to a session's terminal tmux.
+   * Creates a new PtySession (tmux attach-session client) keyed by panelInstanceId.
+   */
+  async ptyAttach(sessionId: string, panelInstanceId: string, cols?: number, rows?: number): Promise<void> {
+    // Detach existing if any
+    this.ptyDetach(panelInstanceId);
+
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
+    if (!row) return;
+
+    const ptySession = new PtySession(sessionId);
 
     ptySession.on('data', (data: string) => {
-      this.window?.webContents.send('pty:data', id, data);
-    });
-
-    ptySession.on('stateChange', (state: SessionState) => {
-      this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
-        .run(state, new Date().toISOString(), id);
-      this.window?.webContents.send('session:stateChange', id, state);
+      this.window?.webContents.send('pty:data', panelInstanceId, data);
     });
 
     ptySession.on('died', () => {
-      this.handleDied(id);
+      // Only handle died once per session (other attachments will also exit)
+      this.ptyAttachments.delete(panelInstanceId);
+      this.panelToSession.delete(panelInstanceId);
+      // Check if any other attachment already triggered died for this session
+      const otherAttached = Array.from(this.panelToSession.values()).includes(sessionId);
+      if (!otherAttached) {
+        this.handleDied(sessionId);
+      }
     });
 
     try {
-      await ptySession.spawn(workingDir, id, tmuxExists, size?.cols, size?.rows);
-      this.ptySessions.set(id, ptySession);
+      const tmuxExists = await hasTmuxSession(tmuxSessionName(sessionId));
+      if (!tmuxExists) {
+        await this.ensureTmuxSession(sessionId, row.working_dir);
+      }
+      await ptySession.spawn(row.working_dir, sessionId, true, cols ?? 120, rows ?? 36);
+      this.ptyAttachments.set(panelInstanceId, ptySession);
+      this.panelToSession.set(panelInstanceId, sessionId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.window?.webContents.send(
-        'pty:data', id,
-        `\r\n\x1b[31m[Agent Smith] Failed to start session: ${msg}\x1b[0m\r\n`
+        'pty:data', panelInstanceId,
+        `\r\n\x1b[31m[Agent Smith] Failed to attach: ${msg}\x1b[0m\r\n`
       );
-      this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
-      this.window?.webContents.send('session:died', id);
     }
   }
 
   /**
-   * Archive a session: detach the PTY but keep the tmux session alive.
+   * Detach a panel instance's PTY (keeps tmux running).
+   */
+  ptyDetach(panelInstanceId: string): void {
+    const pty = this.ptyAttachments.get(panelInstanceId);
+    if (pty) {
+      pty.kill();
+      this.ptyAttachments.delete(panelInstanceId);
+      this.panelToSession.delete(panelInstanceId);
+    }
+  }
+
+  /**
+   * Detach all PTY attachments for a given session.
+   */
+  private detachAllPtysForSession(sessionId: string): void {
+    for (const [panelId, sid] of this.panelToSession) {
+      if (sid === sessionId) {
+        const pty = this.ptyAttachments.get(panelId);
+        if (pty) pty.kill();
+        this.ptyAttachments.delete(panelId);
+        this.panelToSession.delete(panelId);
+      }
+    }
+  }
+
+  ptyWritePanel(panelInstanceId: string, data: string): void {
+    this.ptyAttachments.get(panelInstanceId)?.write(data);
+  }
+
+  ptyResizePanel(panelInstanceId: string, cols: number, rows: number): void {
+    this.ptyAttachments.get(panelInstanceId)?.resize(cols, rows);
+  }
+
+  /**
+   * Archive a session: detach all PTYs but keep the tmux session alive.
    */
   archiveSession(id: string): void {
-    const pty = this.ptySessions.get(id);
-    if (pty) {
-      pty.kill(); // kills attach PTY only, tmux keeps running
-      this.ptySessions.delete(id);
-    }
+    this.detachAllPtysForSession(id);
     this.db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run(id);
     this.window?.webContents.send('session:archived', id);
   }
 
   /**
-   * Unarchive a session: reattach to the (possibly still running) tmux session.
+   * Unarchive a session: mark as unarchived. PTY attachment is deferred to renderer.
    */
-  async unarchiveSession(id: string, cols?: number, rows?: number): Promise<void> {
+  async unarchiveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
-
     this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
-
-    const tmuxName = tmuxSessionName(id);
-    const tmuxExists = await hasTmuxSession(tmuxName);
-    const size = cols && rows ? { cols, rows } : undefined;
-    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists, size);
+    // Ensure tmux session exists (it may have died while archived)
+    await this.ensureTmuxSession(id, row.working_dir);
   }
 
   /**
    * Permanently destroy a session: kill tmux session and delete DB row.
    */
   async destroySession(id: string): Promise<void> {
-    const pty = this.ptySessions.get(id);
-    if (pty) {
-      await pty.destroyTmux();
-      this.ptySessions.delete(id);
-    } else {
-      // No active PTY (archived) — kill tmux directly
-      await killTmuxSession(tmuxSessionName(id));
-    }
+    this.detachAllPtysForSession(id);
+    await killTmuxSession(tmuxSessionName(id));
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
@@ -176,25 +235,34 @@ export class SessionManager {
     this.db.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, id);
   }
 
-  async reviveSession(id: string, cols?: number, rows?: number): Promise<void> {
+  async reviveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
 
-    const tmuxName = tmuxSessionName(id);
-    const tmuxExists = await hasTmuxSession(tmuxName);
-
     this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
 
-    const size = cols && rows ? { cols, rows } : undefined;
-    await this.spawnSession(id, row.working_dir, row.name, row.project, tmuxExists, size);
+    // Re-create the tmux session so copilot can restart
+    await this.ensureTmuxSession(id, row.working_dir);
   }
 
+  /** Legacy: write to any PTY attached to the given session (used by JiraPlan). */
   ptyWrite(id: string, data: string): void {
-    this.ptySessions.get(id)?.write(data);
+    for (const [panelId, sid] of this.panelToSession) {
+      if (sid === id) {
+        this.ptyAttachments.get(panelId)?.write(data);
+        return;
+      }
+    }
   }
 
+  /** Legacy: resize any PTY attached to the given session. */
   ptyResize(id: string, cols: number, rows: number): void {
-    this.ptySessions.get(id)?.resize(cols, rows);
+    for (const [panelId, sid] of this.panelToSession) {
+      if (sid === id) {
+        this.ptyAttachments.get(panelId)?.resize(cols, rows);
+        return;
+      }
+    }
   }
 
   getSessions(): Session[] {
@@ -212,11 +280,12 @@ export class SessionManager {
     this.db.prepare('UPDATE sessions SET last_active = ? WHERE dead = 0')
       .run(new Date().toISOString());
 
-    // Kill only attach PTYs — tmux sessions keep running
-    for (const [, pty] of this.ptySessions) {
+    // Kill all attach PTYs — tmux sessions keep running
+    for (const [, pty] of this.ptyAttachments) {
       pty.kill();
     }
-    this.ptySessions.clear();
+    this.ptyAttachments.clear();
+    this.panelToSession.clear();
   }
 
   getNonDeadSessions(): { id: string; state: SessionState }[] {
@@ -225,23 +294,15 @@ export class SessionManager {
   }
 
   handleStateChange(id: string, state: SessionState): void {
-    const pty = this.ptySessions.get(id);
-    if (pty) {
-      pty.setState(state);
-      return;
-    }
-
+    // State changes come from the state poller, not from PTY sessions.
+    // Update the DB and notify the renderer directly.
     this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
       .run(state, new Date().toISOString(), id);
     this.window?.webContents.send('session:stateChange', id, state);
   }
 
   handleDied(id: string): void {
-    const pty = this.ptySessions.get(id);
-    if (pty) {
-      pty.kill();
-      this.ptySessions.delete(id);
-    }
+    this.detachAllPtysForSession(id);
     this.db.prepare('UPDATE sessions SET dead = 1, state = ? WHERE id = ?').run('idle', id);
     this.window?.webContents.send('session:died', id);
   }
@@ -255,8 +316,15 @@ export class SessionManager {
     );
 
     for (const ts of tmuxSessions) {
-      // Extract the session ID prefix from the tmux name (smith-<12 chars>)
-      const prefix = ts.name.replace('smith-', '');
+      // Extract the session ID prefix from tmux name:
+      // Terminal: "smith-<12 chars>" → prefix is the 12-char UUID prefix
+      // Shell:   "smith-shell-<12 chars>" → prefix is the 12-char UUID prefix
+      let prefix: string;
+      if (ts.name.startsWith('smith-shell-')) {
+        prefix = ts.name.replace('smith-shell-', '');
+      } else {
+        prefix = ts.name.replace('smith-', '');
+      }
       const hasDbRow = Array.from(dbIds).some((id) => id.startsWith(prefix));
       if (!hasDbRow) {
         console.log(`[tmux] Cleaning up orphaned tmux session: ${ts.name}`);

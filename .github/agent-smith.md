@@ -7,38 +7,64 @@ Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://g
 ## Features
 
 ### Multi-session management
-- Run any number of Copilot CLI sessions simultaneously, each in its own terminal pane.
+- Run any number of Copilot CLI sessions simultaneously.
 - Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
-- Rename any session by clicking its name in the terminal header.
+- Rename any session by right-clicking it → **Session** → **Rename**.
 - Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.
 - Permanently destroy a session from the archived list with confirmation (kills the tmux session).
 - Revive a dead session without losing its scrollback.
 
 ### Customizable dashboard
-The main workspace is a **12×12 virtual grid** of draggable, resizable panels (replacing the old fixed sidebar/terminal/jira flexbox layout). The grid system is custom-built with React + pointer events (no third-party windowing library), adapted from the pattern in `src/renderer/dashboard/`.
+The main workspace is a **24×24 virtual grid** of draggable, resizable panels. Multiple instances of the same panel type can exist simultaneously (e.g. two terminal panels showing different sessions). The grid system is custom-built with React + pointer events (no third-party windowing library), adapted from the pattern in `src/renderer/dashboard/`.
 
-**Panels** (one instance of each, all wrapping existing components):
-| Panel | Content |
-|---|---|
-| `sessions` | Session sidebar (`SessionList`) |
-| `terminal` | Active session's terminal (`TerminalPane`) |
-| `jira` | Jira issue pane (`JiraPane`) |
+**Panel types:**
+| Type | Content | Multi-instance | Mode |
+|---|---|---|---|
+| `sessions` | Session sidebar (`SessionList`) | No (singleton) | `singleton` |
+| `terminal` | CLI Terminal (`TerminalPane`) | Yes | `default` or `linked` |
+| `shell` | Shell terminal (tmux-backed) | Yes | `default` or `linked` |
+| `jira` | Jira issue pane (`JiraPane`) | Yes | `default` or `linked` |
+
+**Panel modes:**
+- **Singleton**: Only one instance exists (Sessions panel). Visibility can be toggled from the Panel menu.
+- **Default**: The first panel of each type. Follows the active session — when a new session is activated, the Default panel switches to show that session's content (unless a linked panel of the same type already exists for that session).
+- **Linked**: Pinned to a specific session. Created by double-clicking a session or via the context menu. Always shows the same session.
+
+**Panel instance data model** (`PanelInstance`):
+- `id` — type-prefixed nanoid (e.g. `terminal-a8f3k2`) or `"sessions"` for the singleton.
+- `type` — `'sessions' | 'terminal' | 'jira' | 'shell'`
+- `placement` — `{ x, y, w, h, visible, z }`
+- `mode` — `'singleton' | 'default' | 'linked'`
+- `linkedSessionId` — set only when mode is `linked`
+- `currentSessionId` — what the panel is currently displaying
+
+**Default panel promotion:** When the Default panel of a type is closed, the first remaining instance of that type (in reading order) is promoted to Default. It loses its session link but keeps its current content.
+
+**Spawning panels:**
+- **Double-click** a session in the list → spawns Terminal + Shell + Jira panels (in that order) for that session. Focus stays on the Sessions panel.
+- **Right-click → context menu** on a session → spawn an individual panel type. Focus moves to the spawned panel.
+- If a linked panel already exists for that session+type, focus moves to the existing panel instead.
+- Spawn placement: (1) fills the first empty space ≥ 2×2; (2) splits an existing same-type panel; (3) overlays at centre 3×3.
+
+**Closing panels:**
+- **✕ on a panel** destroys the instance (Sessions panel is hidden instead). Does NOT destroy session resources.
+- **Archiving a session** destroys all linked panels for that session.
+- **Restoring a session** activates it in Default panels (no new panels spawned).
 
 - **Drag** a panel by its header to move it (snaps to grid cells, clamped to bounds).
 - **Resize** from any of 8 edge/corner handles (minimum 1×1 cell).
 - **Z-order:** clicking a panel brings it to the front; panels may overlap.
-- **Panel menu** (header, left of zoom): toggle each panel's visibility and switch between built-in layout presets (`List Left`, `Classic`, `Terminal Bottom`, `Focus Terminal`). The menu also has a **Lock layout** toggle that disables drag/resize/close (presets still work while locked). The menu stays open while clicking options.
-- **Persistence:** the full layout (placements + lock state + active preset) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch.
-- Hidden panels stay **mounted** (not unmounted) so terminal xterm buffers survive being toggled off/on.
-- The terminal, jira, and shell panels use an **LRU mounting strategy**: at most 3 sessions are mounted per panel type (the active session + 2 recently-used). Evicted sessions unmount their xterm; on reactivation, a fresh xterm mounts and tmux repaints the screen. This bounds memory usage regardless of total session count.
+- **Panel menu** (header, left of zoom): toggle Sessions panel visibility and **Lock layout** toggle.
+- **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
+- Default panels display a small **◆** badge in the header to distinguish them from linked panels.
 
 #### Dashboard keyboard navigation
 Two-layer, **focus-gated** model:
-- **Ctrl+Tab / Ctrl+Shift+Tab** — cycle focus between visible panels in grid reading order (top-left → bottom-right, higher-z wins ties). Each panel has an entry point: terminal → xterm, sessions → selected item, jira → key input.
+- **Ctrl+Tab / Ctrl+Shift+Tab** — cycle focus between visible panel instances in grid reading order (top-left → bottom-right, higher-z wins ties).
 - **Tab / Shift+Tab** — cycle focusable elements **within** the focused panel only (wraps at the ends). In the terminal panel, Tab goes to the PTY (shell autocomplete). When focus is **outside** any panel (e.g. header), plain Tab is suppressed — there is no global Tab navigation.
-- **Sessions panel:** Tab moves between session items, selecting each on focus (its terminal becomes visible). **Enter** on a focused session moves focus into the terminal panel (if visible). Per-item action buttons are excluded from the tab cycle.
-- **Ctrl+N** opens the New Session dropdown and, after a session is created, moves focus into the new terminal (if the terminal panel is visible).
+- **Sessions panel:** Tab moves between session items, selecting each on focus (Default panels switch to that session).
+- **Ctrl+N** opens the New Session dropdown.
 
 ### Session persistence (tmux)
 Each copilot session runs inside a **tmux session** that is independent of the Electron process. This means:
@@ -48,7 +74,9 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 
 **tmux is a hard requirement.** If tmux is not installed, session creation fails with a descriptive error. There is no fallback to direct node-pty.
 
-**tmux session naming:** `smith-<first 12 chars of UUID>` — deterministic, short, avoids tmux name limits.
+**tmux session naming:**
+- Terminal: `smith-<first 12 chars of UUID>` — deterministic, short, avoids tmux name limits.
+- Shell: `smith-shell-<first 12 chars of UUID>` — separate tmux session per app session for the shell panel.
 
 **tmux session configuration:**
 - `mouse on` (required for Ink-based CLI mouse tracking)
@@ -58,11 +86,13 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 - `set-clipboard on`
 
 **Session lifecycle:**
-1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot, then spawns an attach PTY (`tmux attach-session`) via node-pty.
-2. PTY output flows through the tmux attach client to xterm.js — the renderer is unaware of tmux.
-3. On archive, only the attach PTY is killed; the tmux session survives.
-4. On app close, `persistAll()` kills all attach PTYs but leaves tmux sessions running.
-5. On next launch, `restoreSessions()` checks `hasTmuxSession()` for each session row. If the tmux session exists, it replays scrollback via `capturePaneFullScrollback()` and reattaches. If not (OS restart), it creates a fresh tmux session.
+1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot. PTY attachment is deferred to the renderer.
+2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
+3. PTY output flows through the tmux attach client to xterm.js, routed by `panelInstanceId`.
+4. On archive, all PTY attachments for the session are killed; tmux sessions (terminal + shell) survive.
+5. On app close, `persistAll()` kills all attach PTYs but leaves tmux sessions running.
+6. On next launch, `restoreSessions()` ensures tmux sessions exist; PTY attachment is deferred to panel mount.
+7. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions.
 
 Each session UUID is passed to copilot as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database.
 
@@ -106,7 +136,7 @@ States are shown as coloured indicator pills in the session sidebar.
 - The polling loop is managed by `StatePoller`, not `PtySession`.
 
 ### Jira issue overview
-The Jira pane is a dashboard panel (`jira`) that displays issue details for the active session. It shows one Jira pane per session (all mounted, only the active session's shown).
+The Jira pane is a dashboard panel (`jira`) that displays issue details for a session. Multiple Jira panel instances can exist, each linked to a specific session or following the active session (Default mode).
 
 **Fetching issues:**
 - Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
@@ -168,39 +198,42 @@ Tab focus is constrained to the dialog while it is open (session Tab-cycling is 
 
 ```
 Main process
-├── SessionManager       SQLite session store + session lifecycle
+├── SessionManager       SQLite session store + session lifecycle + panel-instance PTY attachments
+├── ShellTmuxManager     tmux-backed shell session management (attach/detach/destroy per panel instance)
 ├── ProjectManager       userData-backed workspace config manager
 ├── StatePoller          tmux capture-pane polling + state detection
-├── tmux.ts              tmux CLI wrapper (create/kill/capture/query sessions)
-├── PtySession(s)        node-pty wrapper for tmux attach-session client
+├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
+├── PtySession           node-pty wrapper for tmux attach-session client
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
 tmux server (independent process)
-└── smith-* sessions     each runs copilot CLI; survives app close
+├── smith-* sessions       each runs copilot CLI; survives app close
+└── smith-shell-* sessions each runs $SHELL; survives app close
 
 Renderer process
-├── App.tsx              root wiring, PTY/shell data dispatchers, panel focus refs
+├── App.tsx              root wiring, renderBody dispatcher, activation flow
 ├── stores/              Zustand state stores
 │   ├── sessionStore.ts  sessions, activeSessionId, attachGen, lifecycle actions
 │   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
 │   ├── projectStore.ts  projectGroups, CRUD actions
-│   └── layoutStore.ts   dashboard placements, lock, preset (localStorage-persisted)
+│   └── layoutStore.ts   PanelInstance[] management, spawn/destroy/promote/switchDefault
 ├── hooks/
 │   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys
 ├── dashboard/           grid layout system (framework-agnostic)
-│   ├── layout.ts        grid math, panel ordering, presets, default layout
+│   ├── layout.ts        24×24 grid math, PanelInstance types, spawn placement algorithm
 │   └── usePanelFocus.ts intra-panel Tab wrapping
-├── Workspace            12×12 grid container: drag/resize, Ctrl+Tab, focus tracking
-├── WorkspacePanel       panel chrome: drag header, resize handles, close, error boundary
-├── PanelMenu            header dropdown: panel toggles + layout presets + lock
+├── Workspace            24×24 grid container: drag/resize, Ctrl+Tab (instance cycling), focus tracking
+├── WorkspacePanel       panel chrome: drag header, resize handles, close, default badge (◆), error boundary
+├── PanelMenu            header dropdown: Sessions toggle + lock
 ├── SessionList          sessions panel body: new/archive/restore/destroy
-│   ├── Active sessions  main list with archive button (✕)
+│   ├── Active sessions  main list with archive button (✕), double-click, context menu
 │   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
-├── TerminalPanelBody    LRU-mounted terminal panes (max 3), PTY write dispatch
-├── ShellPanelBody       LRU-mounted shell panes (max 3), shell write dispatch
-├── JiraPanelBody        LRU-mounted Jira panes (max 3)
-├── TerminalPane         xterm.js instance (uses useXterm hook), rename UI
-├── ShellPane            xterm.js instance (uses useXterm hook), shell spawn
+├── SessionContextMenu   right-click context menu: New Panel (Terminal/Shell/Jira) + Rename
+├── TerminalPanelInstance per-instance terminal: PTY attach/detach lifecycle, data routing
+├── ShellPanelInstance   per-instance shell: shell tmux attach/detach lifecycle, data routing
+├── JiraPanelInstance    per-instance Jira: issue display for currentSessionId
+├── TerminalPane         xterm.js instance (uses useXterm hook)
+├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
@@ -215,19 +248,21 @@ Preload
 
 **Data flow:**
 ```
-Electron → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data → renderer
+Renderer panel instance → ptyAttach(sessionId, panelInstanceId) → main process
+Main process → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data → pty:data(panelInstanceId) → renderer
                     ↓
            tmux server → copilot process (child of tmux, NOT Electron)
 ```
 
 **Session lifecycle:**
-1. `createSession()` creates a detached tmux session running copilot, then spawns a `tmux attach-session` PTY via node-pty.
-2. PTY output is forwarded to the renderer via `pty:data` IPC events; xterm.js buffers it even for hidden panes.
-3. On archive (✕ button), the attach PTY is killed but the tmux session keeps running. The session moves to the archived list.
-4. On restore (↺ from archived list) or revive, the renderer mounts a **fresh** xterm (via a bumped `attachGen` React key), fits it to the panel, then the main process reattaches the tmux PTY **at that exact size** — so tmux repaints cleanly with no post-attach resize (avoids duplicated/garbled output and wrong sizing).
-5. On app close, `persistAll()` kills all attach PTYs and stops state polling. tmux sessions survive.
-6. On next launch, `restoreSessions()` reattaches to surviving tmux sessions (fresh xterm + tmux repaint); if a tmux session is gone (OS restart), a fresh one is created.
-7. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
+1. `createSession()` creates a detached tmux session running copilot. PTY attachment is deferred to the renderer.
+2. When a panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which creates a fresh PTY client attached to the session's tmux. Each panel instance has its own PTY client, enabling dual-attach.
+3. PTY output is routed to the specific panel instance via `pty:data(panelInstanceId)` IPC events.
+4. On archive (✕ button), all PTY attachments for the session are killed, linked panels are destroyed, but tmux sessions (terminal + shell) keep running.
+5. On restore (↺ from archived list), the session is activated and Default panels switch to it. PTY attachment happens when the panel instance mounts.
+6. On app close, `persistAll()` kills all attach PTYs and stops state polling. tmux sessions survive.
+7. On next launch, `restoreSessions()` ensures tmux sessions exist; PTY attachment is driven by panel instance mount.
+8. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
 
 > Scrollback is owned by tmux; on reattach the current screen is repainted by tmux into a clean xterm. There is no manual scrollback replay (it collided with the live buffer and tmux's repaint).
 
@@ -247,10 +282,11 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 
 | Shortcut | Action |
 |---|---|
-| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Cycle focus between visible panels |
+| **Ctrl+Tab** / **Ctrl+Shift+Tab** | Cycle focus between visible panel instances |
 | **Tab** / **Shift+Tab** | Cycle within the focused panel (sessions: select session; terminal: shell tab) |
-| **Enter** (on a focused session) | Move focus into the terminal panel |
-| **Ctrl+n** | New session (focuses the new terminal once created) |
+| **Double-click** (session in list) | Spawn Terminal + Shell + Jira panels for that session |
+| **Right-click** (session in list) | Context menu: New Panel (Terminal/Shell/Jira), Rename |
+| **Ctrl+n** | New session |
 | **Ctrl+c** | Copy selection to clipboard (if text is selected); otherwise send SIGINT |
 | **Ctrl+v** | Paste from clipboard |
 | **Shift+Arrow** | Extend text selection (xterm-level) |

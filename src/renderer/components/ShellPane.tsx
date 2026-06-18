@@ -2,7 +2,6 @@ import React, {
   forwardRef,
   useEffect,
   useImperativeHandle,
-  useRef,
 } from 'react';
 import { Session } from '../../main/types';
 import { useXterm } from '../hooks/useXterm';
@@ -18,15 +17,14 @@ export interface ShellPaneHandle {
 interface Props {
   session: Session;
   isActive: boolean;
-  panelVisible: boolean;
+  panelInstanceId: string;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
 const ShellPane = forwardRef<ShellPaneHandle, Props>(function ShellPane(
-  { session, isActive, panelVisible, openDropdownWithKeyboardRef },
+  { session, isActive, panelInstanceId, openDropdownWithKeyboardRef },
   ref
 ): React.ReactElement {
-  const spawnedRef = useRef(false);
   const { activate, containerRef, fitAndMeasure, focus, termRef, write } = useXterm({
     openDropdownRef: openDropdownWithKeyboardRef,
   });
@@ -37,47 +35,37 @@ const ShellPane = forwardRef<ShellPaneHandle, Props>(function ShellPane(
     write,
   }), [fitAndMeasure, focus, write]);
 
+  // Wire up xterm input → IPC (using panelInstanceId)
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
 
     const onDataDisposable = term.onData((data) => {
-      window.agentSmith.shellWrite(session.id, data);
+      window.agentSmith.shellWritePanel(panelInstanceId, data);
     });
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      void window.agentSmith.shellResize(session.id, cols, rows);
+      void window.agentSmith.shellResizePanel(panelInstanceId, cols, rows);
     });
 
     return () => {
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
     };
-  }, [session.id, termRef]);
+  }, [panelInstanceId, termRef]);
 
+  // Activate xterm when visible
   useEffect(() => {
-    if (!isActive || !panelVisible) return;
+    if (!isActive) return;
 
     activate();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const size = fitAndMeasure();
       if (size) {
-        void window.agentSmith.shellResize(session.id, size.cols, size.rows);
-      }
-      if (!spawnedRef.current) {
-        spawnedRef.current = true;
-        void window.agentSmith.shellSpawn(session.id, session.workingDir);
+        void window.agentSmith.shellResizePanel(panelInstanceId, size.cols, size.rows);
       }
     }));
-  }, [activate, fitAndMeasure, isActive, panelVisible, session.id, session.workingDir]);
-
-  useEffect(() => {
-    const unsub = window.agentSmith.onShellExit((sessionId) => {
-      if (sessionId !== session.id) return;
-      termRef.current?.clear();
-    });
-    return unsub;
-  }, [session.id, termRef]);
+  }, [activate, fitAndMeasure, isActive, panelInstanceId]);
 
   return (
     <div className="shell-pane" style={isActive ? undefined : { display: 'none' }}>

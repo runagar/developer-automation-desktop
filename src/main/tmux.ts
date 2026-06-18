@@ -178,6 +178,49 @@ export async function listSmithSessions(): Promise<Array<{ name: string; activit
   }
 }
 
+export function shellTmuxSessionName(sessionId: string): string {
+  return `smith-shell-${sessionId.slice(0, 12)}`;
+}
+
+export async function createShellTmuxSession(sessionId: string, workingDir: string): Promise<string> {
+  const name = shellTmuxSessionName(sessionId);
+
+  if (await hasTmuxSession(name)) {
+    console.log(`[tmux] Shell session ${name} already exists, reusing`);
+    await configureTmuxSession(name);
+    return name;
+  }
+
+  const shell = process.env.SHELL || '/bin/bash';
+  console.log(`[tmux] Creating shell session ${name} with ${shell}`);
+
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      'tmux',
+      [
+        'new-session', '-d',
+        '-s', name,
+        '-x', '120',
+        '-y', '40',
+        '-c', workingDir,
+        '--',
+        shell,
+      ],
+      {
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+      },
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+
+  await configureTmuxSession(name);
+  console.log(`[tmux] Shell session ${name} created`);
+  return name;
+}
+
 /**
  * Check if tmux is installed. Throws a descriptive error if not.
  */

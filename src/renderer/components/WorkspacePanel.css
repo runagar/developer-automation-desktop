@@ -47,6 +47,25 @@
   flex: 1;
 }
 
+.workspace-panel__title-main {
+  flex-shrink: 0;
+}
+
+.workspace-panel__title-sub {
+  font-size: 0.5rem;
+  color: var(--c-dim);
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-panel__default-badge {
+  font-size: 0.85rem;
+  color: var(--c-mid);
+  flex-shrink: 0;
+}
+
 .workspace-panel__close {
   flex-shrink: 0;
 }
