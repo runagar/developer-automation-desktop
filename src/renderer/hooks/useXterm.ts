@@ -98,13 +98,23 @@ export function useXterm(options: UseXtermOptions): UseXtermReturn {
     };
   }, []);
 
-  // Fit terminal whenever the container is resized
+  // Fit terminal whenever the container is resized.
+  // Deferred via rAF to avoid "ResizeObserver loop completed with undelivered
+  // notifications" — fit() mutates layout, which would trigger another
+  // observation in the same loop iteration if called synchronously.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => fitAddonRef.current?.fit());
+    let rafId = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => fitAddonRef.current?.fit());
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, []);
 
   // Re-apply xterm theme when the data-theme attribute changes

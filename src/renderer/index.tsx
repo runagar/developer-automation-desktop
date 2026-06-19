@@ -6,6 +6,16 @@ import { initZoom } from './components/ZoomControl';
 import './styles/global.css';
 import './styles/pipboy.css';
 
+// Suppress the benign "ResizeObserver loop completed with undelivered
+// notifications" error. This is a spec-compliant browser behaviour, not a real
+// error, but webpack-dev-server's overlay treats it as one.
+window.addEventListener('error', (e) => {
+  if (e.message?.includes('ResizeObserver loop')) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }
+});
+
 // Apply saved theme and zoom before first render
 initTheme();
 initZoom();
