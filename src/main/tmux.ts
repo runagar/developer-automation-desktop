@@ -52,6 +52,13 @@ export async function createTmuxSession(sessionId: string, workingDir: string): 
 
   console.log(`[tmux] Creating session ${name} for copilot --session-id ${sessionId}`);
 
+  // Wrap copilot in the user's login-interactive shell so that PATH additions
+  // from shell config files (.zshrc, .bashrc, etc.) are available — e.g. SDKMAN
+  // (Java), pyenv, rbenv. `exec` replaces the shell with copilot so that when
+  // copilot exits the tmux window closes (preserving died-detection behaviour).
+  const shell = process.env.SHELL || '/bin/bash';
+  const copilotCmd = `exec copilot --session-id ${sessionId} --banner`;
+
   await new Promise<void>((resolve, reject) => {
     execFile(
       'tmux',
@@ -62,7 +69,7 @@ export async function createTmuxSession(sessionId: string, workingDir: string): 
         '-y', '40',
         '-c', workingDir,
         '--',
-        'copilot', '--session-id', sessionId, '--banner',
+        shell, '-lic', copilotCmd,
       ],
       {
         env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
@@ -204,7 +211,7 @@ export async function createShellTmuxSession(sessionId: string, workingDir: stri
         '-y', '40',
         '-c', workingDir,
         '--',
-        shell,
+        shell, '-l',
       ],
       {
         env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
