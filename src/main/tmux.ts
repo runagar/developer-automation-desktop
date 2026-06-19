@@ -54,10 +54,15 @@ export async function createTmuxSession(sessionId: string, workingDir: string): 
 
   // Wrap copilot in the user's login-interactive shell so that PATH additions
   // from shell config files (.zshrc, .bashrc, etc.) are available — e.g. SDKMAN
-  // (Java), pyenv, rbenv. `exec` replaces the shell with copilot so that when
-  // copilot exits the tmux window closes (preserving died-detection behaviour).
+  // (Java), pyenv, rbenv. We also explicitly trigger direnv (if installed) so
+  // that per-project .envrc settings (e.g. Java/Maven version) are applied.
+  // `exec` replaces the shell with copilot so that when copilot exits the tmux
+  // window closes (preserving died-detection behaviour).
   const shell = process.env.SHELL || '/bin/bash';
-  const copilotCmd = `exec copilot --session-id ${sessionId} --banner`;
+  const copilotCmd = [
+    'if command -v direnv >/dev/null 2>&1; then eval "$(direnv export zsh 2>/dev/null || direnv export bash 2>/dev/null)"; fi',
+    `exec copilot --session-id ${sessionId} --banner`,
+  ].join('; ');
 
   await new Promise<void>((resolve, reject) => {
     execFile(
