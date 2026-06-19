@@ -84,10 +84,7 @@ app.commandLine.appendSwitch('in-process-gpu');
 app.on('ready', async () => {
   await initialize();
   createWindow();
-  // Open DevTools in dev to expose renderer errors
-  if (process.env.NODE_ENV !== 'production' && mainWindow) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+
 });
 
 app.on('window-all-closed', async () => {
