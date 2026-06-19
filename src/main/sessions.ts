@@ -137,11 +137,15 @@ export class SessionManager {
     const ptySession = new PtySession(sessionId);
 
     ptySession.on('data', (data: string) => {
+      // Guard: only forward if we're still the active attachment for this panel.
+      // Concurrent ptyAttach calls can orphan us during the async spawn window.
+      if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
       this.window?.webContents.send('pty:data', panelInstanceId, data);
     });
 
     ptySession.on('died', () => {
-      // Only handle died once per session (other attachments will also exit)
+      // Guard: ignore if superseded by a newer attachment
+      if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
       this.ptyAttachments.delete(panelInstanceId);
       this.panelToSession.delete(panelInstanceId);
       // Check if any other attachment already triggered died for this session
@@ -157,6 +161,8 @@ export class SessionManager {
         await this.ensureTmuxSession(sessionId, row.working_dir);
       }
       await ptySession.spawn(row.working_dir, sessionId, true, cols ?? 120, rows ?? 36);
+      // Kill any orphan that a concurrent ptyAttach stored while we were awaiting
+      this.ptyDetach(panelInstanceId);
       this.ptyAttachments.set(panelInstanceId, ptySession);
       this.panelToSession.set(panelInstanceId, sessionId);
     } catch (err) {

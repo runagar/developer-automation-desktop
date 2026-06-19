@@ -65,13 +65,20 @@ export class ShellTmuxManager {
       tmuxName,
     };
 
+    // Kill any orphan that a concurrent attach stored while we were awaiting
+    this.detach(panelInstanceId);
     this.attachments.set(panelInstanceId, attachment);
 
     proc.onData((data: string) => {
+      // Guard: only forward if we're still the active attachment for this panel.
+      // Concurrent attach calls can orphan us during the async spawn window.
+      if (this.attachments.get(panelInstanceId)?.ptyProcess !== proc) return;
       this.window?.webContents.send('shell:data', panelInstanceId, data);
     });
 
     proc.onExit(() => {
+      // Guard: ignore if superseded by a newer attachment
+      if (this.attachments.get(panelInstanceId)?.ptyProcess !== proc) return;
       this.attachments.delete(panelInstanceId);
       // Check if the tmux session is still alive — if not, it exited
       void hasTmuxSession(tmuxName)
