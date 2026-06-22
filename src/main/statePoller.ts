@@ -76,6 +76,7 @@ export class StatePoller {
 
 function detectStateFromPane(content: string): SessionState | null {
   const plain = content.replace(ANSI_RE, '');
+  if (plain.includes('Copilot has been suspended')) return 'suspended';
   if (plain.includes('esc cancel')) return 'running';
   if (plain.includes('enter to select') || plain.includes('enter to confirm') || plain.includes('Asking user')) return 'awaiting';
   if (plain.includes('❯')) return 'idle';

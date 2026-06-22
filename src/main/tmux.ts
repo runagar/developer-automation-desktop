@@ -168,6 +168,24 @@ export async function getSessionInfo(name: string): Promise<{ activity: number; 
 }
 
 /**
+ * Get the PID of the root process running in a tmux session's pane.
+ */
+export async function getPanePid(name: string): Promise<number | null> {
+  try {
+    const output = (await execTmux([
+      'display-message',
+      '-t', name,
+      '-p',
+      '#{pane_pid}',
+    ])).trim();
+    const pid = parseInt(output, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * List all smith-* tmux sessions with metadata.
  */
 export async function listSmithSessions(): Promise<Array<{ name: string; activity: number; attached: number }>> {

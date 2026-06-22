@@ -9,6 +9,7 @@ const api: IpcApi = {
   unarchiveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:unarchive', id, cols, rows),
   renameSession: (id, name) => ipcRenderer.invoke('sessions:rename', id, name),
   reviveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:revive', id, cols, rows),
+  resumeSession: (id) => ipcRenderer.invoke('sessions:resume', id),
 
   ptyWrite: (sessionId, data) => ipcRenderer.send('pty:write', sessionId, data),
   ptyResize: (sessionId, cols, rows) => ipcRenderer.invoke('pty:resize', sessionId, cols, rows),

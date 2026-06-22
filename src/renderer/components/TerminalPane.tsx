@@ -21,6 +21,7 @@ interface Props {
   session: Session;
   isActive: boolean;
   panelInstanceId?: string;
+  onResume?: () => void;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
@@ -30,15 +31,23 @@ type ShiftSelection = {
 };
 
 const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
-  { session, isActive, panelInstanceId, openDropdownWithKeyboardRef },
+  { session, isActive, panelInstanceId, onResume, openDropdownWithKeyboardRef },
   ref
 ): React.ReactElement {
   const shiftSelectionRef = useRef<ShiftSelection | null>(null);
   const termForKeysRef = useRef<Terminal | null>(null);
+  const onResumeRef = useRef(onResume);
+  onResumeRef.current = onResume;
 
   const extraKeyHandler = useCallback((e: KeyboardEvent) => {
     const term = termForKeysRef.current;
     if (!term || e.type !== 'keydown') return true;
+
+    // Alt+R — resume suspended session
+    if (e.key === 'r' && e.altKey && !e.ctrlKey && !e.shiftKey) {
+      onResumeRef.current?.();
+      return false;
+    }
 
     const isShiftArrow =
       e.shiftKey && !e.altKey &&

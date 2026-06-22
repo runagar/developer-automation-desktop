@@ -60,6 +60,10 @@ export function registerIpcHandlers(
     sessionManager.reviveSession(id, cols, rows)
   );
 
+  ipcMain.handle('sessions:resume', (_event, id: string) =>
+    sessionManager.resumeSession(id)
+  );
+
   ipcMain.on('pty:write', (_event, id: string, data: string) => {
     sessionManager.ptyWrite(id, data);
   });

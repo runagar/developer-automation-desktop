@@ -1,4 +1,4 @@
-export type SessionState = 'idle' | 'running' | 'awaiting';
+export type SessionState = 'idle' | 'running' | 'awaiting' | 'suspended';
 
 export interface JiraLinkedIssue {
   key: string;
@@ -50,6 +50,7 @@ export interface IpcApi {
   unarchiveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
   reviveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
+  resumeSession: (id: string) => Promise<void>;
 
   // PTY I/O (legacy — kept for state poller / session creation only)
   ptyWrite: (sessionId: string, data: string) => void;

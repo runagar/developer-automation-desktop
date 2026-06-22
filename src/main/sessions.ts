@@ -7,7 +7,7 @@ import { Session, SessionState, JiraIssue } from './types';
 import { BrowserWindow } from 'electron';
 import {
   tmuxSessionName, hasTmuxSession, createTmuxSession,
-  getSessionInfo, listSmithSessions, killTmuxSession,
+  getSessionInfo, listSmithSessions, killTmuxSession, getPanePid,
 } from './tmux';
 import { ensureWhitelistConfig } from './whitelist';
 
@@ -249,6 +249,33 @@ export class SessionManager {
 
     // Re-create the tmux session so copilot can restart
     await this.ensureTmuxSession(id, row.working_dir);
+  }
+
+  /**
+   * Resume a suspended copilot session by sending SIGCONT to its process group.
+   */
+  async resumeSession(id: string): Promise<void> {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+    if (!row || row.dead === 1 || row.archived === 1) return;
+
+    const tmuxName = tmuxSessionName(id);
+    const pid = await getPanePid(tmuxName);
+    if (!pid) {
+      console.log(`[resume] Could not get pane PID for session ${id}`);
+      return;
+    }
+
+    try {
+      // Signal the entire process group so child processes are also resumed
+      process.kill(-pid, 'SIGCONT');
+      console.log(`[resume] Sent SIGCONT to process group ${pid} for session ${id}`);
+    } catch (err: any) {
+      if (err?.code === 'ESRCH') {
+        console.log(`[resume] Process ${pid} already dead for session ${id}`);
+      } else {
+        console.error(`[resume] Failed to send SIGCONT for session ${id}:`, err);
+      }
+    }
   }
 
   /** Legacy: write to any PTY attached to the given session (used by JiraPlan). */

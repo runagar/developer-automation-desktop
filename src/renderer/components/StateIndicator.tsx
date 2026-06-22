@@ -12,6 +12,7 @@ const LABELS: Record<DisplayState, string> = {
   idle: 'IDLE',
   running: 'RUN',
   awaiting: 'INPUT',
+  suspended: 'SUSPENDED',
   dead: 'DEAD',
 };
 

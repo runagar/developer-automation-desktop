@@ -48,7 +48,7 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 
 - **IPC channel names** follow `noun:verb` format (e.g. `sessions:create`, `pty:write`). Add new channels consistently in `ipc.ts` (main handler) and `preload.ts` (renderer binding) and `types.ts` (`IpcApi` interface) together — all three must stay in sync.
 - **`window.agentSmith`** is the only way the renderer talks to the main process. Never use `require` or `ipcRenderer` directly in renderer code.
-- **`SessionState`** (`idle` | `running` | `awaiting`) lives in `types.ts`. The display-only `dead` state is added in the renderer (`StateIndicator`) and is never stored in the DB.
+- **`SessionState`** (`idle` | `running` | `awaiting` | `suspended`) lives in `types.ts`. The display-only `dead` state is added in the renderer (`StateIndicator`) and is never stored in the DB.
 - **`Session.restored`** is a runtime-only flag set by `SessionManager.restoredIds`. It is not a DB column and must not be persisted.
 - **`Session.archived`** is a DB column (`archived INTEGER DEFAULT 0`). Archived sessions have their attach PTY killed but their tmux session kept running.
 - **`restoreSessions()`** must only be called after `setWindow()` has been called (triggered by `renderer:ready`). Never call it from `initialize()`.

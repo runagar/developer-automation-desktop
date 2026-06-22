@@ -22,9 +22,18 @@ export default function TerminalPanelInstance({
   const attachGen = useSessionStore((s) => s.attachGen);
   const termRef = useRef<TerminalPaneHandle | null>(null);
   const attachedRef = useRef<string | null>(null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   const handleTerminalInput = useCallback((sessionId: string, data: string) => {
     useJiraStore.getState().handleTerminalInput(sessionId, data);
+  }, []);
+
+  const handleResume = useCallback(() => {
+    const s = sessionRef.current;
+    if (s && s.state === 'suspended') {
+      void window.agentSmith.resumeSession(s.id);
+    }
   }, []);
 
   // Attach PTY when session changes or on mount
@@ -92,11 +101,21 @@ export default function TerminalPanelInstance({
             <span className="terminal-pane__project">[ {session.project} ]</span>
           )}
           <span className="terminal-pane__dir">{session.workingDir}</span>
+          {session.state === 'suspended' && (
+            <button
+              className="btn btn--micro terminal-pane__resume-btn"
+              onClick={handleResume}
+              title="Resume suspended session (Alt+R)"
+            >
+              ▶ RESUME
+            </button>
+          )}
         </div>
         <TerminalPane
           ref={(handle) => { termRef.current = handle; }}
           session={session}
           isActive={true}
+          onResume={handleResume}
           openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
       </div>

@@ -58,6 +58,14 @@
   color: var(--c-red);
 }
 
+/* Suspended / Paused — amber, static */
+.state-indicator--suspended .state-indicator__dot {
+  background: var(--c-amber);
+}
+.state-indicator--suspended .state-indicator__label {
+  color: var(--c-amber);
+}
+
 @keyframes pulse-primary {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--c-bright); }
   50%       { opacity: 0.5; box-shadow: 0 0 10px var(--c-bright); }

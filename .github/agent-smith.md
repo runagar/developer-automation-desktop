@@ -108,13 +108,14 @@ Each session UUID is passed to copilot as `--session-id`, allowing Copilot's ser
 ### Session state detection
 State detection uses **tmux `capture-pane` polling** — a single `setInterval` (every 3 seconds) captures the visible pane content from each session's tmux window and scans for known patterns.
 
-`SessionState` has three values (`idle` | `running` | `awaiting`). **Dead is not a `SessionState`** — it is a boolean flag (`Session.dead`) set in the DB and displayed by `StateIndicator` in the renderer.
+`SessionState` has four values (`idle` | `running` | `awaiting` | `suspended`). **Dead is not a `SessionState`** — it is a boolean flag (`Session.dead`) set in the DB and displayed by `StateIndicator` in the renderer.
 
 | State / flag | Meaning |
 |---|---|
 | **Idle** | Input prompt (`❯`) visible in the captured pane |
 | **Running** | Output is streaming (`esc cancel` pattern detected) |
 | **Awaiting** | CLI is waiting for user input (`enter to select` / `enter to confirm` / `Asking user`) |
+| **Suspended** | Copilot was suspended with Ctrl+Z (`Copilot has been suspended` detected). Resumed via SIGCONT (▶ RESUME button or Alt+R in terminal panel) |
 | **Dead** *(flag)* | tmux session has exited; session row has `dead = 1` in the DB |
 
 States are shown as coloured indicator pills in the session sidebar.

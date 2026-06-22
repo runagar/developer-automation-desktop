@@ -75,6 +75,17 @@
   flex-shrink: 0;
 }
 
+.terminal-pane__resume-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--c-amber);
+  border-color: var(--c-amber);
+}
+.terminal-pane__resume-btn:hover {
+  background: var(--c-amber);
+  color: var(--c-bg);
+}
+
 .terminal-pane__terminal {
   flex: 1;
   min-height: 0;
