@@ -42,12 +42,26 @@ function loadState(): DashboardState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = validateState(JSON.parse(raw));
-      if (parsed) return parsed;
+      if (parsed) return normalizeZLevels(parsed);
     }
   } catch {
     /* corrupt — fall through to default */
   }
   return defaultState();
+}
+
+/** Compact z-levels to 1..N retaining relative order. */
+function normalizeZLevels(state: DashboardState): DashboardState {
+  const sorted = [...state.instances].sort((a, b) => a.placement.z - b.placement.z);
+  const zMap = new Map<string, number>();
+  sorted.forEach((inst, i) => zMap.set(inst.id, i + 1));
+  return {
+    ...state,
+    instances: state.instances.map((inst) => ({
+      ...inst,
+      placement: { ...inst.placement, z: zMap.get(inst.id) ?? 1 },
+    })),
+  };
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,11 +137,14 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     // Singletons can't be spawned as multi-instance
     if (SINGLETON_TYPES.has(type)) return null;
 
-    // If a linked panel for this session+type already exists, return null (focus-move)
-    const existing = s.instances.find(
-      (inst) => inst.type === type && inst.mode === 'linked' && inst.linkedSessionId === sessionId
-    );
-    if (existing) return null;
+    // If a linked panel for this session+type already exists, return null (focus-move).
+    // Exception: jira panels allow multiple linked instances per session.
+    if (type !== 'jira') {
+      const existing = s.instances.find(
+        (inst) => inst.type === type && inst.mode === 'linked' && inst.linkedSessionId === sessionId
+      );
+      if (existing) return null;
+    }
 
     // Determine mode: default if no panel of this type exists, otherwise linked
     const hasTypeInstance = s.instances.some((inst) => inst.type === type);

@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef, KeyboardEvent } from 'react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { JiraIssue } from '../../main/types';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './JiraPane.css';
@@ -12,12 +14,13 @@ interface JiraPaneProps {
   issue: JiraIssue | null;
   autoFetchEnabled: boolean;
   onAutoFetchToggle: () => void;
-  onIssueLoaded: (sessionId: string, issue: JiraIssue) => void;
+  onIssueLoaded: (issue: JiraIssue) => void;
   onPlan: (sessionId: string, key: string) => void;
+  onIssueLinkClick: (key: string, ctrlKey: boolean) => void;
 }
 
 export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraPane(
-  { sessionId, issue, autoFetchEnabled, onAutoFetchToggle, onIssueLoaded, onPlan },
+  { sessionId, issue, autoFetchEnabled, onAutoFetchToggle, onIssueLoaded, onPlan, onIssueLinkClick },
   ref
 ) {
   const [inputKey, setInputKey] = useState(issue?.key ?? '');
@@ -46,14 +49,13 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
 
     try {
       const fetched = await window.agentSmith.fetchAndPopulateVault(key);
-      await window.agentSmith.saveJiraIssue(sessionId, fetched);
-      onIssueLoaded(sessionId, fetched);
+      onIssueLoaded(fetched);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to fetch issue');
     } finally {
       setLoading(false);
     }
-  }, [inputKey, sessionId, onIssueLoaded]);
+  }, [inputKey, onIssueLoaded]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -68,6 +70,34 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
   const handlePlan = useCallback(() => {
     if (issue) onPlan(sessionId, issue.key);
   }, [issue, sessionId, onPlan]);
+
+  // Custom link component for ReactMarkdown: intercepts jira:// URLs
+  const onIssueLinkClickRef = useRef(onIssueLinkClick);
+  onIssueLinkClickRef.current = onIssueLinkClick;
+
+  const markdownComponents = useRef({
+    a: ({ href, children, ...props }: any) => {
+      if (href && href.startsWith('jira://')) {
+        const key = href.replace('jira://', '');
+        return (
+          <span
+            className="jira-pane__issue-link"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onIssueLinkClickRef.current(key, e.ctrlKey || e.metaKey);
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            role="link"
+            tabIndex={0}
+          >
+            {children}
+          </span>
+        );
+      }
+      return <a href={href} {...props} target="_blank" rel="noopener noreferrer">{children}</a>;
+    },
+  }).current;
 
   return (
     <div className="jira-pane" ref={rootRef}>
@@ -154,37 +184,21 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
               </div>
             )}
 
-            {/* Acceptance Criteria */}
-            {issue.acceptanceCriteria && (
-              <div className="jira-pane__section">
-                <div className="jira-pane__section-label">Acceptance Criteria</div>
-                <div className="jira-pane__section-text">{issue.acceptanceCriteria}</div>
-              </div>
-            )}
-
-            {/* Description */}
+            {/* Description (rendered Markdown) */}
             {issue.description && (
               <div className="jira-pane__section">
                 <div className="jira-pane__section-label">Description</div>
-                <div className="jira-pane__section-text">{issue.description}</div>
+                <div className="jira-pane__markdown">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                    urlTransform={(url) => url.startsWith('jira://') ? url : defaultUrlTransform(url)}
+                  >
+                    {issue.description}
+                  </ReactMarkdown>
+                </div>
               </div>
             )}
-
-            {/* Developer Tasks */}
-            {issue.developerTasks && (
-              <div className="jira-pane__section">
-                <div className="jira-pane__section-label">Developer Tasks</div>
-                <div className="jira-pane__section-text">{issue.developerTasks}</div>
-              </div>
-            )}
-
-            {/* Release Notes */}
-            <div className="jira-pane__section">
-              <div className="jira-pane__section-label">Release Notes</div>
-              <div className="jira-pane__section-text">
-                {issue.releaseNotes || 'N/A'}
-              </div>
-            </div>
 
             {/* Linked Issues */}
             {issue.linkedIssues && issue.linkedIssues.length > 0 && (
@@ -193,7 +207,19 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
                 <div className="jira-pane__links">
                   {issue.linkedIssues.map((li) => (
                     <div key={li.key} className="jira-pane__link">
-                      {li.relation} <span className="jira-pane__link-key">{li.key}</span>
+                      {li.relation}{' '}
+                      <span
+                        className="jira-pane__issue-link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onIssueLinkClick(li.key, e.ctrlKey || e.metaKey);
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                        role="link"
+                        tabIndex={0}
+                      >
+                        {li.key}
+                      </span>
                     </div>
                   ))}
                 </div>

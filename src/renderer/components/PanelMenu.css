@@ -45,7 +45,7 @@
   background: var(--c-panel);
   border: 1px solid var(--c-bright);
   box-shadow: var(--glow);
-  z-index: 200;
+  z-index: 10000;
 }
 
 .panel-menu__section-label {

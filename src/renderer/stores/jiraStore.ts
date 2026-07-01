@@ -2,11 +2,12 @@ import { create } from 'zustand';
 import { JiraIssue } from '../../main/types';
 
 interface JiraStore {
+  /** Issues keyed by panelInstanceId (not sessionId). */
   issues: Map<string, JiraIssue>;
   autoFetchEnabled: boolean;
 
-  setIssue: (sessionId: string, issue: JiraIssue) => void;
-  clearIssue: (sessionId: string) => void;
+  setIssue: (panelInstanceId: string, issue: JiraIssue) => void;
+  clearIssue: (panelInstanceId: string) => void;
   toggleAutoFetch: () => void;
   handleTerminalInput: (sessionId: string, data: string) => void;
 }
@@ -27,18 +28,18 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
   issues: new Map(),
   autoFetchEnabled: loadAutoFetch(),
 
-  setIssue: (sessionId, issue) => {
+  setIssue: (panelInstanceId, issue) => {
     set((s) => {
       const next = new Map(s.issues);
-      next.set(sessionId, issue);
+      next.set(panelInstanceId, issue);
       return { issues: next };
     });
   },
 
-  clearIssue: (sessionId) => {
+  clearIssue: (panelInstanceId) => {
     set((s) => {
       const next = new Map(s.issues);
-      next.delete(sessionId);
+      next.delete(panelInstanceId);
       return { issues: next };
     });
   },
@@ -81,10 +82,16 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
   },
 }));
 
-/** Pre-populate Jira issues from cached session data. */
-export function initJiraStore(sessions: Array<{ id: string; jiraData?: JiraIssue | null }>): void {
+/** Pre-populate Jira issues from cached session data, keyed by panel instance ID. */
+export function initJiraStore(
+  sessions: Array<{ id: string; jiraData?: JiraIssue | null }>,
+  getDefaultPanelId: (sessionId: string) => string | undefined
+): void {
   const { setIssue } = useJiraStore.getState();
   for (const sess of sessions) {
-    if (sess.jiraData) setIssue(sess.id, sess.jiraData);
+    if (sess.jiraData) {
+      const panelId = getDefaultPanelId(sess.id);
+      if (panelId) setIssue(panelId, sess.jiraData);
+    }
   }
 }

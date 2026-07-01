@@ -137,7 +137,7 @@ States are shown as coloured indicator pills in the session sidebar.
 - The polling loop is managed by `StatePoller`, not `PtySession`.
 
 ### Jira issue overview
-The Jira pane is a dashboard panel (`jira`) that displays issue details for a session. Multiple Jira panel instances can exist, each linked to a specific session or following the active session (Default mode).
+The Jira pane is a dashboard panel (`jira`) that displays issue details for a session. Multiple Jira panel instances can exist per session (unique among panel types — terminals and shells are limited to one linked panel per session), each linked to a specific session or following the active session (Default mode). Each Jira panel maintains its own issue state independently.
 
 **Fetching issues:**
 - Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
@@ -153,19 +153,28 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
   2. `~/.config/agent-smith/agent-smith/credentials.env`
   3. Error with actionable message if neither source provides both values
 
-**Display:** SUMMARY → STATUS · PRIORITY · TYPE (metadata row) → LABELS → FIX VERSIONS → ACCEPTANCE CRITERIA → DESCRIPTION → DEVELOPER TASKS → RELEASE NOTES → LINKED ISSUES. All text is plain (no coloured pills). Linked issues display as `{relation} KEY`.
+**Wiki-to-Markdown conversion:** Jira issue descriptions arrive in wiki markup and are converted to Markdown at fetch time by `src/main/wikiToMarkdown.ts`. The converter handles: headings, bold, italic, bullet/numbered lists (with nesting), code blocks (with language), inline code, links, tables, and colour markup (stripped). Jira issue keys (`PROJ-123`) in the description are automatically wrapped as `[KEY](jira://KEY)` links. Code blocks and inline code are protected from further conversion.
+
+**Display:** SUMMARY → STATUS · PRIORITY · TYPE (metadata row) → LABELS → FIX VERSIONS → DESCRIPTION (rendered Markdown via `react-markdown` + `remark-gfm`) → LINKED ISSUES. Descriptions are rendered as formatted HTML with headings, lists, tables, and code blocks styled per theme.
+
+**Link clickthrough:**
+- Clicking a Jira issue key (in Linked Issues section or within the Markdown description) fetches the issue (vault-first via `jira:getOrFetch`, API fallback) and displays it in the same panel.
+- Ctrl+clicking spawns a new linked Jira panel showing that issue. Focus stays on the current panel.
+- Jira keys in Markdown are rendered via a custom `jira://` URL scheme intercepted by a custom link component.
 
 **PLAN button:** Sends `Plan <KEY>\r` to the active session's PTY as a single-shot write. The user's Copilot skills (`plan-jira-issue`, `implement-jira-issue`) are responsible for making the agent read the vault notes.
 
-**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body with `[[wikilinks]]` between linked issues and parent epic. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup.
+**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body (already converted from wiki markup) with `[[wikilinks]]` in the Linked Issues section. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup. Vault is also readable via `jira:readIssue` IPC (parses frontmatter + body back into `JiraIssue`).
 
 **Project-key whitelist:** `<dataDir>/jira-whitelist.json` with named profiles. Default profile created on first run with the team's 9 project prefixes. Active profile is global (per-workspace profiles deferred).
 
 **Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal input is scanned for Jira key patterns. Detected keys are fetched (single issue, non-recursive) and written to the vault silently — the Jira pane is NOT updated. Per-session dedup prevents re-fetching. Toggle persisted to `localStorage`.
 
-**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Issues are restored on startup and pre-populated into the `jiraIssues` Map in `App.tsx`. The type includes `__schemaVersion: 2` for forward compatibility; legacy cached data (missing new fields) degrades gracefully.
+**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Only the **default** Jira panel's issue is persisted to the DB; linked/spawned panels are transient. Issues are restored on startup. The type includes `__schemaVersion: 3` for the Markdown-description format.
 
-**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**Per-panel issue state:** The `jiraStore` keys issues by `panelInstanceId` (not `sessionId`). Each Jira panel manages its own issue independently. When the default panel's session changes, it reseeds from `session.jiraData`.
+
+**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Workspace management
 A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:

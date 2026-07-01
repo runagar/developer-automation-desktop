@@ -133,10 +133,13 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-left: 1em;
 }
 .jira-pane__link {
   font-size: 0.68rem;
   color: var(--c-dim);
+  list-style: disc;
+  display: list-item;
 }
 .jira-pane__link-key {
   color: var(--c-bright);
@@ -152,4 +155,119 @@
 .jira-pane__auto-toggle--on {
   opacity: 1;
   color: var(--c-bright);
+}
+
+/* ── Clickable issue links ──────────────────────────── */
+.jira-pane__issue-link {
+  color: var(--c-bright);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.jira-pane__issue-link:hover {
+  color: var(--c-amber);
+}
+.jira-pane__link-summary {
+  color: var(--c-dim);
+  font-size: 0.7rem;
+}
+
+/* ── Rendered Markdown ──────────────────────────────── */
+.jira-pane__markdown {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--c-fg);
+}
+.jira-pane__markdown h1,
+.jira-pane__markdown h2,
+.jira-pane__markdown h3,
+.jira-pane__markdown h4,
+.jira-pane__markdown h5,
+.jira-pane__markdown h6 {
+  color: var(--c-bright);
+  margin: 0.8em 0 0.4em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.jira-pane__markdown h1 { font-size: 1rem; }
+.jira-pane__markdown h2 { font-size: 0.9rem; }
+.jira-pane__markdown h3 { font-size: 0.82rem; }
+.jira-pane__markdown h4,
+.jira-pane__markdown h5,
+.jira-pane__markdown h6 { font-size: 0.78rem; }
+.jira-pane__markdown p {
+  margin: 0.4em 0;
+}
+.jira-pane__markdown ul,
+.jira-pane__markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.jira-pane__markdown ul {
+  list-style: disc;
+}
+.jira-pane__markdown ol {
+  list-style: decimal;
+}
+.jira-pane__markdown li {
+  margin: 0.15em 0;
+  list-style: inherit;
+}
+.jira-pane__markdown code {
+  font-family: var(--font);
+  background: var(--c-panel);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 0.72rem;
+  color: var(--c-bright);
+}
+.jira-pane__markdown pre {
+  background: var(--c-panel);
+  border: 1px solid var(--c-dark);
+  border-radius: 3px;
+  padding: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.jira-pane__markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.7rem;
+}
+.jira-pane__markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+.jira-pane__markdown th,
+.jira-pane__markdown td {
+  border: 1px solid var(--c-dark);
+  padding: 4px 8px;
+  text-align: left;
+  font-size: 0.72rem;
+}
+.jira-pane__markdown th {
+  background: var(--c-panel);
+  color: var(--c-bright);
+  font-weight: 700;
+}
+.jira-pane__markdown a {
+  color: var(--c-bright);
+  text-decoration: underline;
+}
+.jira-pane__markdown a:hover {
+  color: var(--c-amber);
+}
+.jira-pane__markdown blockquote {
+  border-left: 3px solid var(--c-dim);
+  margin: 0.5em 0;
+  padding: 0.25em 0.75em;
+  color: var(--c-dim);
+}
+.jira-pane__markdown hr {
+  border: none;
+  border-top: 1px solid var(--c-dark);
+  margin: 0.8em 0;
 }

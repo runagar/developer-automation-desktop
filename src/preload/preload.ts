@@ -27,6 +27,8 @@ const api: IpcApi = {
   fetchJiraIssue: (key) => ipcRenderer.invoke('jira:fetchIssue', key),
   fetchAndPopulateVault: (key) => ipcRenderer.invoke('jira:fetchAndPopulateVault', key),
   writeToVault: (issue) => ipcRenderer.invoke('jira:writeToVault', issue),
+  readJiraIssue: (key) => ipcRenderer.invoke('jira:readIssue', key),
+  getOrFetchJiraIssue: (key) => ipcRenderer.invoke('jira:getOrFetch', key),
   saveJiraIssue: (sessionId, issue) => ipcRenderer.invoke('jira:saveIssue', sessionId, issue),
   clearJiraIssue: (sessionId) => ipcRenderer.invoke('jira:clearIssue', sessionId),
 

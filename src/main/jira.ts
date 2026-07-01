@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { JiraIssue, JiraLinkedIssue } from './types';
+import { convertWikiToMarkdown } from './wikiToMarkdown';
 
 let cachedPat: string | null = null;
 let cachedBaseUrl: string | null = null;
@@ -59,77 +60,6 @@ function loadCredentials(): { pat: string; baseUrl: string } {
   return { pat: cachedPat, baseUrl: cachedBaseUrl };
 }
 
-function isSectionHeader(line: string): boolean {
-  const t = line.trim();
-  if (/^h[1-6]\.\s/.test(t)) return true;
-  // Bold wiki markup: *Developer Tasks* or *Developer Tasks*:
-  if (/^\*[^*\n]+\*:?\s*$/.test(t)) return true;
-  // Capitalised label ending with colon: "Release notes:" "Developer tasks:"
-  if (/^[A-Z][^\n]{0,80}:\s*$/.test(t)) return true;
-  return false;
-}
-
-type ParsedSections = {
-  description: string;
-  acceptanceCriteria: string;
-  releaseNotes: string;
-  developerTasks: string;
-};
-
-function parseDescription(raw: string): ParsedSections {
-  if (!raw) return { description: '', acceptanceCriteria: '', releaseNotes: '', developerTasks: '' };
-
-  const lines = raw.split('\n');
-
-  // Locate all section boundaries
-  const boundaries: Array<{ idx: number; header: string }> = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (isSectionHeader(lines[i])) {
-      boundaries.push({ idx: i, header: lines[i].trim() });
-    }
-  }
-
-  // Extract text between boundary[n] (exclusive) and boundary[n+1] (exclusive)
-  function extractContent(startIdx: number, endIdx: number): string {
-    return lines
-      .slice(startIdx, endIdx)
-      .map((l) => l.trimStart())
-      .join('\n')
-      .trim();
-  }
-
-  const description = boundaries.length > 0
-    ? extractContent(0, boundaries[0].idx)
-    : raw.trim();
-
-  let acceptanceCriteria = '';
-  let releaseNotes = '';
-  const otherSections: string[] = [];
-
-  for (let bi = 0; bi < boundaries.length; bi++) {
-    const { header } = boundaries[bi];
-    const contentStart = boundaries[bi].idx + 1;
-    const contentEnd = bi + 1 < boundaries.length ? boundaries[bi + 1].idx : lines.length;
-    const content = extractContent(contentStart, contentEnd);
-
-    if (/acceptance criteri/i.test(header)) {
-      acceptanceCriteria = content;
-    } else if (/release notes?/i.test(header)) {
-      releaseNotes = content;
-    } else {
-      // Bucket all other sections (e.g. Developer tasks, Module:, etc.) into developerTasks
-      if (content) otherSections.push(content);
-    }
-  }
-
-  return {
-    description,
-    acceptanceCriteria,
-    releaseNotes,
-    developerTasks: otherSections.join('\n\n'),
-  };
-}
-
 export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
   const { pat, baseUrl } = loadCredentials();
 
@@ -158,7 +88,7 @@ export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
   const f = data.fields ?? {};
   const summary: string = f.summary ?? '';
   const rawDesc: string = f.description ?? '';
-  const { description, acceptanceCriteria, releaseNotes, developerTasks } = parseDescription(rawDesc);
+  const description = convertWikiToMarkdown(rawDesc);
 
   // Determine parent/epic key
   let parentKey: string | null = f.parent?.key ?? null;
@@ -187,13 +117,10 @@ export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
     .filter(Boolean) as JiraLinkedIssue[];
 
   return {
-    __schemaVersion: 2,
+    __schemaVersion: 3,
     key: data.key ?? key,
     summary,
     description,
-    acceptanceCriteria,
-    releaseNotes,
-    developerTasks,
     status: f.status?.name ?? '',
     priority: f.priority?.name ?? '',
     issueType: f.issuetype?.name ?? '',

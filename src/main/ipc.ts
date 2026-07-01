@@ -5,7 +5,7 @@ import { ProjectManager } from './projects';
 import { StatePoller } from './statePoller';
 import { fetchJiraIssue, fetchIssueGraph } from './jira';
 import { JiraIssue } from './types';
-import { writeIssueNote, getVaultRoot } from './vault';
+import { writeIssueNote, getVaultRoot, readFromVault } from './vault';
 import { loadWhitelist } from './whitelist';
 
 let statePoller: StatePoller | null = null;
@@ -116,6 +116,19 @@ export function registerIpcHandlers(
 
   ipcMain.handle('jira:writeToVault', (_event, issue: JiraIssue) => {
     writeIssueNote(getVaultRoot(dataDir), issue);
+  });
+
+  ipcMain.handle('jira:readIssue', (_event, key: string) => {
+    return readFromVault(getVaultRoot(dataDir), key);
+  });
+
+  ipcMain.handle('jira:getOrFetch', async (_event, key: string) => {
+    const vaultRoot = getVaultRoot(dataDir);
+    const cached = readFromVault(vaultRoot, key);
+    if (cached) return cached;
+    const fetched = await fetchJiraIssue(key);
+    writeIssueNote(vaultRoot, fetched);
+    return fetched;
   });
 
   ipcMain.handle('jira:saveIssue', (_event, sessionId: string, issue: JiraIssue) => {

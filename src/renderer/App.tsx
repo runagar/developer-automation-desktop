@@ -54,7 +54,14 @@ export default function App(): React.ReactElement {
     void (async () => {
       await initSessionStore();
       if (cancelled) return;
-      initJiraStore(useSessionStore.getState().sessions);
+      initJiraStore(useSessionStore.getState().sessions, (sessionId) => {
+        // Find the default jira panel instance for this session
+        const instances = useLayoutStore.getState().instances;
+        const defaultJira = instances.find(
+          (p: PanelInstance) => p.type === 'jira' && p.mode === 'default'
+        );
+        return defaultJira?.id;
+      });
       cleanup = registerSessionListeners();
       void useProjectStore.getState().loadGroups();
     })();
