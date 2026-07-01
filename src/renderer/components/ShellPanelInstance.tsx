@@ -43,6 +43,13 @@ export default function ShellPanelInstance({
         size?.rows ?? 36
       );
       attachedRef.current = session.id;
+      // Re-measure and resize after attach resolves — any resize events that
+      // fired during the async attach window were dropped because the
+      // attachment didn't exist yet in the main process.
+      const postSize = shellRef.current?.fitAndMeasure();
+      if (postSize) {
+        void window.agentSmith.shellResizePanel(instance.id, postSize.cols, postSize.rows);
+      }
     };
 
     void doAttach();

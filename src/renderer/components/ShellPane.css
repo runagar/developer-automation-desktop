@@ -5,16 +5,17 @@
 .shell-pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: var(--c-bg);
-  flex: 2;
+  flex: 1;
   min-width: 0;
+  min-height: 0;
+  background: var(--c-bg);
 }
 
 .shell-pane__terminal {
   flex: 1;
   min-height: 0;
   padding: 4px;
+  overflow: hidden;
 }
 
 /* Override xterm.js canvas selection colour */
