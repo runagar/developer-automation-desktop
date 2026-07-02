@@ -1,7 +1,7 @@
 import { IpcMain, BrowserWindow, clipboard, screen } from 'electron';
 import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
-import { ProjectManager } from './projects';
+import { WorkspaceManager } from './workspaces';
 import { StatePoller } from './statePoller';
 import { fetchJiraIssue, fetchIssueGraph, clearCredentialCache } from './jira';
 import { JiraIssue } from './types';
@@ -10,6 +10,7 @@ import { loadWhitelist } from './whitelist';
 import {
   getCredentialStatus, validateCredentials, saveCredential, clearCredential,
 } from './credentials';
+import { getDefaultWorkingRoot, setDefaultWorkingRoot } from './settings';
 
 let statePoller: StatePoller | null = null;
 let isSimulatedMaximized = false;
@@ -30,7 +31,7 @@ export function registerIpcHandlers(
   ipcMain: IpcMain,
   sessionManager: SessionManager,
   shellTmuxManager: ShellTmuxManager,
-  projectManager: ProjectManager,
+  workspaceManager: WorkspaceManager,
   getWindow: () => BrowserWindow | null,
   dataDir: string
 ): void {
@@ -75,32 +76,36 @@ export function registerIpcHandlers(
     sessionManager.ptyResize(id, cols, rows);
   });
 
-  ipcMain.handle('projects:get', () => projectManager.getEntries());
-  ipcMain.handle('projects:getGroups', () => projectManager.getGroups());
+  ipcMain.handle('workspaces:get', () => workspaceManager.getEntries());
+  ipcMain.handle('workspaces:getGroups', () => workspaceManager.getGroups());
 
-  ipcMain.handle('projects:add', (_event, entry: { key: string; repo: string; group: string }) =>
-    projectManager.addProject(entry.key, entry.repo, entry.group)
+  ipcMain.handle('workspaces:add', (_event, opts: { key: string; repo: string; group: string; wdr?: string; createMissingDir?: boolean }) =>
+    workspaceManager.addWorkspace(opts)
   );
 
-  ipcMain.handle('projects:remove', (_event, key: string) =>
-    projectManager.removeProject(key)
+  ipcMain.handle('workspaces:remove', (_event, key: string) =>
+    workspaceManager.removeWorkspace(key)
   );
 
-  ipcMain.handle('projects:addGroup', (_event, name: string) =>
-    projectManager.addGroup(name)
+  ipcMain.handle('workspaces:addGroup', (_event, name: string) =>
+    workspaceManager.addGroup(name)
   );
 
-  ipcMain.handle('projects:removeGroup', (_event, name: string) =>
-    projectManager.removeGroup(name)
+  ipcMain.handle('workspaces:removeGroup', (_event, name: string) =>
+    workspaceManager.removeGroup(name)
   );
 
-  ipcMain.handle('projects:move', (_event, key: string, toGroup: string, toIndex: number) =>
-    projectManager.moveWorkspace(key, toGroup, toIndex)
+  ipcMain.handle('workspaces:move', (_event, key: string, toGroup: string, toIndex: number) =>
+    workspaceManager.moveWorkspace(key, toGroup, toIndex)
   );
 
-  ipcMain.handle('projects:reorderGroup', (_event, name: string, toIndex: number) =>
-    projectManager.reorderGroup(name, toIndex)
+  ipcMain.handle('workspaces:reorderGroup', (_event, name: string, toIndex: number) =>
+    workspaceManager.reorderGroup(name, toIndex)
   );
+
+  // Settings
+  ipcMain.handle('settings:getDefaultRoot', () => getDefaultWorkingRoot(dataDir));
+  ipcMain.handle('settings:setDefaultRoot', (_event, root: string) => setDefaultWorkingRoot(dataDir, root));
 
   // Jira
   ipcMain.handle('jira:fetchIssue', (_event, key: string) => fetchJiraIssue(key));

@@ -3,9 +3,10 @@ import './SettingsMenu.css';
 
 interface Props {
   onOpenCredentials: () => void;
+  onOpenWorkspaces: () => void;
 }
 
-export default function SettingsMenu({ onOpenCredentials }: Props): React.ReactElement {
+export default function SettingsMenu({ onOpenCredentials, onOpenWorkspaces }: Props): React.ReactElement {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -33,6 +34,12 @@ export default function SettingsMenu({ onOpenCredentials }: Props): React.ReactE
 
       {open && (
         <div className="settings-menu__dropdown" onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            className="settings-menu__item"
+            onClick={() => { setOpen(false); onOpenWorkspaces(); }}
+          >
+            Workspaces
+          </button>
           <button
             className="settings-menu__item"
             onClick={() => { setOpen(false); onOpenCredentials(); }}

@@ -20,7 +20,7 @@ src/main/          Electron main process (Node.js)
   pty.ts           PtySession — node-pty wrapper for tmux attach-session client
   tmux.ts          tmux CLI wrapper (create/kill/capture/query sessions)
   ipc.ts           IPC handler registration
-  types.ts         Shared types (Session, IpcApi, ProjectEntry)
+  types.ts         Shared types (Session, IpcApi, WorkspaceEntry)
 
 src/preload/
   preload.ts       contextBridge — exposes window.agentSmith to renderer
@@ -38,7 +38,7 @@ src/renderer/      React renderer process
     global.css     Reset, scrollbar, selection colours
     pipboy.css     All theme variables, CRT effects, shared .btn classes
 
-projects.json      PFT Beta project list (key → repo → workingDir)
+workspaces.json    Workspace list (key → repo → workingDir), grouped
 launch.sh          Dev launcher (initialises fnm, starts electron-forge)
 ```
 

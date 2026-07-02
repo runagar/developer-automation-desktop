@@ -53,15 +53,19 @@ export interface IpcApi {
   ptyWrite: (sessionId: string, data: string) => void;
   ptyResize: (sessionId: string, cols: number, rows: number) => Promise<void>;
 
-  // Projects dropdown / workspace management
-  getProjects: () => Promise<ProjectEntry[]>;
-  getProjectGroups: () => Promise<ProjectGroup[]>;
-  addProject: (entry: { key: string; repo: string; group: string }) => Promise<ProjectEntry>;
-  removeProject: (key: string) => Promise<void>;
+  // Workspace management
+  getWorkspaces: () => Promise<WorkspaceEntry[]>;
+  getWorkspaceGroups: () => Promise<WorkspaceGroup[]>;
+  addWorkspace: (opts: { key: string; repo: string; group: string; wdr?: string; createMissingDir?: boolean }) => Promise<{ created: boolean; entry?: WorkspaceEntry; path?: string; error?: string }>;
+  removeWorkspace: (key: string) => Promise<void>;
   addGroup: (name: string) => Promise<void>;
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   reorderGroup: (name: string, toIndex: number) => Promise<void>;
+
+  // Settings
+  getDefaultWorkingRoot: () => Promise<string>;
+  setDefaultWorkingRoot: (root: string) => Promise<void>;
 
   // Jira
   fetchJiraIssue: (key: string) => Promise<JiraIssue>;
@@ -124,13 +128,13 @@ export interface CredentialStatusInfo {
   value: string;
 }
 
-export interface ProjectEntry {
+export interface WorkspaceEntry {
   key: string;         // e.g. NRPCON
   repo: string;        // e.g. rs-consent
   workingDir: string;  // e.g. /home/rulu/projects/rs-consent
 }
 
-export interface ProjectGroup {
+export interface WorkspaceGroup {
   group: string;
-  workspaces: ProjectEntry[];
+  workspaces: WorkspaceEntry[];
 }

@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Session, ProjectGroup } from '../../main/types';
+import { Session, WorkspaceGroup } from '../../main/types';
 import { PanelType } from '../dashboard/layout';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
-import ManageWorkspacesDialog from './ManageWorkspacesDialog';
 import SessionContextMenu from './SessionContextMenu';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './SessionList.css';
@@ -15,36 +14,26 @@ export interface SessionListHandle {
 interface Props {
   sessions: Session[];
   activeSessionId: string | null;
-  projectGroups: ProjectGroup[];
+  workspaceGroups: WorkspaceGroup[];
   onSelect: (id: string) => void;
   onCreate: (workingDir: string, project?: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
   onDestroy: (id: string) => void;
   onRevive: (id: string) => void;
-  onAddProject: (key: string, repo: string, group: string) => Promise<void>;
-  onRemoveProject: (key: string) => Promise<void>;
-  onAddGroup: (name: string) => Promise<void>;
-  onRemoveGroup: (name: string) => Promise<void>;
-  onMoveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
-  onReorderGroup: (name: string, toIndex: number) => Promise<void>;
   onDoubleClickSession: (id: string) => void;
   onContextMenuSpawn: (type: PanelType, sessionId: string) => void;
   onRename: (id: string, name: string) => void;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
 
-const DEFAULT_WORK_DIR = '/home/rulu/projects';
-
 export default forwardRef<SessionListHandle, Props>(function SessionList({
-  sessions, activeSessionId, projectGroups, onSelect, onCreate, onArchive, onUnarchive, onDestroy, onRevive,
-  onAddProject, onRemoveProject, onAddGroup, onRemoveGroup, onMoveWorkspace, onReorderGroup,
+  sessions, activeSessionId, workspaceGroups, onSelect, onCreate, onArchive, onUnarchive, onDestroy, onRevive,
   onDoubleClickSession, onContextMenuSpawn, onRename,
   openDropdownWithKeyboardRef,
 }: Props, ref): React.ReactElement {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
-  const [manageOpen, setManageOpen] = useState(false);
   // null  = nothing highlighted (click-open default)
   // -1    = "New Session" button highlighted
   // 0..n-1 = project item at that index highlighted (flat index across all groups)
@@ -60,6 +49,12 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   const [renameValue, setRenameValue] = useState('');
 
   usePanelFocus(rootRef);
+
+  // Default working directory root from settings
+  const [defaultWorkDir, setDefaultWorkDir] = useState('/home');
+  useEffect(() => {
+    void window.agentSmith.getDefaultWorkingRoot().then(setDefaultWorkDir);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -77,7 +72,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   const archivedSessions = sessions.filter((s) => s.archived);
 
   // Flat list of all workspaces for keyboard navigation
-  const allWorkspaces = projectGroups.flatMap((g) => g.workspaces);
+  const allWorkspaces = workspaceGroups.flatMap((g) => g.workspaces);
 
   // Keep ref in sync with state so the keyboard handler can read it without
   // needing to be re-registered on every highlight change.
@@ -155,7 +150,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         const curr = highlightedIndexRef.current;
         if (curr === null) return;
         if (curr === -1) {
-          onCreate(DEFAULT_WORK_DIR);
+          onCreate(defaultWorkDir);
         } else {
           const p = allWorkspaces[curr];
           if (p) onCreate(p.workingDir, p.key);
@@ -179,8 +174,8 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
             'btn btn--primary session-list__new-btn',
             highlightedIndex === -1 ? 'session-list__new-btn--highlighted' : '',
           ].filter(Boolean).join(' ')}
-          onClick={() => onCreate(DEFAULT_WORK_DIR)}
-          title={`New session in ${DEFAULT_WORK_DIR}`}
+          onClick={() => onCreate(defaultWorkDir)}
+          title={`New session in ${defaultWorkDir}`}
         >
           + NEW SESSION
         </button>
@@ -194,10 +189,10 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
 
         {dropdownOpen && (
           <div className="dropdown" style={dropdownStyle}>
-            {projectGroups.length === 0 && (
+            {workspaceGroups.length === 0 && (
               <div className="dropdown__empty">No projects found</div>
             )}
-            {projectGroups.map((group) => (
+            {workspaceGroups.map((group) => (
               <div key={group.group}>
                 <div className="dropdown__header">{group.group}</div>
                 {group.workspaces.map((p) => {
@@ -377,16 +372,6 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         </div>
       )}
 
-      <div className="session-list__manage">
-        <button
-          className="btn session-list__manage-btn"
-          onClick={() => setManageOpen(true)}
-          title="Manage workspaces"
-        >
-          ⬡ MANAGE WORKSPACES
-        </button>
-      </div>
-
       {pendingDestroySession && (
         <ConfirmDialog
           message={`Destroy "${pendingDestroySession.name}"?`}
@@ -410,20 +395,6 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
             setDestroyAllPending(false);
           }}
           onCancel={() => setDestroyAllPending(false)}
-        />
-      )}
-
-      {manageOpen && (
-        <ManageWorkspacesDialog
-          projectGroups={projectGroups}
-          sessions={sessions}
-          onAdd={onAddProject}
-          onRemove={onRemoveProject}
-          onAddGroup={onAddGroup}
-          onRemoveGroup={onRemoveGroup}
-          onMove={onMoveWorkspace}
-          onReorderGroup={onReorderGroup}
-          onClose={() => setManageOpen(false)}
         />
       )}
 

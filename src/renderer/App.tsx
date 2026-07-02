@@ -9,12 +9,13 @@ import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
 import SettingsMenu from './components/SettingsMenu';
 import CredentialsDialog from './components/CredentialsDialog';
+import ManageWorkspacesDialog from './components/ManageWorkspacesDialog';
 import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
 import ZoomControl from './components/ZoomControl';
 import { useJiraStore, initJiraStore } from './stores/jiraStore';
 import { useLayoutStore } from './stores/layoutStore';
-import { useProjectStore } from './stores/projectStore';
+import { useWorkspaceStore } from './stores/workspaceStore';
 import {
   initSessionStore,
   registerSessionListeners,
@@ -32,8 +33,9 @@ export default function App(): React.ReactElement {
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
-  const projectGroups = useProjectStore((s) => s.groups);
+  const workspaceGroups = useWorkspaceStore((s) => s.groups);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
+  const [workspacesDialogOpen, setWorkspacesDialogOpen] = useState(false);
 
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
   const sessionListRef = useRef<SessionListHandle>(null);
@@ -66,7 +68,7 @@ export default function App(): React.ReactElement {
         return defaultJira?.id;
       });
       cleanup = registerSessionListeners();
-      void useProjectStore.getState().loadGroups();
+      void useWorkspaceStore.getState().loadGroups();
     })();
 
     return () => {
@@ -148,28 +150,24 @@ export default function App(): React.ReactElement {
     useSessionStore.getState().updateSession(id, { name });
   }, []);
 
-  const handleAddProject = useCallback((key: string, repo: string, group: string) => {
-    return useProjectStore.getState().addProject(key, repo, group);
-  }, []);
-
-  const handleRemoveProject = useCallback((key: string) => {
-    return useProjectStore.getState().removeProject(key);
+  const handleRemoveWorkspace = useCallback((key: string) => {
+    return useWorkspaceStore.getState().removeWorkspace(key);
   }, []);
 
   const handleAddGroup = useCallback((name: string) => {
-    return useProjectStore.getState().addGroup(name);
+    return useWorkspaceStore.getState().addGroup(name);
   }, []);
 
   const handleRemoveGroup = useCallback((name: string) => {
-    return useProjectStore.getState().removeGroup(name);
+    return useWorkspaceStore.getState().removeGroup(name);
   }, []);
 
   const handleMoveWorkspace = useCallback((key: string, toGroup: string, toIndex: number) => {
-    return useProjectStore.getState().moveWorkspace(key, toGroup, toIndex);
+    return useWorkspaceStore.getState().moveWorkspace(key, toGroup, toIndex);
   }, []);
 
   const handleReorderGroup = useCallback((name: string, toIndex: number) => {
-    return useProjectStore.getState().reorderGroup(name, toIndex);
+    return useWorkspaceStore.getState().reorderGroup(name, toIndex);
   }, []);
 
   const handleJiraPlan = useCallback((sessionId: string, key: string) => {
@@ -227,19 +225,13 @@ export default function App(): React.ReactElement {
             ref={sessionListRef}
             sessions={sessions}
             activeSessionId={activeSessionId}
-            projectGroups={projectGroups}
+            workspaceGroups={workspaceGroups}
             onSelect={setActiveSessionId}
             onCreate={handleCreateSession}
             onArchive={handleArchiveSession}
             onUnarchive={handleUnarchiveSession}
             onDestroy={handleDestroySession}
             onRevive={handleReviveSession}
-            onAddProject={handleAddProject}
-            onRemoveProject={handleRemoveProject}
-            onAddGroup={handleAddGroup}
-            onRemoveGroup={handleRemoveGroup}
-            onMoveWorkspace={handleMoveWorkspace}
-            onReorderGroup={handleReorderGroup}
             onDoubleClickSession={handleDoubleClickSession}
             onContextMenuSpawn={handleContextMenuSpawn}
             onRename={handleRenameSession}
@@ -272,11 +264,10 @@ export default function App(): React.ReactElement {
         return null;
     }
   }, [
-    sessions, activeSessionId, projectGroups, setActiveSessionId,
+    sessions, activeSessionId, workspaceGroups, setActiveSessionId,
     handleCreateSession, handleArchiveSession, handleUnarchiveSession,
     handleDestroySession, handleReviveSession, handleRenameSession,
-    handleAddProject, handleRemoveProject, handleAddGroup, handleRemoveGroup,
-    handleMoveWorkspace, handleReorderGroup, handleDoubleClickSession,
+    handleDoubleClickSession,
     handleContextMenuSpawn, handleJiraPlan,
   ]);
 
@@ -315,7 +306,10 @@ export default function App(): React.ReactElement {
         </div>
         <div className="app-header__right">
           <PanelMenu />
-          <SettingsMenu onOpenCredentials={() => setCredentialsOpen(true)} />
+          <SettingsMenu
+            onOpenCredentials={() => setCredentialsOpen(true)}
+            onOpenWorkspaces={() => setWorkspacesDialogOpen(true)}
+          />
           <ZoomControl />
           <ThemeSelector />
         </div>
@@ -324,6 +318,18 @@ export default function App(): React.ReactElement {
         <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
       </div>
       {credentialsOpen && <CredentialsDialog onClose={() => setCredentialsOpen(false)} />}
+      {workspacesDialogOpen && (
+        <ManageWorkspacesDialog
+          workspaceGroups={workspaceGroups}
+          sessions={sessions}
+          onRemove={handleRemoveWorkspace}
+          onAddGroup={handleAddGroup}
+          onRemoveGroup={handleRemoveGroup}
+          onMove={handleMoveWorkspace}
+          onReorderGroup={handleReorderGroup}
+          onClose={() => setWorkspacesDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

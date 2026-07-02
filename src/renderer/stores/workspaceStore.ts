@@ -1,21 +1,21 @@
 import { create } from 'zustand';
-import { ProjectGroup } from '../../main/types';
+import { WorkspaceGroup } from '../../main/types';
 
-interface ProjectStore {
-  groups: ProjectGroup[];
+interface WorkspaceStore {
+  groups: WorkspaceGroup[];
 
   loadGroups: () => Promise<void>;
-  addProject: (key: string, repo: string, group: string) => Promise<void>;
-  removeProject: (key: string) => Promise<void>;
+  addWorkspace: (key: string, repo: string, group: string, wdr?: string, createMissingDir?: boolean) => Promise<{ created: boolean; path?: string; error?: string }>;
+  removeWorkspace: (key: string) => Promise<void>;
   addGroup: (name: string) => Promise<void>;
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   reorderGroup: (name: string, toIndex: number) => Promise<void>;
 }
 
-export const useProjectStore = create<ProjectStore>((set) => {
+export const useWorkspaceStore = create<WorkspaceStore>((set) => {
   const refresh = async () => {
-    const groups = await window.agentSmith.getProjectGroups();
+    const groups = await window.agentSmith.getWorkspaceGroups();
     set({ groups });
   };
 
@@ -24,13 +24,14 @@ export const useProjectStore = create<ProjectStore>((set) => {
 
     loadGroups: refresh,
 
-    addProject: async (key, repo, group) => {
-      await window.agentSmith.addProject({ key, repo, group });
-      await refresh();
+    addWorkspace: async (key, repo, group, wdr?, createMissingDir?) => {
+      const result = await window.agentSmith.addWorkspace({ key, repo, group, wdr, createMissingDir });
+      if (result.created) await refresh();
+      return result;
     },
 
-    removeProject: async (key) => {
-      await window.agentSmith.removeProject(key);
+    removeWorkspace: async (key) => {
+      await window.agentSmith.removeWorkspace(key);
       await refresh();
     },
 

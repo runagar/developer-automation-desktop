@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
-import { IpcApi, Session, SessionState, ProjectEntry, JiraIssue } from '../main/types';
+import { IpcApi, Session, SessionState, WorkspaceEntry, JiraIssue } from '../main/types';
 
 const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
@@ -14,14 +14,18 @@ const api: IpcApi = {
   ptyWrite: (sessionId, data) => ipcRenderer.send('pty:write', sessionId, data),
   ptyResize: (sessionId, cols, rows) => ipcRenderer.invoke('pty:resize', sessionId, cols, rows),
 
-  getProjects: () => ipcRenderer.invoke('projects:get'),
-  getProjectGroups: () => ipcRenderer.invoke('projects:getGroups'),
-  addProject: (entry) => ipcRenderer.invoke('projects:add', entry),
-  removeProject: (key) => ipcRenderer.invoke('projects:remove', key),
-  addGroup: (name) => ipcRenderer.invoke('projects:addGroup', name),
-  removeGroup: (name) => ipcRenderer.invoke('projects:removeGroup', name),
-  moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('projects:move', key, toGroup, toIndex),
-  reorderGroup: (name, toIndex) => ipcRenderer.invoke('projects:reorderGroup', name, toIndex),
+  getWorkspaces: () => ipcRenderer.invoke('workspaces:get'),
+  getWorkspaceGroups: () => ipcRenderer.invoke('workspaces:getGroups'),
+  addWorkspace: (opts) => ipcRenderer.invoke('workspaces:add', opts),
+  removeWorkspace: (key) => ipcRenderer.invoke('workspaces:remove', key),
+  addGroup: (name) => ipcRenderer.invoke('workspaces:addGroup', name),
+  removeGroup: (name) => ipcRenderer.invoke('workspaces:removeGroup', name),
+  moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('workspaces:move', key, toGroup, toIndex),
+  reorderGroup: (name, toIndex) => ipcRenderer.invoke('workspaces:reorderGroup', name, toIndex),
+
+  // Settings
+  getDefaultWorkingRoot: () => ipcRenderer.invoke('settings:getDefaultRoot'),
+  setDefaultWorkingRoot: (root) => ipcRenderer.invoke('settings:setDefaultRoot', root),
 
   // Jira
   fetchJiraIssue: (key) => ipcRenderer.invoke('jira:fetchIssue', key),

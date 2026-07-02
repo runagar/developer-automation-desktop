@@ -196,16 +196,18 @@ The **⚙ SETTINGS** dropdown in the header provides access to the **Credentials
 **IPC channels:** `credentials:status` (read all field statuses), `credentials:save` (validate + save), `credentials:clear` (remove a field).
 
 ### Workspace management
-A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:
-- **Add** a new workspace by entering a Key, Repo, and Group (workingDir is auto-computed as `/home/rulu/projects/` + Repo).
-- **Remove** a workspace with a confirmation prompt. The delete button is disabled while any non-dead session is running for that project key.
+Accessible from **Settings → Workspaces** in the header dropdown. Opens a dialog listing all workspaces organised into groups. From this dialog users can:
+- **Add** a new workspace by entering a Key, Repo, Group, and optional WDR (Working Directory Root override). The working directory is computed as `(WDR || defaultRoot) + '/' + Repo`. If the computed path doesn't exist, a confirmation dialog offers to create the directory.
+- **Remove** a workspace with a confirmation prompt. The delete button is disabled while any non-dead session is running for that workspace key.
 - **Add** a new group with the **+ ADD GROUP** button. Empty groups can be removed with the ✕ button on their placeholder row.
 - **Reorder workspaces** within and across groups by drag-and-dropping workspace rows.
-- **Reorder groups** by drag-and-dropping the group name cell (dragging a group never merges it into another group).
+- **Reorder groups** by drag-and-dropping the group name cell.
 
-Changes are written back to `<userData>/agent-smith/projects.json` immediately and the in-memory projects list is refreshed so the New Session dropdown reflects the change without restarting. The dropdown renders one header per group with its workspaces listed beneath.
+**Settings section:** Below the add buttons, a "SETTINGS" section contains the **Default Working Directory Root** input. Editable — saved on Enter or ✓ click. Unsaved edits are preserved within the dialog but discarded on close. The add-workspace form always uses the persisted root, not the unsaved draft.
 
-Tab focus is constrained to the dialog while it is open (session Tab-cycling is suppressed). When the add-workspace form is active the Tab cycle is: KEY → REPO → GROUP → ADD → CANCEL → KEY. When the add-group form is active: GROUP NAME → ADD → CANCEL → GROUP NAME.
+**Configuration:** Workspace groups are stored in `<dataDir>/workspaces.json` (migrated from `projects.json` on first launch). The default working directory root is stored in `<dataDir>/settings.json` under `workspaces.defaultWorkingDirectoryRoot` (auto-detected from `os.homedir() + '/projects'` on first run).
+
+**Naming convention:** All code references use "workspace" terminology (not "project"). Types: `WorkspaceEntry`, `WorkspaceGroup`. IPC channels: `workspaces:*`. Store: `useWorkspaceStore`. Manager: `WorkspaceManager`.
 
 ---
 
@@ -229,7 +231,7 @@ Tab focus is constrained to the dialog while it is open (session Tab-cycling is 
 Main process
 ├── SessionManager       SQLite session store + session lifecycle + panel-instance PTY attachments
 ├── ShellTmuxManager     tmux-backed shell session management (attach/detach/destroy per panel instance)
-├── ProjectManager       userData-backed workspace config manager
+├── WorkspaceManager     userData-backed workspace config manager
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
@@ -338,8 +340,8 @@ OSC 52 clipboard-write sequences from CLI applications are intercepted in the PT
 
 ## Configuration
 
-### `projects.json`
-Maps project keys to repository names and working directories, organised into named groups. On first launch, Agent Smith copies `assets/default-projects.json` into `<userData>/agent-smith/projects.json`; runtime reads and writes use the userData copy.
+### `workspaces.json`
+Maps workspace keys to repository names and working directories, organised into named groups. On first launch, Agent Smith copies `assets/default-workspaces.json` into `<dataDir>/workspaces.json`; existing `projects.json` files are automatically migrated. Runtime reads and writes use the dataDir copy.
 
 ```json
 [
@@ -350,6 +352,17 @@ Maps project keys to repository names and working directories, organised into na
     ]
   }
 ]
+```
+
+### `settings.json`
+Application settings stored as grouped JSON. Created on first launch with auto-detected defaults.
+
+```json
+{
+  "workspaces": {
+    "defaultWorkingDirectoryRoot": "/home/rulu/projects"
+  }
+}
 ```
 
 ### Data directory

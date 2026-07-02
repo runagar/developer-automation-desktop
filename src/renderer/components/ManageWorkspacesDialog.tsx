@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ProjectEntry, ProjectGroup, Session } from '../../main/types';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { WorkspaceEntry, WorkspaceGroup, Session } from '../../main/types';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 import ConfirmDialog from './ConfirmDialog';
 import './ManageWorkspacesDialog.css';
 
 interface Props {
-  projectGroups: ProjectGroup[];
+  workspaceGroups: WorkspaceGroup[];
   sessions: Session[];
-  onAdd: (key: string, repo: string, group: string) => Promise<void>;
   onRemove: (key: string) => Promise<void>;
   onAddGroup: (name: string) => Promise<void>;
   onRemoveGroup: (name: string) => Promise<void>;
@@ -16,9 +16,8 @@ interface Props {
 }
 
 export default function ManageWorkspacesDialog({
-  projectGroups,
+  workspaceGroups,
   sessions,
-  onAdd,
   onRemove,
   onAddGroup,
   onRemoveGroup,
@@ -33,14 +32,62 @@ export default function ManageWorkspacesDialog({
   const [newKey, setNewKey] = useState('');
   const [newRepo, setNewRepo] = useState('');
   const [newGroup, setNewGroup] = useState('');
+  const [newWdr, setNewWdr] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [missingDirPath, setMissingDirPath] = useState<string | null>(null);
 
   // Add group form
   const [showAddGroupForm, setShowAddGroupForm] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [addGroupError, setAddGroupError] = useState<string | null>(null);
   const [isAddingGroup, setIsAddingGroup] = useState(false);
+
+  // Settings section — default working directory root
+  const [defaultRoot, setDefaultRoot] = useState('');
+  const [defaultRootDraft, setDefaultRootDraft] = useState<string | null>(null);
+  const [defaultRootSaved, setDefaultRootSaved] = useState(false);
+
+  useEffect(() => {
+    void window.agentSmith.getDefaultWorkingRoot().then((root) => {
+      setDefaultRoot(root);
+    });
+  }, []);
+
+  const handleSaveDefaultRoot = useCallback(async () => {
+    if (defaultRootDraft === null || defaultRootDraft === defaultRoot) return;
+    await window.agentSmith.setDefaultWorkingRoot(defaultRootDraft);
+    setDefaultRoot(defaultRootDraft);
+    setDefaultRootDraft(null);
+    setDefaultRootSaved(true);
+    setTimeout(() => setDefaultRootSaved(false), 2000);
+  }, [defaultRootDraft, defaultRoot]);
+
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
+
+  const handleAddWorkspace = useCallback(async (createMissingDir = false) => {
+    setAddError(null);
+    setIsAdding(true);
+    try {
+      const result = await addWorkspace(newKey, newRepo, newGroup, newWdr || undefined, createMissingDir);
+      if (result.created) {
+        setShowAddForm(false);
+        setNewKey('');
+        setNewRepo('');
+        setNewWdr('');
+        setMissingDirPath(null);
+      } else if (result.path && !result.error) {
+        // Directory doesn't exist — show confirmation
+        setMissingDirPath(result.path);
+      } else {
+        setAddError(result.error ?? 'Failed to add workspace');
+      }
+    } catch (err: any) {
+      setAddError(err?.message ?? 'Failed to add workspace');
+    } finally {
+      setIsAdding(false);
+    }
+  }, [addWorkspace, newKey, newRepo, newGroup, newWdr]);
 
   // Drag and drop — workspace
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
@@ -76,10 +123,10 @@ export default function ManageWorkspacesDialog({
 
   // Set default group when form opens or groups change
   useEffect(() => {
-    if (showAddForm && !newGroup && projectGroups.length > 0) {
-      setNewGroup(projectGroups[0].group);
+    if (showAddForm && !newGroup && workspaceGroups.length > 0) {
+      setNewGroup(workspaceGroups[0].group);
     }
-  }, [showAddForm, projectGroups, newGroup]);
+  }, [showAddForm, workspaceGroups, newGroup]);
 
   // Close on Escape
   useEffect(() => {
@@ -146,26 +193,16 @@ export default function ManageWorkspacesDialog({
     const trimmedGroup = newGroup.trim();
     if (!trimmedKey || !trimmedRepo) { setAddError('Key and Repo are required'); return; }
     if (!trimmedGroup) { setAddError('Please select a group'); return; }
-    const allKeys = projectGroups.flatMap((g) => g.workspaces.map((w) => w.key));
+    const allKeys = workspaceGroups.flatMap((g) => g.workspaces.map((w) => w.key));
     if (allKeys.includes(trimmedKey)) { setAddError(`Key "${trimmedKey}" already exists`); return; }
-    setIsAdding(true);
-    setAddError(null);
-    try {
-      await onAdd(trimmedKey, trimmedRepo, trimmedGroup);
-      setNewKey(''); setNewRepo(''); setNewGroup('');
-      setShowAddForm(false);
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add workspace');
-    } finally {
-      setIsAdding(false);
-    }
+    void handleAddWorkspace(false);
   };
 
   // --- Add group ---
   const handleAddGroupSubmit = async () => {
     const trimmed = newGroupName.trim().toUpperCase();
     if (!trimmed) { setAddGroupError('Name is required'); return; }
-    if (projectGroups.some((g) => g.group === trimmed)) {
+    if (workspaceGroups.some((g) => g.group === trimmed)) {
       setAddGroupError(`Group "${trimmed}" already exists`); return;
     }
     setIsAddingGroup(true);
@@ -214,7 +251,7 @@ export default function ManageWorkspacesDialog({
   const handleDropOnWorkspace = (targetKey: string) => async (e: React.DragEvent) => {
     e.preventDefault();
     if (!draggedKey || draggedKey === targetKey) { handleDragEnd(); return; }
-    for (const g of projectGroups) {
+    for (const g of workspaceGroups) {
       const idx = g.workspaces.findIndex((w) => w.key === targetKey);
       if (idx !== -1) {
         await onMove(draggedKey, g.group, idx);
@@ -227,7 +264,7 @@ export default function ManageWorkspacesDialog({
   const handleDropOnGroup = (group: string) => async (e: React.DragEvent) => {
     e.preventDefault();
     if (!draggedKey) { handleDragEnd(); return; }
-    const target = projectGroups.find((g) => g.group === group);
+    const target = workspaceGroups.find((g) => g.group === group);
     if (target) await onMove(draggedKey, group, target.workspaces.length);
     handleDragEnd();
   };
@@ -255,7 +292,7 @@ export default function ManageWorkspacesDialog({
     e.preventDefault();
     e.stopPropagation();
     if (!draggedGroupName || draggedGroupName === targetGroupName) { handleDragEnd(); return; }
-    const toIndex = projectGroups.findIndex((g) => g.group === targetGroupName);
+    const toIndex = workspaceGroups.findIndex((g) => g.group === targetGroupName);
     if (toIndex !== -1) await onReorderGroup(draggedGroupName, toIndex);
     handleDragEnd();
   };
@@ -266,7 +303,7 @@ export default function ManageWorkspacesDialog({
     setDropTargetGroupReorder(null);
   };
 
-  const pendingProject = projectGroups
+  const pendingProject = workspaceGroups
     .flatMap((g) => g.workspaces)
     .find((w) => w.key === pendingRemoveKey) ?? null;
 
@@ -285,7 +322,7 @@ export default function ManageWorkspacesDialog({
         </div>
 
         <div className="manage-workspaces__body">
-          {projectGroups.length === 0 ? (
+          {workspaceGroups.length === 0 ? (
             <div className="manage-workspaces__empty">No workspaces configured</div>
           ) : (
             <table className="manage-workspaces__table">
@@ -299,7 +336,7 @@ export default function ManageWorkspacesDialog({
                 </tr>
               </thead>
               <tbody>
-                {projectGroups.map((group) => (
+                {workspaceGroups.map((group) => (
                   group.workspaces.length === 0 ? (
                     // Empty group — droppable placeholder row (workspace drop target)
                     <tr
@@ -461,6 +498,14 @@ export default function ManageWorkspacesDialog({
                   onChange={(e) => { setNewRepo(e.target.value); setAddError(null); }}
                   disabled={isAdding}
                 />
+                <input
+                  className="manage-workspaces__input"
+                  placeholder="WDR (optional)"
+                  value={newWdr}
+                  onChange={(e) => { setNewWdr(e.target.value); setAddError(null); }}
+                  disabled={isAdding}
+                  title="Working Directory Root override — leave empty to use default"
+                />
                 <select
                   ref={groupSelectRef}
                   className="manage-workspaces__select"
@@ -468,7 +513,7 @@ export default function ManageWorkspacesDialog({
                   onChange={(e) => { setNewGroup(e.target.value); setAddError(null); }}
                   disabled={isAdding}
                 >
-                  {projectGroups.map((g) => (
+                  {workspaceGroups.map((g) => (
                     <option key={g.group} value={g.group}>{g.group}</option>
                   ))}
                 </select>
@@ -478,7 +523,7 @@ export default function ManageWorkspacesDialog({
                 <button
                   ref={cancelWorkspaceBtnRef}
                   className="btn"
-                  onClick={() => { setShowAddForm(false); setNewKey(''); setNewRepo(''); setAddError(null); }}
+                  onClick={() => { setShowAddForm(false); setNewKey(''); setNewRepo(''); setNewWdr(''); setAddError(null); }}
                 >
                   CANCEL
                 </button>
@@ -489,22 +534,56 @@ export default function ManageWorkspacesDialog({
 
           {newRepo && showAddForm && (
             <div className="manage-workspaces__dir-preview">
-              Dir: /home/rulu/projects/{newRepo.trim()}
+              Dir: {newWdr.trim() || defaultRoot}/{newRepo.trim()}
             </div>
           )}
+
+          {/* Settings section */}
+          <div className="manage-workspaces__settings-section">
+            <div className="manage-workspaces__settings-header">SETTINGS</div>
+            <div className="manage-workspaces__settings-row">
+              <label className="manage-workspaces__settings-label">Default Working Directory Root</label>
+              <div className="manage-workspaces__settings-input-row">
+                <input
+                  className="manage-workspaces__input manage-workspaces__settings-input"
+                  value={defaultRootDraft ?? defaultRoot}
+                  onChange={(e) => { setDefaultRootDraft(e.target.value); setDefaultRootSaved(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveDefaultRoot(); }}
+                  placeholder="/home/user/projects"
+                />
+                {defaultRootDraft !== null && defaultRootDraft !== defaultRoot && (
+                  <button className="btn btn--primary manage-workspaces__settings-save-btn" onClick={() => void handleSaveDefaultRoot()} title="Save"><span style={{ fontSize: '0.8rem' }}>✓</span></button>
+                )}
+                {defaultRootSaved && <span className="manage-workspaces__saved">✓ Saved</span>}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {pendingProject && (
         <ConfirmDialog
           message={`Remove workspace "${pendingProject.key}"?`}
-          detail="This will remove the workspace from projects.json. Existing sessions will not be affected."
+          detail="This will remove the workspace from the configuration. Existing sessions will not be affected."
           confirmLabel="REMOVE"
           onConfirm={async () => {
             await onRemove(pendingProject.key);
             setPendingRemoveKey(null);
           }}
           onCancel={() => setPendingRemoveKey(null)}
+        />
+      )}
+
+      {missingDirPath && (
+        <ConfirmDialog
+          message="Directory does not exist"
+          detail={`The directory "${missingDirPath}" does not exist. Would you like to create it?`}
+          confirmLabel="CREATE FOLDER"
+          onConfirm={() => {
+            setMissingDirPath(null);
+            void handleAddWorkspace(true);
+          }}
+          onCancel={() => setMissingDirPath(null)}
         />
       )}
     </div>

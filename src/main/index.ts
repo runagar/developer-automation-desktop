@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
-import { ProjectManager } from './projects';
+import { WorkspaceManager } from './workspaces';
 import type { StatePoller } from './statePoller';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
+import { loadSettings } from './settings';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -13,7 +14,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
-let projectManager: ProjectManager;
+let workspaceManager: WorkspaceManager;
 let statePoller: StatePoller | null = null;
 
 function createWindow(): void {
@@ -62,20 +63,29 @@ function createWindow(): void {
 
 async function initialize(): Promise<void> {
   const dataDir = path.join(app.getPath('userData'), 'agent-smith');
-  const projectsPath = path.join(dataDir, 'projects.json');
-  const defaultProjectsPath = path.join(app.getAppPath(), 'assets', 'default-projects.json');
-
   fs.mkdirSync(dataDir, { recursive: true });
-  if (!fs.existsSync(projectsPath)) {
-    fs.copyFileSync(defaultProjectsPath, projectsPath);
+
+  // Migrate projects.json → workspaces.json
+  const workspacesPath = path.join(dataDir, 'workspaces.json');
+  const oldProjectsPath = path.join(dataDir, 'projects.json');
+  if (!fs.existsSync(workspacesPath)) {
+    if (fs.existsSync(oldProjectsPath)) {
+      fs.renameSync(oldProjectsPath, workspacesPath);
+    } else {
+      const defaultPath = path.join(app.getAppPath(), 'assets', 'default-workspaces.json');
+      fs.copyFileSync(defaultPath, workspacesPath);
+    }
   }
+
+  // Create settings.json with defaults if missing
+  loadSettings(dataDir);
 
   sessionManager = new SessionManager(dataDir);
   shellTmuxManager = new ShellTmuxManager();
-  projectManager = new ProjectManager(projectsPath);
+  workspaceManager = new WorkspaceManager(workspacesPath, dataDir);
   await sessionManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, projectManager, () => mainWindow, dataDir);
+  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, () => mainWindow, dataDir);
 }
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash.
