@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PanelInstance, PanelType, PANEL_LABELS } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
 import TerminalPanelInstance from './components/TerminalPanelInstance';
@@ -7,6 +7,8 @@ import JiraPanelInstance from './components/JiraPanelInstance';
 import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
+import SettingsMenu from './components/SettingsMenu';
+import CredentialsDialog from './components/CredentialsDialog';
 import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
 import ZoomControl from './components/ZoomControl';
@@ -31,6 +33,7 @@ export default function App(): React.ReactElement {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const projectGroups = useProjectStore((s) => s.groups);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
 
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
   const sessionListRef = useRef<SessionListHandle>(null);
@@ -312,6 +315,7 @@ export default function App(): React.ReactElement {
         </div>
         <div className="app-header__right">
           <PanelMenu />
+          <SettingsMenu onOpenCredentials={() => setCredentialsOpen(true)} />
           <ZoomControl />
           <ThemeSelector />
         </div>
@@ -319,6 +323,7 @@ export default function App(): React.ReactElement {
       <div className="app-body">
         <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
       </div>
+      {credentialsOpen && <CredentialsDialog onClose={() => setCredentialsOpen(false)} />}
     </div>
   );
 }

@@ -3,10 +3,13 @@ import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
 import { ProjectManager } from './projects';
 import { StatePoller } from './statePoller';
-import { fetchJiraIssue, fetchIssueGraph } from './jira';
+import { fetchJiraIssue, fetchIssueGraph, clearCredentialCache } from './jira';
 import { JiraIssue } from './types';
 import { writeIssueNote, getVaultRoot, readFromVault } from './vault';
 import { loadWhitelist } from './whitelist';
+import {
+  getCredentialStatus, validateCredentials, saveCredential, clearCredential,
+} from './credentials';
 
 let statePoller: StatePoller | null = null;
 let isSimulatedMaximized = false;
@@ -261,4 +264,24 @@ export function registerIpcHandlers(
   ipcMain.handle('shell:destroyTmux', (_event, sessionId: string) =>
     shellTmuxManager.destroy(sessionId)
   );
+
+  // Credentials
+  ipcMain.handle('credentials:status', () => getCredentialStatus(dataDir));
+
+  ipcMain.handle('credentials:save', async (_event, updates: Array<{ key: string; value: string }>) => {
+    const results = await validateCredentials(dataDir, updates);
+    for (const r of results) {
+      if (r.valid) {
+        const update = updates.find((u) => u.key === r.key);
+        if (update) saveCredential(dataDir, update.key, update.value);
+      }
+    }
+    clearCredentialCache();
+    return results;
+  });
+
+  ipcMain.handle('credentials:clear', (_event, key: string) => {
+    clearCredential(dataDir, key);
+    clearCredentialCache();
+  });
 }

@@ -106,6 +106,22 @@ export interface IpcApi {
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;
+
+  // Credentials
+  getCredentialStatus: () => Promise<CredentialStatusInfo[]>;
+  saveCredentials: (updates: Array<{ key: string; value: string }>) => Promise<Array<{ key: string; valid: boolean; error?: string }>>;
+  clearCredential: (key: string) => Promise<void>;
+}
+
+export interface CredentialStatusInfo {
+  key: string;
+  label: string;
+  group: string;
+  sensitive: boolean;
+  required: boolean;
+  placeholder?: string;
+  source: 'env' | 'file' | 'none';
+  value: string;
 }
 
 export interface ProjectEntry {

@@ -109,6 +109,11 @@ const api: IpcApi = {
     ipcRenderer.on('session:archived', listener);
     return () => ipcRenderer.removeListener('session:archived', listener);
   },
+
+  // Credentials
+  getCredentialStatus: () => ipcRenderer.invoke('credentials:status'),
+  saveCredentials: (updates) => ipcRenderer.invoke('credentials:save', updates),
+  clearCredential: (key) => ipcRenderer.invoke('credentials:clear', key),
 };
 
 contextBridge.exposeInMainWorld('agentSmith', api);

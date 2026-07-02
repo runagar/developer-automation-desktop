@@ -148,9 +148,9 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
   4. Fetches the epic's children belonging to the same project as the primary.
   5. Filters by project-key whitelist (configurable via `<dataDir>/jira-whitelist.json`).
   6. Writes all fetched issues to the **Jira vault** as Markdown notes with YAML frontmatter and `[[wikilinks]]`.
-- Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/jira.ts` in order:
-  1. Environment variables (highest priority)
-  2. `~/.config/agent-smith/agent-smith/credentials.env`
+- Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/credentials.ts` in order:
+  1. Environment variables (highest priority — shown as read-only in the UI)
+  2. `<dataDir>/credentials.env` (managed via Settings → Credentials dialog)
   3. Error with actionable message if neither source provides both values
 
 **Wiki-to-Markdown conversion:** Jira issue descriptions arrive in wiki markup and are converted to Markdown at fetch time by `src/main/wikiToMarkdown.ts`. The converter handles: headings, bold, italic, bullet/numbered lists (with nesting), code blocks (with language), inline code, links, tables, and colour markup (stripped). Jira issue keys (`PROJ-123`) in the description are automatically wrapped as `[KEY](jira://KEY)` links. Code blocks and inline code are protected from further conversion.
@@ -175,6 +175,25 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 **Per-panel issue state:** The `jiraStore` keys issues by `panelInstanceId` (not `sessionId`). Each Jira panel manages its own issue independently. When the default panel's session changes, it reseeds from `session.jiraData`.
 
 **IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+
+### Credentials management
+The **⚙ SETTINGS** dropdown in the header provides access to the **Credentials** dialog — a modal for managing API tokens and URLs used by Agent Smith's integrations.
+
+**Manifest-driven fields:** Credential fields are defined in `src/main/credentials.ts` as a `CREDENTIAL_FIELDS` array. Each entry specifies `key`, `label`, `group`, `sensitive`, `required`, and optional `placeholder`. Adding a new integration's credentials requires only appending entries to this manifest — no UI code changes needed.
+
+**Current fields:**
+| Key | Group | Sensitive | Required |
+|---|---|---|---|
+| `ATLASSIAN_PAT` | Atlassian | Yes | Yes |
+| `ATLASSIAN_BASE_URL` | Atlassian | No | Yes |
+
+**Environment variable precedence:** If a credential is set as a system environment variable, the field is shown as read-only (greyed out) with a "Set via environment variable" note. The user cannot override env-var-managed credentials through the UI.
+
+**Validation on save:** Credentials are validated before saving (e.g. Atlassian credentials are tested by pinging `/rest/api/latest/myself`). Invalid fields are not saved — inline errors are shown. Fields can be saved independently; if the invalidity of one field makes another's validity undetermined, neither is saved.
+
+**Persistence:** Credentials are stored in `<dataDir>/credentials.env` (plain text, chmod 600). The file is created on first save. The `clearCredentialCache()` function in `jira.ts` is called after any save/clear to ensure the next Jira operation uses updated values.
+
+**IPC channels:** `credentials:status` (read all field statuses), `credentials:save` (validate + save), `credentials:clear` (remove a field).
 
 ### Workspace management
 A **⬡ MANAGE WORKSPACES** button at the bottom of the session sidebar opens a dialog listing all workspaces organised into groups. From this dialog users can:
