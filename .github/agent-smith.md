@@ -217,7 +217,8 @@ Accessible from **Settings → Workspaces** in the header dropdown. Opens a dial
 |---|---|
 | App shell | Electron 33 (WSLg) |
 | Renderer | React 18 + TypeScript |
-| Bundler | Webpack via `electron-forge` |
+| Bundler | Vite via `electron-vite` |
+| Packager | `electron-builder` (Linux ZIP) |
 | Terminal emulator | xterm.js (`@xterm/xterm`) with FitAddon and WebLinksAddon |
 | Session host | tmux (hard requirement) |
 | PTY | `node-pty` (for tmux attach client only) |
@@ -381,13 +382,17 @@ Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern
 
 ```bash
 cd "/home/rulu/projects/Agent Smith"
-./launch.sh
+npm start
 ```
 
-`launch.sh` initialises `fnm` (Node version manager), ensures Electron native module headers are present, and starts the app via `electron-forge start`.
+Or via `./launch.sh` (which initialises `fnm` first — needed when launching from a Windows desktop shortcut where `.zshrc` isn't sourced).
+
+Development uses `electron-vite dev` with Vite HMR for the renderer and auto-rebuild for the main process. Native modules (`better-sqlite3`, `node-pty`) are externalised and rebuilt via `postinstall`.
 
 To package a distributable:
 
 ```bash
-npm run make
+npm run package
 ```
+
+This runs `electron-vite build` followed by `electron-builder` to produce a Linux ZIP.

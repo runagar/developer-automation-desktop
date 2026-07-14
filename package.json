@@ -2,32 +2,27 @@
   "name": "agent-smith",
   "version": "1.0.0",
   "description": "Atompunk Copilot CLI session manager",
-  "main": ".webpack/main",
+  "main": "out/main/index.js",
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "start": "electron-vite dev",
+    "build": "electron-vite build",
+    "package": "electron-vite build && electron-builder",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --ext .ts,.tsx .",
+    "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
   "author": "rulu",
   "license": "MIT",
   "devDependencies": {
-    "@electron-forge/cli": "^7.6.0",
-    "@electron-forge/maker-deb": "^7.6.0",
-    "@electron-forge/maker-zip": "^7.6.0",
-    "@electron-forge/plugin-webpack": "^7.6.0",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",
-    "css-loader": "^6.0.0",
-    "electron": "^33.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0-beta.1",
     "eslint": "^8.0.1",
     "eslint-plugin-import": "^2.25.0",
-    "fork-ts-checker-webpack-plugin": "^7.2.13",
-    "node-loader": "^2.0.0",
-    "style-loader": "^3.0.0",
-    "ts-loader": "^9.2.2",
     "typescript": "~5.0.4"
   },
   "dependencies": {
@@ -40,7 +35,6 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^11.0.0",
-    "electron": "^33.0.0",
     "nanoid": "^5.1.11",
     "node-pty": "^1.0.0",
     "react": "^18.2.0",
@@ -50,44 +44,25 @@
     "uuid": "^10.0.0",
     "zustand": "^5.0.14"
   },
-  "config": {
-    "forge": {
-      "packagerConfig": {
-        "asar": true,
-        "icon": "./assets/agent_smith_icon.png"
-      },
-      "rebuildConfig": {
-        "onlyModules": []
-      },
-      "makers": [
-        {
-          "name": "@electron-forge/maker-zip",
-          "platforms": [
-            "linux"
-          ]
-        }
+  "build": {
+    "appId": "com.agent-smith.app",
+    "productName": "Agent Smith",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/node-pty/**",
+      "**/*.node"
+    ],
+    "files": [
+      "out/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "zip"
       ],
-      "plugins": [
-        {
-          "name": "@electron-forge/plugin-webpack",
-          "config": {
-            "mainConfig": "./webpack.main.config.js",
-            "renderer": {
-              "config": "./webpack.renderer.config.js",
-              "entryPoints": [
-                {
-                  "html": "./src/renderer/index.html",
-                  "js": "./src/renderer/index.tsx",
-                  "name": "main_window",
-                  "preload": {
-                    "js": "./src/preload/preload.ts"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      ]
+      "icon": "./assets/agent_smith_icon.png"
     }
   }
 }

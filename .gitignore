@@ -1,7 +1,7 @@
 node_modules/
-.webpack/
-dist/
 out/
+dist/
+.webpack/
 
 # Logs & runtime
 *.log

@@ -39,7 +39,7 @@ src/renderer/      React renderer process
     pipboy.css     All theme variables, CRT effects, shared .btn classes
 
 workspaces.json    Workspace list (key → repo → workingDir), grouped
-launch.sh          Dev launcher (initialises fnm, starts electron-forge)
+launch.sh          Dev launcher (initialises fnm, runs npm start)
 ```
 
 ---
@@ -77,7 +77,7 @@ launch.sh          Dev launcher (initialises fnm, starts electron-forge)
   - `in-process-gpu` flag is set to prevent GPU process crashes on WSLg.
   - `mainWindow.setBounds(display.workArea)` must be deferred with `setImmediate` inside the `maximize` event — calling it synchronously crashes.
   - The app window is frameless (`frame: false`); window controls are handled by `TitleBar.tsx` via IPC.
-- Native modules (`node-pty`, `better-sqlite3`) must be compiled against the exact Electron version. `launch.sh` handles this via `electron-forge start` which uses `@electron-forge/plugin-webpack` with native module rebuild support.
+- Native modules (`node-pty`, `better-sqlite3`) must be compiled against the exact Electron version. The `postinstall` script runs `electron-builder install-app-deps` to handle this automatically.
 
 ---
 

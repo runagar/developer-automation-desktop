@@ -8,9 +8,6 @@ import type { StatePoller } from './statePoller';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
 import { loadSettings } from './settings';
 
-declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
-declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
-
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
@@ -26,7 +23,7 @@ function createWindow(): void {
     backgroundColor: '#000000',
     frame: false,
     webPreferences: {
-      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -34,7 +31,11 @@ function createWindow(): void {
     icon: path.join(__dirname, '../../assets/agent_smith_icon.png'),
   });
 
-  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+  if (process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
   mainWindow.setMenuBarVisibility(false);
   sessionManager.setWindow(mainWindow);
   shellTmuxManager.setWindow(mainWindow);
