@@ -8,7 +8,7 @@ import { nanoid } from 'nanoid';
 // Panel types & modes
 // ---------------------------------------------------------------------------
 
-export type PanelType = 'sessions' | 'terminal' | 'jira' | 'shell';
+export type PanelType = 'sessions' | 'terminal' | 'jira' | 'shell' | 'notes';
 
 export type PanelMode = 'singleton' | 'default' | 'linked';
 
@@ -17,10 +17,14 @@ export const PANEL_LABELS: Record<PanelType, string> = {
   terminal: 'CLI Terminal',
   jira: 'Jira',
   shell: 'Shell',
+  notes: 'Notes',
 };
 
 /** Types that only allow a single instance (toggle show/hide, never destroyed). */
 export const SINGLETON_TYPES: Set<PanelType> = new Set(['sessions']);
+
+/** Types that can be spawned as global (session-unbound) panels. */
+export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
 
 // ---------------------------------------------------------------------------
 // Placement & PanelInstance
@@ -42,6 +46,7 @@ export interface PanelInstance {
   mode: PanelMode;
   linkedSessionId?: string;  // set only when mode is 'linked'
   currentSessionId?: string; // what the panel is currently displaying
+  isGlobal?: boolean;        // true for global panels (no session binding)
 }
 
 export interface DashboardState {
@@ -188,6 +193,7 @@ export function validateState(value: unknown): DashboardState | null {
       mode: r.mode as PanelMode,
       linkedSessionId: typeof r.linkedSessionId === 'string' ? r.linkedSessionId : undefined,
       currentSessionId: typeof r.currentSessionId === 'string' ? r.currentSessionId : undefined,
+      isGlobal: r.isGlobal === true ? true : undefined,
     });
   }
 

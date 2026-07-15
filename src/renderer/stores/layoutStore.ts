@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import {
   DashboardState, Placement, PanelInstance, PanelType,
-  STORAGE_KEY, SINGLETON_TYPES,
+  STORAGE_KEY, SINGLETON_TYPES, GLOBAL_CAPABLE_TYPES,
   defaultState, validateState, clampPlacement, maxZ, panelOrder,
   generatePanelId, findSpawnPlacement,
 } from '../dashboard/layout';
@@ -22,6 +22,7 @@ interface LayoutStore {
 
   // Spawning
   spawnPanel: (type: PanelType, sessionId: string) => string | null;
+  spawnGlobalPanel: (type: PanelType, existingId?: string) => string | null;
 
   // Closing
   destroyPanel: (id: string) => void;
@@ -146,9 +147,9 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       if (existing) return null;
     }
 
-    // Determine mode: default if no panel of this type exists, otherwise linked
-    const hasTypeInstance = s.instances.some((inst) => inst.type === type);
-    const mode = hasTypeInstance ? 'linked' as const : 'default' as const;
+    // Determine mode: default if no non-global panel of this type exists, otherwise linked
+    const hasNonGlobalInstance = s.instances.some((inst) => inst.type === type && !inst.isGlobal);
+    const mode = hasNonGlobalInstance ? 'linked' as const : 'default' as const;
 
     const { placement, splitInstanceId, splitPlacement } = findSpawnPlacement(s.instances, type);
     const id = generatePanelId(type);
@@ -165,6 +166,37 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     set((current) => {
       let instances = [...current.instances, newInstance];
       // If a split happened, update the source panel
+      if (splitInstanceId && splitPlacement) {
+        instances = instances.map((inst) =>
+          inst.id === splitInstanceId
+            ? { ...inst, placement: clampPlacement(splitPlacement) }
+            : inst
+        );
+      }
+      const next = { instances, locked: current.locked };
+      persistState(next);
+      return next;
+    });
+
+    return id;
+  },
+
+  spawnGlobalPanel: (type, existingId?) => {
+    if (!GLOBAL_CAPABLE_TYPES.has(type)) return null;
+    const s = get();
+    const { placement, splitInstanceId, splitPlacement } = findSpawnPlacement(s.instances, type);
+    const id = existingId || generatePanelId(type);
+
+    const newInstance: PanelInstance = {
+      id,
+      type,
+      placement,
+      mode: 'linked',
+      isGlobal: true,
+    };
+
+    set((current) => {
+      let instances = [...current.instances, newInstance];
       if (splitInstanceId && splitPlacement) {
         instances = instances.map((inst) =>
           inst.id === splitInstanceId

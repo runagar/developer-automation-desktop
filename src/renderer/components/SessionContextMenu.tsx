@@ -27,6 +27,7 @@ const SECTIONS: MenuSection[] = [
       { label: 'CLI Terminal', action: 'terminal' },
       { label: 'Shell', action: 'shell' },
       { label: 'Jira', action: 'jira' },
+      { label: 'Notes', action: 'notes' },
     ],
   },
   {

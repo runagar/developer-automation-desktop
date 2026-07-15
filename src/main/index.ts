@@ -4,6 +4,7 @@ import * as path from 'path';
 import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
 import { WorkspaceManager } from './workspaces';
+import { NotesManager } from './notes';
 import type { StatePoller } from './statePoller';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
 import { loadSettings } from './settings';
@@ -12,6 +13,7 @@ let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
 let workspaceManager: WorkspaceManager;
+let notesManager: NotesManager;
 let statePoller: StatePoller | null = null;
 
 function createWindow(): void {
@@ -86,7 +88,13 @@ async function initialize(): Promise<void> {
   workspaceManager = new WorkspaceManager(workspacesPath, dataDir);
   await sessionManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, () => mainWindow, dataDir);
+  // Initialize notes manager (uses same DB as sessions)
+  const Database = require('better-sqlite3');
+  const notesDb = new Database(path.join(dataDir, 'sessions.db'));
+  notesManager = new NotesManager(notesDb, dataDir);
+  notesManager.initialize();
+
+  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, notesManager, () => mainWindow, dataDir);
 }
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash.

@@ -20,6 +20,9 @@
   --c-bg:           #000000;
   --c-amber:        #ffcc00;
   --c-red:          #ff4444;
+  --c-inline-code:  #0055dd;
+  --c-blockquote:   #cc7f16;
+  --c-md-marker:    #0055dd;
 
   --glow:         0 0 6px var(--c-bright), 0 0 12px var(--c-dim);
   --glow-sm:      0 0 4px var(--c-bright);
@@ -43,6 +46,9 @@
   --c-active:       #1f1000;
   --c-bg:           #000000;
   --c-amber:        #ffe082;
+  --c-inline-code:  #0055dd;
+  --c-blockquote:   #00cc00;
+  --c-md-marker:    #0055dd;
 }
 
 /* --- CRT effect: subtle phosphor center glow --- */

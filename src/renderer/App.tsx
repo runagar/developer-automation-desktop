@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Globe } from 'lucide-react';
 import { PanelInstance, PanelType, PANEL_LABELS } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
 import TerminalPanelInstance from './components/TerminalPanelInstance';
 import ShellPanelInstance from './components/ShellPanelInstance';
 import JiraPanelInstance from './components/JiraPanelInstance';
+import NotesPanelInstance from './components/NotesPanelInstance';
 import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
@@ -190,7 +192,7 @@ export default function App(): React.ReactElement {
   }, []);
 
   const handleDoubleClickSession = useCallback((sessionId: string) => {
-    const types: PanelType[] = ['terminal', 'shell', 'jira'];
+    const types: PanelType[] = ['terminal', 'shell', 'jira', 'notes'];
     for (const type of types) {
       handleSpawnPanel(type, sessionId);
     }
@@ -260,6 +262,8 @@ export default function App(): React.ReactElement {
             jiraRefs={jiraRefs}
           />
         );
+      case 'notes':
+        return <NotesPanelInstance instance={instance} />;
       default:
         return null;
     }
@@ -276,6 +280,17 @@ export default function App(): React.ReactElement {
 
     const sid = instance.currentSessionId;
     const session = sid ? sessions.find((s) => s.id === sid) : null;
+
+    // Global notes panels show globe icon instead of session name
+    if (instance.isGlobal) {
+      return (
+        <>
+          <Globe size={12} style={{ marginRight: 4, opacity: 0.7 }} />
+          <span className="workspace-panel__title-main">{PANEL_LABELS[instance.type]}</span>
+        </>
+      );
+    }
+
     return (
       <>
         <span className="workspace-panel__title-main">{PANEL_LABELS[instance.type]}</span>

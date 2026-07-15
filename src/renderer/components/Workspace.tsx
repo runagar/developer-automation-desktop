@@ -173,7 +173,13 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
           onDragStart={handleDragStart(inst.id, inst.placement)}
           onResizeStart={handleResizeStart(inst.id, inst.placement)}
           onActivate={() => bringToFront(inst.id)}
-          onClose={() => destroyPanel(inst.id)}
+          onClose={() => {
+            // For global notes panels, mark as closed in DB before destroying
+            if (inst.type === 'notes' && inst.isGlobal) {
+              void window.agentSmith.notesClosePanel(inst.id);
+            }
+            destroyPanel(inst.id);
+          }}
         >
           {renderBody(inst)}
         </WorkspacePanel>

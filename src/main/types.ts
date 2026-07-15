@@ -111,6 +111,23 @@ export interface IpcApi {
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;
 
+  // Notes
+  notesCreatePanel: (scope: { kind: string; id: string }, panelId?: string) => Promise<any>;
+  notesClosePanel: (panelId: string) => Promise<void>;
+  notesDestroyPanel: (panelId: string) => Promise<void>;
+  notesRestorePanel: (panelId: string) => Promise<any>;
+  notesGetClosedPanels: () => Promise<any[]>;
+  notesCreateTab: (scope: { kind: string; id: string }) => Promise<any>;
+  notesCloseTab: (tabId: string) => Promise<void>;
+  notesRestoreTab: (tabId: string) => Promise<any>;
+  notesGetClosedTabs: (scope: { kind: string; id: string }) => Promise<any[]>;
+  notesRenameTab: (tabId: string, name: string) => Promise<void>;
+  notesSaveContent: (tabId: string, content: string) => Promise<void>;
+  notesLoadContent: (tabId: string) => Promise<string>;
+  notesGetTabs: (scope: { kind: string; id: string }) => Promise<any[]>;
+  notesExportTab: (tabId: string) => Promise<boolean>;
+  notesCopyRef: (tabId: string) => Promise<string>;
+
   // Credentials
   getCredentialStatus: () => Promise<CredentialStatusInfo[]>;
   saveCredentials: (updates: Array<{ key: string; value: string }>) => Promise<Array<{ key: string; valid: boolean; error?: string }>>;

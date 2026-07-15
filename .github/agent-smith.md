@@ -25,25 +25,29 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 | `terminal` | CLI Terminal (`TerminalPane`) | Yes | `default` or `linked` |
 | `shell` | Shell terminal (tmux-backed) | Yes | `default` or `linked` |
 | `jira` | Jira issue pane (`JiraPane`) | Yes | `default` or `linked` |
+| `notes` | Markdown editor (`NotesPane`) | Yes | `default`, `linked`, or global |
 
 **Panel modes:**
 - **Singleton**: Only one instance exists (Sessions panel). Visibility can be toggled from the Panel menu.
 - **Default**: The first panel of each type. Follows the active session — when a new session is activated, the Default panel switches to show that session's content (unless a linked panel of the same type already exists for that session).
 - **Linked**: Pinned to a specific session. Created by double-clicking a session or via the context menu. Always shows the same session.
+- **Global**: Not bound to any session. Created via the Panel menu → Notes submenu. Only panel types in `GLOBAL_CAPABLE_TYPES` (currently: `notes`) support this mode. Global panels have `isGlobal: true` on their `PanelInstance` and display a globe icon in the header instead of a session name.
 
 **Panel instance data model** (`PanelInstance`):
 - `id` — type-prefixed nanoid (e.g. `terminal-a8f3k2`) or `"sessions"` for the singleton.
-- `type` — `'sessions' | 'terminal' | 'jira' | 'shell'`
+- `type` — `'sessions' | 'terminal' | 'jira' | 'shell' | 'notes'`
 - `placement` — `{ x, y, w, h, visible, z }`
 - `mode` — `'singleton' | 'default' | 'linked'`
 - `linkedSessionId` — set only when mode is `linked`
 - `currentSessionId` — what the panel is currently displaying
+- `isGlobal` — `true` for global panels (no session binding); only applicable to `GLOBAL_CAPABLE_TYPES`
 
 **Default panel promotion:** When the Default panel of a type is closed, the first remaining instance of that type (in reading order) is promoted to Default. It loses its session link but keeps its current content.
 
 **Spawning panels:**
-- **Double-click** a session in the list → spawns Terminal + Shell + Jira panels (in that order) for that session. Focus stays on the Sessions panel.
-- **Right-click → context menu** on a session → spawn an individual panel type. Focus moves to the spawned panel.
+- **Double-click** a session in the list → spawns Terminal + Shell + Jira + Notes panels (in that order) for that session. Focus stays on the Sessions panel.
+- **Right-click → context menu** on a session → spawn an individual panel type (Terminal/Shell/Jira/Notes). Focus moves to the spawned panel.
+- **Panel menu → Notes ▸** submenu → **New** spawns a global (session-unbound) notes panel. Closed global panels can be restored from the same submenu.
 - If a linked panel already exists for that session+type, focus moves to the existing panel instead.
 - Spawn placement: (1) fills the first empty space ≥ 2×2; (2) splits an existing same-type panel; (3) overlays at centre 3×3.
 
@@ -55,7 +59,7 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Drag** a panel by its header to move it (snaps to grid cells, clamped to bounds).
 - **Resize** from any of 8 edge/corner handles (minimum 1×1 cell).
 - **Z-order:** clicking a panel brings it to the front; panels may overlap.
-- **Panel menu** (header, left of zoom): toggle Sessions panel visibility and **Lock layout** toggle.
+- **Panel menu** (header, left of zoom): toggle Sessions panel visibility, **Notes** submenu (new/restore global panels), and **Lock layout** toggle.
 - **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
 - Default panels display a small **◆** badge in the header to distinguish them from linked panels.
 
@@ -176,6 +180,39 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 
 **IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
+### Notes panel
+The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be either **session-bound** (created per-session like other panel types) or **global** (not associated with any session, persists independently).
+
+**Scoping:**
+- **Session-bound notes** — created via double-click or session context menu. Scope key: `session:<sessionId>`. Notes are destroyed when the session is destroyed.
+- **Global notes** — created via Panel menu → Notes ▸ New. Scope key: `global:<panelId>`. Persists independently of sessions. Closed global panels can be restored from the Panel menu.
+
+**Tabbed interface:**
+- Each notes scope contains multiple **tabs** (markdown files). A new scope auto-creates its first tab.
+- Tabs can be added (+), closed (×), renamed (click active tab), and restored (↻ dropdown for closed tabs).
+- **Alt+Left / Alt+Right** cycles between tabs within the editor (highest-priority CM keymap).
+- Tab state (open/closed/order) is persisted to the `notes_tabs` SQLite table.
+
+**Editor:**
+- CodeMirror 6 with `@codemirror/lang-markdown` and `@codemirror/language-data` (fenced code block highlighting).
+- Inline markdown syntax highlighting reads theme colours from CSS custom properties (`--c-bright`, `--c-inline-code`, `--c-blockquote`, `--c-md-marker`) at editor creation time.
+- Autosave: content is written to disk after 500ms of inactivity (debounced).
+- Export (save-as dialog) and copy-file-path actions available via tab context menu.
+
+**Content mirroring:** When multiple panels share the same scope (e.g. two global panels with the same ID, or Default + linked notes panels for the same session), edits in one panel are mirrored to others via the `notesStore` content version counter. The non-editing panel detects version bumps and updates its CM doc.
+
+**Storage:**
+- Metadata: `notes_panels` and `notes_tabs` tables in `sessions.db`.
+- Content: Markdown files at `<dataDir>/notes/global/<panelId>/<tabId>.md` (global) or `<dataDir>/notes/sessions/<sessionId>/<tabId>.md` (session-bound).
+- On session destroy, all session-bound notes (DB rows + files + directory) are removed.
+
+**Panel lifecycle:**
+- Closing a global notes panel (✕) marks it as closed in the DB (`notes_panels.closed_at`) and removes the panel instance from the layout. The data is preserved and can be restored.
+- Permanently destroying a closed global panel deletes all tabs, files, and the directory.
+- Session-bound notes panels follow normal panel destroy behaviour (data lives as long as the session).
+
+**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+
 ### Credentials management
 The **⚙ SETTINGS** dropdown in the header provides access to the **Credentials** dialog — a modal for managing API tokens and URLs used by Agent Smith's integrations.
 
@@ -220,6 +257,8 @@ Accessible from **Settings → Workspaces** in the header dropdown. Opens a dial
 | Bundler | Vite via `electron-vite` |
 | Packager | `electron-builder` (Linux ZIP) |
 | Terminal emulator | xterm.js (`@xterm/xterm`) with FitAddon and WebLinksAddon |
+| Markdown editor | CodeMirror 6 (`@codemirror/view`, `@codemirror/lang-markdown`) |
+| Icons | Lucide (`lucide-react`) |
 | Session host | tmux (hard requirement) |
 | PTY | `node-pty` (for tmux attach client only) |
 | Persistence | `better-sqlite3` |
@@ -233,6 +272,7 @@ Main process
 ├── SessionManager       SQLite session store + session lifecycle + panel-instance PTY attachments
 ├── ShellTmuxManager     tmux-backed shell session management (attach/detach/destroy per panel instance)
 ├── WorkspaceManager     userData-backed workspace config manager
+├── NotesManager         SQLite + filesystem notes storage (panels, tabs, markdown files)
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
@@ -247,6 +287,7 @@ Renderer process
 ├── stores/              Zustand state stores
 │   ├── sessionStore.ts  sessions, activeSessionId, attachGen, lifecycle actions
 │   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
+│   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
 │   └── layoutStore.ts   PanelInstance[] management, spawn/destroy/promote/switchDefault
 ├── hooks/
@@ -260,13 +301,15 @@ Renderer process
 ├── SessionList          sessions panel body: new/archive/restore/destroy
 │   ├── Active sessions  main list with archive button (✕), double-click, context menu
 │   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
-├── SessionContextMenu   right-click context menu: New Panel (Terminal/Shell/Jira) + Rename
+├── SessionContextMenu   right-click context menu: New Panel (Terminal/Shell/Jira/Notes) + Rename
 ├── TerminalPanelInstance per-instance terminal: PTY attach/detach lifecycle, data routing
 ├── ShellPanelInstance   per-instance shell: shell tmux attach/detach lifecycle, data routing
 ├── JiraPanelInstance    per-instance Jira: issue display for currentSessionId
+├── NotesPanelInstance   per-instance Notes: scope resolution (global vs session-bound)
 ├── TerminalPane         xterm.js instance (uses useXterm hook)
 ├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
+├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
@@ -316,8 +359,8 @@ The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic,
 |---|---|
 | **Ctrl+Tab** / **Ctrl+Shift+Tab** | Cycle focus between visible panel instances |
 | **Tab** / **Shift+Tab** | Cycle within the focused panel (sessions: select session; terminal: shell tab) |
-| **Double-click** (session in list) | Spawn Terminal + Shell + Jira panels for that session |
-| **Right-click** (session in list) | Context menu: New Panel (Terminal/Shell/Jira), Rename |
+| **Double-click** (session in list) | Spawn Terminal + Shell + Jira + Notes panels for that session |
+| **Right-click** (session in list) | Context menu: New Panel (Terminal/Shell/Jira/Notes), Rename |
 | **Ctrl+n** | New session |
 | **Ctrl+c** | Copy selection to clipboard (if text is selected); otherwise send SIGINT |
 | **Ctrl+v** | Paste from clipboard |
@@ -372,6 +415,12 @@ Session data is stored at:
 $XDG_CONFIG_HOME/agent-smith/sessions.db
 ```
 On WSLg this resolves to `~/.config/agent-smith/sessions.db`. The directory is created automatically on first launch.
+
+Notes markdown files are stored at:
+```
+$XDG_CONFIG_HOME/agent-smith/notes/global/<panelId>/<tabId>.md
+$XDG_CONFIG_HOME/agent-smith/notes/sessions/<sessionId>/<tabId>.md
+```
 
 ### State detection patterns
 Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed. State is polled from tmux `capture-pane` output every 3 seconds.

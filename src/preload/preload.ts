@@ -114,6 +114,23 @@ const api: IpcApi = {
     return () => ipcRenderer.removeListener('session:archived', listener);
   },
 
+  // Notes
+  notesCreatePanel: (scope, panelId) => ipcRenderer.invoke('notes:createPanel', scope, panelId),
+  notesClosePanel: (panelId) => ipcRenderer.invoke('notes:closePanel', panelId),
+  notesDestroyPanel: (panelId) => ipcRenderer.invoke('notes:destroyPanel', panelId),
+  notesRestorePanel: (panelId) => ipcRenderer.invoke('notes:restorePanel', panelId),
+  notesGetClosedPanels: () => ipcRenderer.invoke('notes:getClosedPanels'),
+  notesCreateTab: (scope) => ipcRenderer.invoke('notes:createTab', scope),
+  notesCloseTab: (tabId) => ipcRenderer.invoke('notes:closeTab', tabId),
+  notesRestoreTab: (tabId) => ipcRenderer.invoke('notes:restoreTab', tabId),
+  notesGetClosedTabs: (scope) => ipcRenderer.invoke('notes:getClosedTabs', scope),
+  notesRenameTab: (tabId, name) => ipcRenderer.invoke('notes:renameTab', tabId, name),
+  notesSaveContent: (tabId, content) => ipcRenderer.invoke('notes:saveContent', tabId, content),
+  notesLoadContent: (tabId) => ipcRenderer.invoke('notes:loadContent', tabId),
+  notesGetTabs: (scope) => ipcRenderer.invoke('notes:getTabs', scope),
+  notesExportTab: (tabId) => ipcRenderer.invoke('notes:exportTab', tabId),
+  notesCopyRef: (tabId) => ipcRenderer.invoke('notes:copyRef', tabId),
+
   // Credentials
   getCredentialStatus: () => ipcRenderer.invoke('credentials:status'),
   saveCredentials: (updates) => ipcRenderer.invoke('credentials:save', updates),

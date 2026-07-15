@@ -4,7 +4,7 @@ import { resolve } from 'path';
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['nanoid'] })],
     build: {
       sourcemap: true,
       rollupOptions: {
@@ -13,7 +13,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['nanoid'] })],
     build: {
       sourcemap: true,
     },

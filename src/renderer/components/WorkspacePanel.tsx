@@ -1,4 +1,5 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import { Home } from 'lucide-react';
 import { Placement, PanelMode, toPct } from '../dashboard/layout';
 import PanelErrorBoundary from './PanelErrorBoundary';
 import './WorkspacePanel.css';
@@ -65,7 +66,7 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
         style={locked ? { cursor: 'default' } : undefined}
       >
         {mode === 'default' && (
-          <span className="workspace-panel__default-badge" title="Default panel">⌂</span>
+          <span className="workspace-panel__default-badge" title="Default panel"><Home size={11} /></span>
         )}
         <span className="workspace-panel__title">{title}</span>
         {!locked && (

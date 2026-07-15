@@ -1,0 +1,245 @@
+/* =========================================================
+   NOTES PANE
+   ========================================================= */
+
+.notes-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  background: var(--c-bg);
+}
+
+/* Tab bar */
+.notes-pane__tab-bar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 4px;
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-dark);
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.notes-pane__tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: hidden;
+  gap: 2px;
+}
+
+.notes-pane__tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 60px;
+  max-width: 90px;
+  padding: 2px 6px;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  color: var(--c-dim);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.notes-pane__tab:hover {
+  color: var(--c-bright);
+  background: var(--c-dark);
+}
+.notes-pane__tab--active {
+  color: var(--c-bright);
+  border-color: var(--c-dim);
+  background: var(--c-bg);
+}
+
+.notes-pane__tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.notes-pane__tab-rename {
+  font-family: var(--font);
+  font-size: 0.6rem;
+  color: var(--c-bright);
+  background: var(--c-bg);
+  border: 1px solid var(--c-bright);
+  padding: 0 2px;
+  width: 100%;
+  outline: none;
+}
+
+.notes-pane__tab-close {
+  font-size: 0.5rem;
+  color: var(--c-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.notes-pane__tab-close:hover {
+  color: var(--c-red);
+}
+
+.notes-pane__scroll-btn {
+  font-size: 0.55rem;
+  color: var(--c-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 3px;
+  flex-shrink: 0;
+}
+.notes-pane__scroll-btn:hover {
+  color: var(--c-bright);
+}
+
+.notes-pane__add-tab {
+  font-size: 0.75rem;
+  color: var(--c-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.notes-pane__add-tab:hover {
+  color: var(--c-bright);
+}
+
+.notes-pane__actions {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Editor */
+.notes-pane__editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.notes-pane__editor .cm-editor {
+  height: 100%;
+  background: transparent;
+}
+
+.notes-pane__editor .cm-scroller {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Markdown inline rendering overrides */
+.notes-pane__editor .cm-content .cm-header-1 {
+  font-size: 1.3em;
+  font-weight: 700;
+  color: var(--c-bright);
+}
+.notes-pane__editor .cm-content .cm-header-2 {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: var(--c-bright);
+}
+.notes-pane__editor .cm-content .cm-header-3 {
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--c-bright);
+}
+.notes-pane__editor .cm-content .cm-strong {
+  font-weight: 700;
+  color: var(--c-bright);
+}
+.notes-pane__editor .cm-content .cm-emphasis {
+  font-style: italic;
+}
+.notes-pane__editor .cm-content .cm-monospace {
+  background: color-mix(in srgb, var(--c-inline-code) 40%, transparent);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.notes-pane__editor .cm-content .cm-link {
+  color: var(--c-bright);
+  text-decoration: underline;
+}
+.notes-pane__editor .cm-content .cm-url {
+  color: var(--c-dim);
+}
+
+/* Global icon */
+.notes-pane__global-icon {
+  color: var(--c-dim);
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+/* Restore dropdown */
+.notes-pane__restore-container {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.notes-pane__restore-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  z-index: 10000;
+}
+.notes-pane__restore-section {
+  padding: 6px 10px 4px;
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  color: var(--c-dim);
+  text-transform: uppercase;
+}
+.notes-pane__restore-item {
+  display: block;
+  width: 100%;
+  padding: 4px 10px;
+  font-family: var(--font);
+  font-size: 0.65rem;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notes-pane__restore-item:hover {
+  background: var(--c-dark);
+}
+.notes-pane__restore-empty {
+  padding: 8px 10px;
+  font-size: 0.6rem;
+  color: var(--c-dim);
+  text-align: center;
+}
+
+/* Tab context menu */
+.notes-pane__tab-context {
+  position: fixed;
+  min-width: 150px;
+  padding: 4px 0;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  z-index: 10000;
+}
