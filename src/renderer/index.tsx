@@ -1,8 +1,9 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { initTheme } from './components/ThemeSelector';
+import { initTheme } from './components/SettingsMenu';
 import { initZoom } from './components/ZoomControl';
+import { initCrtEffects } from './components/crtEffects';
 import './styles/global.css';
 import './styles/pipboy.css';
 
@@ -16,9 +17,10 @@ window.addEventListener('error', (e) => {
   }
 });
 
-// Apply saved theme and zoom before first render
+// Apply saved theme, zoom, and CRT effects before first render
 initTheme();
 initZoom();
+initCrtEffects();
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

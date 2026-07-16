@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './ZoomControl.css';
 
 const STORAGE_KEY = 'agent-smith-zoom';
@@ -6,57 +6,86 @@ const DEFAULT_ZOOM = 1.0;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3.0;
 const STEP = 0.1;
+const ZOOM_CHANGED_EVENT = 'agent-smith-zoom-changed';
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
-export function initZoom(): void {
+function readZoom(): number {
   const saved = parseFloat(localStorage.getItem(STORAGE_KEY) ?? String(DEFAULT_ZOOM));
-  const factor = clamp(isNaN(saved) ? DEFAULT_ZOOM : saved, MIN_ZOOM, MAX_ZOOM);
+  return clamp(isNaN(saved) ? DEFAULT_ZOOM : saved, MIN_ZOOM, MAX_ZOOM);
+}
+
+function applyZoom(next: number): number {
+  const clamped = clamp(Math.round(next * 10) / 10, MIN_ZOOM, MAX_ZOOM);
+  localStorage.setItem(STORAGE_KEY, String(clamped));
+  // Dispatch event first so React updates the display immediately
+  window.dispatchEvent(new CustomEvent(ZOOM_CHANGED_EVENT, { detail: clamped }));
+  // Defer the expensive webFrame zoom so the UI repaints before the reflow
+  requestAnimationFrame(() => {
+    window.agentSmith.setZoom(clamped);
+  });
+  return clamped;
+}
+
+export function initZoom(): void {
+  const factor = readZoom();
   window.agentSmith.setZoom(factor);
 }
 
-export default function ZoomControl(): React.ReactElement {
-  const [zoom, setZoom] = useState<number>(() => {
-    const saved = parseFloat(localStorage.getItem(STORAGE_KEY) ?? String(DEFAULT_ZOOM));
-    return clamp(isNaN(saved) ? DEFAULT_ZOOM : saved, MIN_ZOOM, MAX_ZOOM);
-  });
+/**
+ * Hook that registers global Ctrl++/−/0 keyboard shortcuts for zoom.
+ * Must be called from a component that is always mounted (e.g. App.tsx).
+ */
+export function useZoomKeyboard(): void {
+  const zoomRef = useRef(readZoom());
 
-  function apply(next: number): void {
-    const clamped = clamp(Math.round(next * 10) / 10, MIN_ZOOM, MAX_ZOOM);
-    setZoom(clamped);
-    localStorage.setItem(STORAGE_KEY, String(clamped));
-    window.agentSmith.setZoom(clamped);
-  }
-
-  function reset(): void {
-    apply(DEFAULT_ZOOM);
-  }
-
-  // Always-current ref so the keyboard handler doesn't re-register on every zoom change.
-  const zoomRef = useRef(zoom);
-  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
-
-  // Ctrl+= or Ctrl++ → zoom in, Ctrl+- → zoom out, Ctrl+0 → reset.
-  // preventDefault stops Electron's own Ctrl+=/- window-level zoom from also firing.
   useEffect(() => {
+    const onZoomChanged = (e: Event) => {
+      zoomRef.current = (e as CustomEvent).detail;
+    };
+    window.addEventListener(ZOOM_CHANGED_EVENT, onZoomChanged);
+
     const handler = (e: KeyboardEvent) => {
       if (!e.ctrlKey) return;
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
-        apply(zoomRef.current + STEP);
+        zoomRef.current = applyZoom(zoomRef.current + STEP);
       } else if (e.key === '-') {
         e.preventDefault();
-        apply(zoomRef.current - STEP);
+        zoomRef.current = applyZoom(zoomRef.current - STEP);
       } else if (e.key === '0') {
         e.preventDefault();
-        apply(DEFAULT_ZOOM);
+        zoomRef.current = applyZoom(DEFAULT_ZOOM);
       }
     };
     document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  // Empty deps: handler registered once; reads fresh zoom from zoomRef.
+    return () => {
+      document.removeEventListener('keydown', handler);
+      window.removeEventListener(ZOOM_CHANGED_EVENT, onZoomChanged);
+    };
+  }, []);
+}
+
+/**
+ * Visual zoom controls (+/−/%) for embedding in the settings dropdown.
+ * onReset is called when the user clicks the percentage label.
+ */
+export function ZoomControls({ onReset }: { onReset?: () => void }): React.ReactElement {
+  const [zoom, setZoom] = useState<number>(readZoom);
+
+  // Sync from keyboard changes or other sources
+  useEffect(() => {
+    const onZoomChanged = (e: Event) => {
+      setZoom((e as CustomEvent).detail);
+    };
+    window.addEventListener(ZOOM_CHANGED_EVENT, onZoomChanged);
+    return () => window.removeEventListener(ZOOM_CHANGED_EVENT, onZoomChanged);
+  }, []);
+
+  const apply = useCallback((next: number) => {
+    applyZoom(next);
   }, []);
 
   const pct = Math.round(zoom * 100);
@@ -73,7 +102,7 @@ export default function ZoomControl(): React.ReactElement {
       </button>
       <button
         className="zoom-control__value"
-        onClick={reset}
+        onClick={() => { apply(DEFAULT_ZOOM); onReset?.(); }}
         title="Reset zoom to 100% (Ctrl+0)"
       >
         {pct}%

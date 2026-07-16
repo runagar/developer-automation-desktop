@@ -47,7 +47,7 @@ ul, li {
   background-color: #00ff00;
   color: #006600;
 }
-html[data-theme="pipboy-3000a"] ::selection {
+html[data-theme="amber-orange"] ::selection {
   background-color: #ff9f1c;
   color: #7a4e00;
 }
@@ -59,7 +59,7 @@ html[data-theme="pipboy-3000a"] ::selection {
   background-color: #00ff00 !important;
   color: transparent !important;
 }
-html[data-theme="pipboy-3000a"] .xterm .xterm-accessibility-tree *::selection {
+html[data-theme="amber-orange"] .xterm .xterm-accessibility-tree *::selection {
   background-color: #ff9f1c !important;
   color: transparent !important;
 }

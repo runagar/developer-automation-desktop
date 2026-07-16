@@ -10,12 +10,24 @@ export interface AppSettings {
   workspaces: {
     defaultWorkingDirectoryRoot: string;
   };
+  jira: {
+    vaultPath: string;
+  };
+  notes: {
+    rootPath: string;
+  };
 }
 
 function defaultSettings(): AppSettings {
   return {
     workspaces: {
       defaultWorkingDirectoryRoot: path.join(os.homedir(), 'projects'),
+    },
+    jira: {
+      vaultPath: '',
+    },
+    notes: {
+      rootPath: '',
     },
   };
 }
@@ -30,8 +42,15 @@ function settingsPath(dataDir: string): string {
 
 export function loadSettings(dataDir: string): AppSettings {
   const filePath = settingsPath(dataDir);
+  const dataDirDefaults = {
+    jiraVaultPath: path.join(dataDir, 'jira-context'),
+    notesRootPath: path.join(dataDir, 'notes'),
+  };
+
   if (!fs.existsSync(filePath)) {
     const defaults = defaultSettings();
+    defaults.jira.vaultPath = dataDirDefaults.jiraVaultPath;
+    defaults.notes.rootPath = dataDirDefaults.notesRootPath;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(defaults, null, 2), 'utf-8');
     return defaults;
@@ -41,14 +60,31 @@ export function loadSettings(dataDir: string): AppSettings {
     const parsed = JSON.parse(content);
     // Merge with defaults to handle missing keys from older versions
     const defaults = defaultSettings();
-    return {
+    const settings: AppSettings = {
       workspaces: {
         defaultWorkingDirectoryRoot:
           parsed?.workspaces?.defaultWorkingDirectoryRoot ?? defaults.workspaces.defaultWorkingDirectoryRoot,
       },
+      jira: {
+        vaultPath: parsed?.jira?.vaultPath || dataDirDefaults.jiraVaultPath,
+      },
+      notes: {
+        rootPath: parsed?.notes?.rootPath || dataDirDefaults.notesRootPath,
+      },
     };
+
+    // Persist any newly computed defaults back to the file
+    const raw = JSON.stringify(settings, null, 2);
+    if (raw !== content) {
+      fs.writeFileSync(filePath, raw, 'utf-8');
+    }
+
+    return settings;
   } catch {
-    return defaultSettings();
+    const defaults = defaultSettings();
+    defaults.jira.vaultPath = dataDirDefaults.jiraVaultPath;
+    defaults.notes.rootPath = dataDirDefaults.notesRootPath;
+    return defaults;
   }
 }
 
@@ -69,5 +105,25 @@ export function getDefaultWorkingRoot(dataDir: string): string {
 export function setDefaultWorkingRoot(dataDir: string, root: string): void {
   const settings = loadSettings(dataDir);
   settings.workspaces.defaultWorkingDirectoryRoot = root;
+  saveSettings(dataDir, settings);
+}
+
+export function getJiraVaultPath(dataDir: string): string {
+  return loadSettings(dataDir).jira.vaultPath;
+}
+
+export function setJiraVaultPath(dataDir: string, vaultPath: string): void {
+  const settings = loadSettings(dataDir);
+  settings.jira.vaultPath = vaultPath;
+  saveSettings(dataDir, settings);
+}
+
+export function getNotesRootPath(dataDir: string): string {
+  return loadSettings(dataDir).notes.rootPath;
+}
+
+export function setNotesRootPath(dataDir: string, rootPath: string): void {
+  const settings = loadSettings(dataDir);
+  settings.notes.rootPath = rootPath;
   saveSettings(dataDir, settings);
 }

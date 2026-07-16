@@ -1,22 +1,23 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { JiraIssue, JiraLinkedIssue } from './types';
+import { getJiraVaultPath } from './settings';
 
 /**
  * Determine the vault root directory.
- * Checks env var AGENT_SMITH_JIRA_VAULT first, falls back to <dataDir>/jira-context.
+ * Reads from settings.json (single source of truth).
  */
 export function getVaultRoot(dataDir: string): string {
-  return process.env.AGENT_SMITH_JIRA_VAULT || path.join(dataDir, 'jira-context');
+  return getJiraVaultPath(dataDir);
 }
 
 /**
  * Compute the absolute path for an issue note.
- * Layout: <vaultRoot>/Jira/<PROJECT>/<KEY>.md  (nested by project)
+ * Layout: <vaultRoot>/<PROJECT>/<KEY>.md  (nested by project)
  */
 export function issueNotePath(vaultRoot: string, issue: JiraIssue): string {
   const project = issue.key.replace(/-\d+$/, '');
-  return path.join(vaultRoot, 'Jira', project, `${issue.key}.md`);
+  return path.join(vaultRoot, project, `${issue.key}.md`);
 }
 
 /**
@@ -92,7 +93,7 @@ const JIRA_KEY_PATTERN = /^[A-Z][A-Z0-9]+-\d+$/;
  */
 export function issueNotePathForKey(vaultRoot: string, key: string): string {
   const project = key.replace(/-\d+$/, '');
-  return path.join(vaultRoot, 'Jira', project, `${key}.md`);
+  return path.join(vaultRoot, project, `${key}.md`);
 }
 
 /**

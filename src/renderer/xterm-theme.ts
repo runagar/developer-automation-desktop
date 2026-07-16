@@ -1,7 +1,7 @@
 import { ITheme } from '@xterm/xterm';
 
 export const XTERM_THEMES: Record<string, ITheme> = {
-  'pipboy-3000': {
+  'phosphor-green': {
     background:          '#000000',
     foreground:          '#00ff00',
     cursor:              '#00ff00',
@@ -26,7 +26,7 @@ export const XTERM_THEMES: Record<string, ITheme> = {
     brightCyan:          '#66ffff',
     brightWhite:         '#00ff00',
   },
-  'pipboy-3000a': {
+  'amber-orange': {
     background:          '#000000',
     foreground:          '#ff9f1c',
     cursor:              '#ff9f1c',
@@ -54,6 +54,6 @@ export const XTERM_THEMES: Record<string, ITheme> = {
 };
 
 export function getXtermTheme(): ITheme {
-  const themeId = document.documentElement.getAttribute('data-theme') ?? 'pipboy-3000';
-  return XTERM_THEMES[themeId] ?? XTERM_THEMES['pipboy-3000'];
+  const themeId = document.documentElement.getAttribute('data-theme') ?? 'phosphor-green';
+  return XTERM_THEMES[themeId] ?? XTERM_THEMES['phosphor-green'];
 }

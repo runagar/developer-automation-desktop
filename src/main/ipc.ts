@@ -11,7 +11,13 @@ import { loadWhitelist } from './whitelist';
 import {
   getCredentialStatus, validateCredentials, saveCredential, clearCredential,
 } from './credentials';
-import { getDefaultWorkingRoot, setDefaultWorkingRoot } from './settings';
+import {
+  getDefaultWorkingRoot, setDefaultWorkingRoot,
+  getJiraVaultPath, setJiraVaultPath,
+  getNotesRootPath, setNotesRootPath,
+} from './settings';
+import { migrateJiraVault } from './migrationVault';
+import { migrateNotesRoot } from './migrationNotes';
 
 let statePoller: StatePoller | null = null;
 let isSimulatedMaximized = false;
@@ -109,6 +115,28 @@ export function registerIpcHandlers(
   // Settings
   ipcMain.handle('settings:getDefaultRoot', () => getDefaultWorkingRoot(dataDir));
   ipcMain.handle('settings:setDefaultRoot', (_event, root: string) => setDefaultWorkingRoot(dataDir, root));
+  ipcMain.handle('settings:getJiraVaultPath', () => getJiraVaultPath(dataDir));
+  ipcMain.handle('settings:setJiraVaultPath', (_event, vaultPath: string) => setJiraVaultPath(dataDir, vaultPath));
+  ipcMain.handle('settings:getNotesRoot', () => getNotesRootPath(dataDir));
+  ipcMain.handle('settings:setNotesRoot', (_event, rootPath: string) => setNotesRootPath(dataDir, rootPath));
+
+  // Migration
+  ipcMain.handle('jira:migrateVault', (_event, newPath: string) =>
+    migrateJiraVault(dataDir, newPath)
+  );
+  ipcMain.handle('notes:migrateRoot', (_event, newPath: string) =>
+    migrateNotesRoot(dataDir, newPath, notesManager)
+  );
+
+  ipcMain.handle('settings:isPathNonEmpty', (_event, dirPath: string) => {
+    const fs = require('fs');
+    const resolved = require('path').resolve(dirPath);
+    try {
+      if (!fs.existsSync(resolved)) return false;
+      const entries = fs.readdirSync(resolved);
+      return entries.length > 0;
+    } catch { return false; }
+  });
 
   // Jira
   ipcMain.handle('jira:fetchIssue', (_event, key: string) => fetchJiraIssue(key));

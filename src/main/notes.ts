@@ -38,10 +38,16 @@ export interface NotesTabInfo {
 export class NotesManager {
   private db: Database.Database;
   private dataDir: string;
+  private notesRoot: string;
 
   constructor(db: Database.Database, dataDir: string) {
     this.db = db;
     this.dataDir = dataDir;
+    this.notesRoot = path.join(dataDir, 'notes');
+  }
+
+  setNotesRoot(root: string): void {
+    this.notesRoot = root;
   }
 
   initialize(): void {
@@ -66,6 +72,35 @@ export class NotesManager {
         closed_at TEXT
       )
     `);
+
+    // One-time migration: convert absolute file_path values to relative
+    this.migrateToRelativePaths();
+  }
+
+  /**
+   * Migrate absolute file_path values in notes_tabs to relative paths.
+   * Detects migration need by checking if any path starts with '/'.
+   */
+  private migrateToRelativePaths(): void {
+    const rows = this.db.prepare(
+      "SELECT id, file_path FROM notes_tabs WHERE file_path LIKE '/%'"
+    ).all() as any[];
+    if (rows.length === 0) return;
+
+    const oldRoot = path.join(this.dataDir, 'notes');
+    const prefix = oldRoot.endsWith(path.sep) ? oldRoot : oldRoot + path.sep;
+
+    const migrate = this.db.transaction(() => {
+      for (const row of rows) {
+        const abs: string = row.file_path;
+        const relative = abs.startsWith(prefix)
+          ? abs.slice(prefix.length)
+          : abs;
+        this.db.prepare('UPDATE notes_tabs SET file_path = ? WHERE id = ?')
+          .run(relative, row.id);
+      }
+    });
+    migrate();
   }
 
   // --- Panel operations ---
@@ -124,19 +159,20 @@ export class NotesManager {
 
   createTab(scope: NotesScope): NotesTabInfo {
     const id = `tab-${nanoid(6)}`;
-    const filePath = this.tabFilePath(scope, id);
+    const relativePath = this.relativeTabPath(scope, id);
+    const absolutePath = this.resolveTabPath(relativePath);
     const maxOrder = (this.db.prepare(
       'SELECT MAX(sort_order) as m FROM notes_tabs WHERE scope_kind = ? AND scope_id = ? AND is_open = 1'
     ).get(scope.kind, scope.id) as any)?.m ?? -1;
 
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, '', 'utf-8');
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, '', 'utf-8');
 
     this.db.prepare(
       'INSERT INTO notes_tabs (id, scope_kind, scope_id, name, file_path, is_open, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?)'
-    ).run(id, scope.kind, scope.id, null, filePath, maxOrder + 1);
+    ).run(id, scope.kind, scope.id, null, relativePath, maxOrder + 1);
 
-    return { id, scopeKind: scope.kind, scopeId: scope.id, name: id, filePath, isOpen: true, sortOrder: maxOrder + 1, closedAt: null };
+    return { id, scopeKind: scope.kind, scopeId: scope.id, name: id, filePath: relativePath, isOpen: true, sortOrder: maxOrder + 1, closedAt: null };
   }
 
   closeTab(tabId: string): void {
@@ -171,15 +207,16 @@ export class NotesManager {
   saveTabContent(tabId: string, content: string): void {
     const row = this.db.prepare('SELECT file_path FROM notes_tabs WHERE id = ?').get(tabId) as any;
     if (!row) return;
-    fs.mkdirSync(path.dirname(row.file_path), { recursive: true });
-    fs.writeFileSync(row.file_path, content, 'utf-8');
+    const absPath = this.resolveTabPath(row.file_path);
+    fs.mkdirSync(path.dirname(absPath), { recursive: true });
+    fs.writeFileSync(absPath, content, 'utf-8');
   }
 
   loadTabContent(tabId: string): string {
     const row = this.db.prepare('SELECT file_path FROM notes_tabs WHERE id = ?').get(tabId) as any;
     if (!row) return '';
     try {
-      return fs.readFileSync(row.file_path, 'utf-8');
+      return fs.readFileSync(this.resolveTabPath(row.file_path), 'utf-8');
     } catch {
       return '';
     }
@@ -187,13 +224,13 @@ export class NotesManager {
 
   getTabFilePath(tabId: string): string {
     const row = this.db.prepare('SELECT file_path FROM notes_tabs WHERE id = ?').get(tabId) as any;
-    return row?.file_path ?? '';
+    return row ? this.resolveTabPath(row.file_path) : '';
   }
 
   exportTab(tabId: string, destPath: string): void {
     const row = this.db.prepare('SELECT file_path FROM notes_tabs WHERE id = ?').get(tabId) as any;
     if (!row) return;
-    fs.copyFileSync(row.file_path, destPath);
+    fs.copyFileSync(this.resolveTabPath(row.file_path), destPath);
   }
 
   destroySessionNotes(sessionId: string): void {
@@ -203,7 +240,7 @@ export class NotesManager {
     for (const t of tabs) this.deleteTabFile(t.file_path);
     this.db.prepare("DELETE FROM notes_tabs WHERE scope_kind = 'session' AND scope_id = ?").run(sessionId);
     this.db.prepare("DELETE FROM notes_panels WHERE scope_kind = 'session' AND scope_id = ?").run(sessionId);
-    const dir = path.join(this.dataDir, 'notes', 'sessions', sessionId);
+    const dir = path.join(this.notesRoot, 'sessions', sessionId);
     try { fs.rmSync(dir, { recursive: true }); } catch { /* ok */ }
   }
 
@@ -211,17 +248,26 @@ export class NotesManager {
 
   private scopeDir(scope: NotesScope): string {
     if (scope.kind === 'global') {
-      return path.join(this.dataDir, 'notes', 'global', scope.id);
+      return path.join(this.notesRoot, 'global', scope.id);
     }
-    return path.join(this.dataDir, 'notes', 'sessions', scope.id);
+    return path.join(this.notesRoot, 'sessions', scope.id);
   }
 
-  private tabFilePath(scope: NotesScope, tabId: string): string {
-    return path.join(this.scopeDir(scope), `${tabId}.md`);
+  /** Relative path for DB storage (relative to notesRoot) */
+  private relativeTabPath(scope: NotesScope, tabId: string): string {
+    if (scope.kind === 'global') {
+      return path.join('global', scope.id, `${tabId}.md`);
+    }
+    return path.join('sessions', scope.id, `${tabId}.md`);
   }
 
-  private deleteTabFile(filePath: string): void {
-    try { fs.unlinkSync(filePath); } catch { /* ok */ }
+  /** Resolve a relative file_path from the DB to an absolute path */
+  private resolveTabPath(relativePath: string): string {
+    return path.join(this.notesRoot, relativePath);
+  }
+
+  private deleteTabFile(relativePath: string): void {
+    try { fs.unlinkSync(this.resolveTabPath(relativePath)); } catch { /* ok */ }
   }
 
   private rowToPanel = (row: any): NotesPanelInfo => ({

@@ -10,11 +10,12 @@ import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
 import SettingsMenu from './components/SettingsMenu';
-import CredentialsDialog from './components/CredentialsDialog';
+import JiraSettingsDialog from './components/JiraSettingsDialog';
+import NotesSettingsDialog from './components/NotesSettingsDialog';
 import ManageWorkspacesDialog from './components/ManageWorkspacesDialog';
-import ThemeSelector from './components/ThemeSelector';
 import TitleBar from './components/TitleBar';
-import ZoomControl from './components/ZoomControl';
+import { useZoomKeyboard } from './components/ZoomControl';
+import { initCrtEffects } from './components/crtEffects';
 import { useJiraStore, initJiraStore } from './stores/jiraStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
@@ -36,8 +37,15 @@ export default function App(): React.ReactElement {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const workspaceGroups = useWorkspaceStore((s) => s.groups);
-  const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [workspacesDialogOpen, setWorkspacesDialogOpen] = useState(false);
+  const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
+  const [notesDialogOpen, setNotesDialogOpen] = useState(false);
+
+  // Global zoom keyboard shortcuts (always active)
+  useZoomKeyboard();
+
+  // Apply CRT effect classes to .app-shell after it's rendered
+  useEffect(() => { initCrtEffects(); }, []);
 
   const openDropdownWithKeyboardRef = useRef<() => void>(() => {});
   const sessionListRef = useRef<SessionListHandle>(null);
@@ -322,17 +330,17 @@ export default function App(): React.ReactElement {
         <div className="app-header__right">
           <PanelMenu />
           <SettingsMenu
-            onOpenCredentials={() => setCredentialsOpen(true)}
             onOpenWorkspaces={() => setWorkspacesDialogOpen(true)}
+            onOpenJira={() => setJiraDialogOpen(true)}
+            onOpenNotes={() => setNotesDialogOpen(true)}
           />
-          <ZoomControl />
-          <ThemeSelector />
         </div>
       </header>
       <div className="app-body">
         <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
       </div>
-      {credentialsOpen && <CredentialsDialog onClose={() => setCredentialsOpen(false)} />}
+      {jiraDialogOpen && <JiraSettingsDialog onClose={() => setJiraDialogOpen(false)} />}
+      {notesDialogOpen && <NotesSettingsDialog onClose={() => setNotesDialogOpen(false)} />}
       {workspacesDialogOpen && (
         <ManageWorkspacesDialog
           workspaceGroups={workspaceGroups}

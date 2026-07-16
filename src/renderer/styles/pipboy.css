@@ -1,11 +1,12 @@
 /* =========================================================
-   AGENT SMITH — PIP-BOY ATOMPUNK THEME
+   AGENT SMITH — ATOMPUNK CRT THEME
+   Themes: Phosphor Green (default) · Amber Orange
    Palette: #00ff00 primary · #006600 secondary · #003300 muted
             #000000 bg · #001100 panel · #002200 border
-   Font: Roboto Mono (as used by pip-boy.com/3000a/simulator)
+   Font: Roboto Mono
    ========================================================= */
 
-/* --- Variables (Pip-boy 3000 — phosphor green, default) --- */
+/* --- Phosphor Green (default) --- */
 :root {
   --c-bright:       #00ff00;
   --c-bright-r:     0;
@@ -32,8 +33,8 @@
   --font:         'Roboto Mono', 'Courier New', monospace;
 }
 
-/* --- Pip-boy 3000a (amber) --- */
-[data-theme="pipboy-3000a"] {
+/* --- Amber Orange --- */
+[data-theme="amber-orange"] {
   --c-bright:       #ff9f1c;
   --c-bright-r:     255;
   --c-bright-g:     159;
@@ -125,6 +126,11 @@
   /* Wait above screen until next cycle */
   100%    { transform: translateY(-30vh); opacity: 0; }
 }
+
+/* --- CRT effect toggles --- */
+.app-shell.no-scanlines::after  { display: none; }
+.app-shell.no-sweep::before     { display: none; }
+.app-shell.no-bloom .crt-glow   { display: none; }
 
 /* --- Generic buttons --- */
 .btn {

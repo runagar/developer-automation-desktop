@@ -40,7 +40,7 @@
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  min-width: 170px;
+  min-width: 200px;
   padding: 4px 0;
   background: var(--c-panel);
   border: 1px solid var(--c-bright);
@@ -48,12 +48,29 @@
   z-index: 10000;
 }
 
+/* Section headers */
+.settings-menu__header {
+  padding: 6px 10px 3px;
+  font-family: var(--font);
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  color: var(--c-dim);
+  text-transform: uppercase;
+  border-top: 1px solid var(--c-dark);
+  margin-top: 2px;
+}
+.settings-menu__header:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
+/* Menu items */
 .settings-menu__item {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 5px 10px;
   font-family: var(--font);
   font-size: 0.7rem;
   letter-spacing: 0.08em;
@@ -66,4 +83,65 @@
 }
 .settings-menu__item:hover {
   background: var(--c-dark);
+}
+.settings-menu__item--active {
+  color: var(--c-bright);
+}
+
+/* Toggle check indicator */
+.settings-menu__check {
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
+  font-size: 0.65rem;
+}
+.settings-menu__check--mixed {
+  color: var(--c-mid);
+}
+
+/* Arrow for sub-dropdown */
+.settings-menu__arrow {
+  margin-left: auto;
+  font-size: 0.6rem;
+}
+
+/* Zoom row */
+.settings-menu__zoom-row {
+  padding: 2px 6px;
+  display: flex;
+  justify-content: center;
+}
+.settings-menu__zoom-row .zoom-control {
+  width: auto;
+}
+
+/* Theme sub-dropdown */
+.settings-menu__theme-row {
+  position: relative;
+}
+
+.settings-menu__sub-dropdown {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  min-width: 170px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  z-index: 10001;
+}
+.settings-menu__sub-dropdown--left {
+  left: auto;
+  right: 100%;
+}
+.settings-menu__sub-dropdown--measuring {
+  visibility: hidden;
+  pointer-events: none;
+}
+.settings-menu__sub-dropdown li {
+  margin: 0;
+  padding: 0;
 }

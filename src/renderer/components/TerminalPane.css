@@ -97,7 +97,7 @@
 .terminal-pane__terminal .xterm-selection div {
   background-color: rgba(0, 255, 0, 0.4) !important;
 }
-html[data-theme="pipboy-3000a"] .terminal-pane__terminal .xterm-selection div {
+html[data-theme="amber-orange"] .terminal-pane__terminal .xterm-selection div {
   background-color: rgba(255, 159, 28, 0.4) !important;
 }
 

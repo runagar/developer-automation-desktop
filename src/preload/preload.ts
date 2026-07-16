@@ -26,6 +26,13 @@ const api: IpcApi = {
   // Settings
   getDefaultWorkingRoot: () => ipcRenderer.invoke('settings:getDefaultRoot'),
   setDefaultWorkingRoot: (root) => ipcRenderer.invoke('settings:setDefaultRoot', root),
+  getJiraVaultPath: () => ipcRenderer.invoke('settings:getJiraVaultPath'),
+  setJiraVaultPath: (vaultPath) => ipcRenderer.invoke('settings:setJiraVaultPath', vaultPath),
+  getNotesRootPath: () => ipcRenderer.invoke('settings:getNotesRoot'),
+  setNotesRootPath: (rootPath) => ipcRenderer.invoke('settings:setNotesRoot', rootPath),
+  migrateJiraVault: (newPath) => ipcRenderer.invoke('jira:migrateVault', newPath),
+  migrateNotesRoot: (newPath) => ipcRenderer.invoke('notes:migrateRoot', newPath),
+  isPathNonEmpty: (dirPath) => ipcRenderer.invoke('settings:isPathNonEmpty', dirPath),
 
   // Jira
   fetchJiraIssue: (key) => ipcRenderer.invoke('jira:fetchIssue', key),

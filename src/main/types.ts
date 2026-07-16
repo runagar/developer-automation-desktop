@@ -66,6 +66,13 @@ export interface IpcApi {
   // Settings
   getDefaultWorkingRoot: () => Promise<string>;
   setDefaultWorkingRoot: (root: string) => Promise<void>;
+  getJiraVaultPath: () => Promise<string>;
+  setJiraVaultPath: (vaultPath: string) => Promise<void>;
+  getNotesRootPath: () => Promise<string>;
+  setNotesRootPath: (rootPath: string) => Promise<void>;
+  migrateJiraVault: (newPath: string) => Promise<{ success: boolean; error?: string }>;
+  migrateNotesRoot: (newPath: string) => Promise<{ success: boolean; error?: string }>;
+  isPathNonEmpty: (dirPath: string) => Promise<boolean>;
 
   // Jira
   fetchJiraIssue: (key: string) => Promise<JiraIssue>;

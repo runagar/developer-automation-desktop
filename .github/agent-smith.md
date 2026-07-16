@@ -59,7 +59,7 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Drag** a panel by its header to move it (snaps to grid cells, clamped to bounds).
 - **Resize** from any of 8 edge/corner handles (minimum 1×1 cell).
 - **Z-order:** clicking a panel brings it to the front; panels may overlap.
-- **Panel menu** (header, left of zoom): toggle Sessions panel visibility, **Notes** submenu (new/restore global panels), and **Lock layout** toggle.
+- **Panel menu** (header, left of Settings): toggle Sessions panel visibility, **Notes** submenu (new/restore global panels), and **Lock layout** toggle.
 - **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
 - Default panels display a small **◆** badge in the header to distinguish them from linked panels.
 
@@ -154,7 +154,7 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
   6. Writes all fetched issues to the **Jira vault** as Markdown notes with YAML frontmatter and `[[wikilinks]]`.
 - Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/credentials.ts` in order:
   1. Environment variables (highest priority — shown as read-only in the UI)
-  2. `<dataDir>/credentials.env` (managed via Settings → Credentials dialog)
+  2. `<dataDir>/credentials.env` (managed via Settings → Jira dialog)
   3. Error with actionable message if neither source provides both values
 
 **Wiki-to-Markdown conversion:** Jira issue descriptions arrive in wiki markup and are converted to Markdown at fetch time by `src/main/wikiToMarkdown.ts`. The converter handles: headings, bold, italic, bullet/numbered lists (with nesting), code blocks (with language), inline code, links, tables, and colour markup (stripped). Jira issue keys (`PROJ-123`) in the description are automatically wrapped as `[KEY](jira://KEY)` links. Code blocks and inline code are protected from further conversion.
@@ -213,10 +213,44 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 
 **IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
-### Credentials management
-The **⚙ SETTINGS** dropdown in the header provides access to the **Credentials** dialog — a modal for managing API tokens and URLs used by Agent Smith's integrations.
+### Settings dropdown
+The **⚙ SETTINGS** dropdown in the header is organised into two sections:
 
-**Manifest-driven fields:** Credential fields are defined in `src/main/credentials.ts` as a `CREDENTIAL_FIELDS` array. Each entry specifies `key`, `label`, `group`, `sensitive`, `required`, and optional `placeholder`. Adding a new integration's credentials requires only appending entries to this manifest — no UI code changes needed.
+**Display section:**
+- **Zoom** — inline `[−] 100% [+]` controls. Clicking `+`/`−` does not close the dropdown. Clicking the percentage resets to 100% and closes. Global hotkeys (`Ctrl++/−/0`) work regardless of dropdown state.
+- **Theme** — click to open a sub-dropdown listing `Phosphor Green` (default) and `Amber Orange`. Sub-dropdown opens to the left if it would overflow the right edge of the screen. Selecting a theme closes the dropdown.
+- **CRT Effects** — master toggle for all three CRT effects below. Shows `✓` (all on), `✕` (all off), or `−` (mixed). Clicking applies the most-different toggle (changes the most items); tie → off.
+- **Scanlines** — toggle the fine scrolling scanline overlay (`::after` on `.app-shell`).
+- **Rolling Scan** — toggle the periodic top-to-bottom sweep effect (`::before` on `.app-shell`).
+- **Bloom** — toggle the centre phosphor glow (`.crt-glow` element).
+
+CRT toggle states are persisted to `localStorage` (`agent-smith-scanlines`, `agent-smith-sweep`, `agent-smith-bloom`). Toggle logic lives in `src/renderer/components/crtEffects.ts`; CSS suppression rules are in `pipboy.css` (`.app-shell.no-scanlines::after`, `.app-shell.no-sweep::before`, `.app-shell.no-bloom .crt-glow`).
+
+**Misc section:**
+- **Workspaces** — opens the Manage Workspaces dialog.
+- **Jira** — opens the Jira Settings dialog (vault path + Atlassian credentials).
+- **Notes** — opens the Notes Settings dialog (notes root path).
+
+### Jira settings
+Accessible from **Settings → Jira**. A modal dialog with two sections:
+
+**Settings section:** Displays the current Jira vault path (stored in `settings.json` under `jira.vaultPath`). Editable — saved on Enter or SAVE click. Saving triggers a migration: files are copied from the old vault to the new path, settings are updated, then the old vault is deleted. If the target directory already contains data, a confirmation warning is shown before proceeding. On copy failure, only the copied files are rolled back — pre-existing files at the target are never touched.
+
+**Credentials section:** Reuses the shared `CredentialRow` component to manage `ATLASSIAN_PAT` and `ATLASSIAN_BASE_URL`, filtered to the `Atlassian` group only. Same save/clear/validate behaviour as the former standalone Credentials dialog (which has been removed).
+
+**Vault path resolution:** `src/main/vault.ts` reads the vault path from `settings.json` (single source of truth). The `AGENT_SMITH_JIRA_VAULT` env var is no longer checked. Issue files are stored at `<vaultRoot>/<PROJECT>/<KEY>.md` (no intermediate `Jira/` subfolder).
+
+### Notes settings
+Accessible from **Settings → Notes**. A modal dialog with one section:
+
+**Settings section:** Displays the current notes root path (stored in `settings.json` under `notes.rootPath`). Editable — saved on Enter or SAVE click. Saving triggers a migration with the same copy-verify-delete pattern as the Jira vault migration, including the non-empty directory confirmation warning.
+
+**Relative paths:** The `notes_tabs.file_path` DB column stores paths relative to the notes root (e.g. `sessions/abc/tab-xyz.md`). At runtime, absolute paths are composited via `NotesManager.resolveTabPath()`. This means changing the notes root only requires moving files + updating `settings.json` — no DB row updates. A one-time migration in `NotesManager.initialize()` converts any legacy absolute paths to relative.
+
+### Credentials (shared component)
+The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is extracted as a shared component used by the Jira Settings dialog. It renders a single credential field with edit/save/clear/show-hide controls and status indicators.
+
+**Manifest-driven fields:** Credential fields are defined in `src/main/credentials.ts` as a `CREDENTIAL_FIELDS` array. Each entry specifies `key`, `label`, `group`, `sensitive`, `required`, and optional `placeholder`.
 
 **Current fields:**
 | Key | Group | Sensitive | Required |
@@ -224,13 +258,13 @@ The **⚙ SETTINGS** dropdown in the header provides access to the **Credentials
 | `ATLASSIAN_PAT` | Atlassian | Yes | Yes |
 | `ATLASSIAN_BASE_URL` | Atlassian | No | Yes |
 
-**Environment variable precedence:** If a credential is set as a system environment variable, the field is shown as read-only (greyed out) with a "Set via environment variable" note. The user cannot override env-var-managed credentials through the UI.
+**Environment variable precedence:** If a credential is set as a system environment variable, the field is shown as read-only (greyed out) with a "Set via environment variable" note.
 
-**Validation on save:** Credentials are validated before saving (e.g. Atlassian credentials are tested by pinging `/rest/api/latest/myself`). Invalid fields are not saved — inline errors are shown. Fields can be saved independently; if the invalidity of one field makes another's validity undetermined, neither is saved.
+**Validation on save:** Credentials are validated before saving (e.g. Atlassian credentials are tested by pinging `/rest/api/latest/myself`). Invalid fields are not saved — inline errors are shown.
 
-**Persistence:** Credentials are stored in `<dataDir>/credentials.env` (plain text, chmod 600). The file is created on first save. The `clearCredentialCache()` function in `jira.ts` is called after any save/clear to ensure the next Jira operation uses updated values.
+**Persistence:** Credentials are stored in `<dataDir>/credentials.env` (plain text, chmod 600). `clearCredentialCache()` in `jira.ts` is called after any save/clear.
 
-**IPC channels:** `credentials:status` (read all field statuses), `credentials:save` (validate + save), `credentials:clear` (remove a field).
+**IPC channels:** `credentials:status`, `credentials:save`, `credentials:clear`.
 
 ### Workspace management
 Accessible from **Settings → Workspaces** in the header dropdown. Opens a dialog listing all workspaces organised into groups. From this dialog users can:
@@ -314,8 +348,11 @@ Renderer process
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
 ├── TitleBar             frameless window controls
-├── ThemeSelector        theme switcher
-└── ZoomControl          zoom in/out/reset
+├── CredentialRow        shared credential field component (used by JiraSettingsDialog)
+├── JiraSettingsDialog   Jira vault path + Atlassian credentials
+├── NotesSettingsDialog  Notes root path override + migration
+├── crtEffects.ts        CRT toggle state (localStorage + CSS class management)
+└── ZoomControl          useZoomKeyboard hook + ZoomControls visual component
 
 Preload
 └── preload.ts           exposes window.agentSmith IPC API via contextBridge
@@ -345,11 +382,11 @@ Main process → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data
 
 ## UI
 
-The interface is themed after the Fallout Pip-Boy 3000/3000a terminal aesthetic, inspired by https://www.pip-boy.com/3000a/simulator:
-- **Phosphor green** (Pip-Boy 3000) or **amber** (Pip-Boy 3000a) colour scheme
-- CRT effects: rolling scanlines, periodic top-to-bottom sweep, centre phosphor bloom
+The interface is themed after the Fallout Pip-Boy terminal aesthetic:
+- **Phosphor Green** (default, `:root` CSS) or **Amber Orange** (`[data-theme="amber-orange"]`) colour scheme, selectable from Settings → Theme
+- CRT effects (individually toggleable from Settings): rolling scanlines, periodic rolling scan sweep, centre phosphor bloom
 - All text in `Roboto Mono`
-- Theme, zoom level, and dashboard layout are persisted to `localStorage`
+- Theme (`agent-smith-theme`), zoom level (`agent-smith-zoom`), CRT toggle states, and dashboard layout are persisted to `localStorage`
 
 ---
 
@@ -399,12 +436,18 @@ Maps workspace keys to repository names and working directories, organised into 
 ```
 
 ### `settings.json`
-Application settings stored as grouped JSON. Created on first launch with auto-detected defaults.
+Application settings stored as grouped JSON. Created on first launch with auto-detected defaults. `loadSettings(dataDir)` merges missing keys from older versions.
 
 ```json
 {
   "workspaces": {
     "defaultWorkingDirectoryRoot": "/home/rulu/projects"
+  },
+  "jira": {
+    "vaultPath": "/home/rulu/.config/agent-smith/agent-smith/jira-context"
+  },
+  "notes": {
+    "rootPath": "/home/rulu/.config/agent-smith/agent-smith/notes"
   }
 }
 ```
