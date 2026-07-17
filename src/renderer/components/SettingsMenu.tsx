@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ZoomControls } from './ZoomControl';
 import { getCrtEffects, setCrtEffect, setAllCrtEffects, CrtEffectState } from './crtEffects';
+import SubDropdown from './SubDropdown';
 import './SettingsMenu.css';
 
 // Theme definitions (source of truth for theme IDs and labels)
@@ -51,10 +52,7 @@ export default function SettingsMenu({ onOpenWorkspaces, onOpenJira, onOpenNotes
   const [themeOpen, setThemeOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<string>(readTheme);
   const [crt, setCrt] = useState<CrtEffectState>(getCrtEffects);
-  const [themeOpenLeft, setThemeOpenLeft] = useState(false);
-  const [themeMeasured, setThemeMeasured] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const themeSubRef = useRef<HTMLUListElement>(null);
 
   // Close dropdown(s) on outside click
   useEffect(() => {
@@ -72,23 +70,6 @@ export default function SettingsMenu({ onOpenWorkspaces, onOpenJira, onOpenNotes
   useEffect(() => {
     if (!open) setThemeOpen(false);
   }, [open]);
-
-  // Detect if theme sub-dropdown overflows the right edge of the viewport.
-  // Render hidden first, measure, then reveal in the correct position.
-  useEffect(() => {
-    if (!themeOpen) {
-      setThemeOpenLeft(false);
-      setThemeMeasured(false);
-      return;
-    }
-    // Defer measurement to next frame so the element renders (hidden) at right position first
-    requestAnimationFrame(() => {
-      if (!themeSubRef.current) return;
-      const rect = themeSubRef.current.getBoundingClientRect();
-      setThemeOpenLeft(rect.right > window.innerWidth);
-      setThemeMeasured(true);
-    });
-  }, [themeOpen]);
 
   function closeMenu(): void {
     setOpen(false);
@@ -147,31 +128,26 @@ export default function SettingsMenu({ onOpenWorkspaces, onOpenJira, onOpenNotes
           </div>
 
           {/* Theme with sub-dropdown */}
-          <div className="settings-menu__theme-row">
-            <button
-              className="settings-menu__item"
-              onClick={() => setThemeOpen((v) => !v)}
-            >
-              Theme
-              <span className="settings-menu__arrow">▸</span>
-            </button>
+          <div
+            className="settings-menu__item sub-dropdown-trigger"
+            onMouseEnter={() => setThemeOpen(true)}
+            onMouseLeave={() => setThemeOpen(false)}
+          >
+            Theme
+            <span className="sub-dropdown-arrow">▸</span>
             {themeOpen && (
-              <ul
-                ref={themeSubRef}
-                className={`settings-menu__sub-dropdown${themeOpenLeft ? ' settings-menu__sub-dropdown--left' : ''}${!themeMeasured ? ' settings-menu__sub-dropdown--measuring' : ''}`}
-              >
+              <SubDropdown>
                 {THEMES.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      className={`settings-menu__item${t.id === currentTheme ? ' settings-menu__item--active' : ''}`}
-                      onClick={() => selectTheme(t.id)}
-                    >
-                      <span className="settings-menu__check">{t.id === currentTheme ? '✓' : ' '}</span>
-                      {t.label}
-                    </button>
-                  </li>
+                  <button
+                    key={t.id}
+                    className={`settings-menu__item${t.id === currentTheme ? ' settings-menu__item--active' : ''}`}
+                    onClick={() => selectTheme(t.id)}
+                  >
+                    <span className="settings-menu__check">{t.id === currentTheme ? '✓' : ' '}</span>
+                    {t.label}
+                  </button>
                 ))}
-              </ul>
+              </SubDropdown>
             )}
           </div>
 

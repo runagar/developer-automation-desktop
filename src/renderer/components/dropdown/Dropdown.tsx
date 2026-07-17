@@ -1,0 +1,119 @@
+import React from 'react';
+import './Dropdown.css';
+
+// --- Dropdown container ---
+
+interface DropdownProps {
+  children: React.ReactNode;
+  className?: string;
+  onMouseDown?: (e: React.MouseEvent) => void;
+}
+
+export function Dropdown({ children, className, onMouseDown }: DropdownProps): React.ReactElement {
+  return (
+    <div
+      className={`dropdown${className ? ` ${className}` : ''}`}
+      onMouseDown={onMouseDown ?? ((e) => e.stopPropagation())}
+    >
+      {children}
+    </div>
+  );
+}
+
+// --- Section header (with auto-divider except first) ---
+
+interface DropdownSectionProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+export function DropdownSection({ label, children }: DropdownSectionProps): React.ReactElement {
+  return (
+    <>
+      <div className="dropdown__section">{label}</div>
+      {children}
+    </>
+  );
+}
+
+// --- Menu item ---
+
+interface DropdownItemProps {
+  children: React.ReactNode;
+  check?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+}
+
+export function DropdownItem({ children, check, onClick, disabled, className }: DropdownItemProps): React.ReactElement {
+  return (
+    <button
+      className={`dropdown__item${className ? ` ${className}` : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {check !== undefined && <span className="dropdown__check">{check}</span>}
+      {children}
+    </button>
+  );
+}
+
+// --- Submenu trigger (opens SubDropdown on hover) ---
+
+interface DropdownSubmenuProps {
+  label: string;
+  check?: string;
+  children: React.ReactNode;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}
+
+export function DropdownSubmenu({ label, check, children, open, onOpen, onClose }: DropdownSubmenuProps): React.ReactElement {
+  return (
+    <div
+      className="dropdown__item dropdown__submenu"
+      onMouseEnter={onOpen}
+      onMouseLeave={onClose}
+    >
+      {check !== undefined && <span className="dropdown__check">{check}</span>}
+      {label}
+      <span className="dropdown__arrow">▸</span>
+      {open && (
+        <SubDropdownWrapper>
+          {children}
+        </SubDropdownWrapper>
+      )}
+    </div>
+  );
+}
+
+// --- SubDropdown with viewport boundary detection ---
+
+function SubDropdownWrapper({ children }: { children: React.ReactNode }): React.ReactElement {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [openLeft, setOpenLeft] = React.useState(false);
+  const [measured, setMeasured] = React.useState(false);
+
+  React.useEffect(() => {
+    requestAnimationFrame(() => {
+      if (!ref.current) return;
+      const rect = ref.current.getBoundingClientRect();
+      setOpenLeft(rect.right > window.innerWidth);
+      setMeasured(true);
+    });
+  }, []);
+
+  const classes = [
+    'dropdown__sub',
+    openLeft ? 'dropdown__sub--left' : '',
+    !measured ? 'dropdown__sub--measuring' : '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <div ref={ref} className={classes} onMouseDown={(e) => e.stopPropagation()}>
+      {children}
+    </div>
+  );
+}

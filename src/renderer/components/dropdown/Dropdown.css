@@ -1,0 +1,98 @@
+/* =========================================================
+   SHARED DROPDOWN MENU SYSTEM
+   ========================================================= */
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 170px;
+  padding: 4px 0;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  z-index: 10000;
+}
+
+/* Section header — auto-divider above (except first) */
+.dropdown__section {
+  padding: 6px 10px 3px;
+  font-family: var(--font);
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  color: var(--c-mid);
+  text-transform: uppercase;
+  border-top: 1px solid var(--c-dark);
+  margin-top: 2px;
+}
+.dropdown__section:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
+/* Menu item */
+.dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.dropdown__item:hover {
+  background: var(--c-dark);
+}
+.dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dropdown__item:disabled:hover {
+  background: none;
+}
+
+/* Check mark area */
+.dropdown__check {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 0.6rem;
+}
+
+/* Submenu trigger */
+.dropdown__submenu {
+  position: relative;
+  cursor: default;
+}
+.dropdown__arrow {
+  margin-left: auto;
+  font-size: 0.6rem;
+}
+
+/* Sub-dropdown (positioned right, flips left on overflow) */
+.dropdown__sub {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  min-width: 150px;
+  padding: 4px 0;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  z-index: 10001;
+}
+.dropdown__sub--left {
+  left: auto;
+  right: 100%;
+}
+.dropdown__sub--measuring {
+  visibility: hidden;
+  pointer-events: none;
+}

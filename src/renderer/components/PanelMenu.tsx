@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLayoutStore } from '../stores/layoutStore';
+import SubDropdown from './SubDropdown';
 import './PanelMenu.css';
 
 export default function PanelMenu(): React.ReactElement {
@@ -70,17 +71,16 @@ export default function PanelMenu(): React.ReactElement {
             Sessions
           </button>
 
-          <div className="panel-menu__divider" />
-
           <div
-            className="panel-menu__item panel-menu__item--submenu"
+            className="panel-menu__item sub-dropdown-trigger"
             onMouseEnter={handleNotesHover}
             onMouseLeave={() => setNotesSubOpen(false)}
           >
             <span className="panel-menu__check">{''}</span>
-            Notes ▸
+            Notes
+            <span className="sub-dropdown-arrow">▸</span>
             {notesSubOpen && (
-              <div className="panel-menu__subdropdown" onMouseDown={(e) => e.stopPropagation()}>
+              <SubDropdown>
                 <button
                   className="panel-menu__item"
                   onClick={() => {
@@ -139,12 +139,11 @@ export default function PanelMenu(): React.ReactElement {
                     ))}
                   </>
                 )}
-              </div>
+              </SubDropdown>
             )}
           </div>
 
-          <div className="panel-menu__divider" />
-
+          <div className="panel-menu__section-label">LAYOUT</div>
           <button
             className="panel-menu__item"
             onClick={() => setLocked(!locked)}
