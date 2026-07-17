@@ -35,9 +35,9 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
     focus: () => keyInputRef.current?.focus(),
   }), []);
 
-  // Keep inputKey in sync when issue is loaded/restored from DB
+  // Keep inputKey in sync when issue is loaded/restored/cleared
   useEffect(() => {
-    if (issue?.key) setInputKey(issue.key);
+    setInputKey(issue?.key ?? '');
   }, [issue?.key]);
 
   const handleFetch = useCallback(async () => {

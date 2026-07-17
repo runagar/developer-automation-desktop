@@ -30,6 +30,7 @@ export default function JiraPanelInstance({
   const isDefault = instance.mode === 'default';
 
   // Seed this panel's issue from session.jiraData when session changes (default panels only)
+  const clearIssue = useJiraStore((s) => s.clearIssue);
   const prevSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isDefault || !session) return;
@@ -37,15 +38,19 @@ export default function JiraPanelInstance({
       prevSessionIdRef.current = session.id;
       if (session.jiraData) {
         setIssue(instance.id, session.jiraData);
+      } else {
+        clearIssue(instance.id);
       }
     }
-  }, [isDefault, session, instance.id, setIssue]);
+  }, [isDefault, session, instance.id, setIssue, clearIssue]);
 
   const handleIssueLoaded = useCallback((fetched: JiraIssue) => {
     setIssue(instance.id, fetched);
     // Only persist to DB from default panels
     if (isDefault && session) {
       void window.agentSmith.saveJiraIssue(session.id, fetched);
+      // Keep sessionStore in sync so switching away and back doesn't revert
+      useSessionStore.getState().updateSession(session.id, { jiraData: fetched });
     }
   }, [instance.id, isDefault, session, setIssue]);
 
