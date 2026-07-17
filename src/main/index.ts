@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SessionManager } from './sessions';
@@ -61,6 +61,14 @@ function createWindow(): void {
     mainWindow = null;
     sessionManager.setWindow(null);
     shellTmuxManager.setWindow(null);
+  });
+
+  // Prevent links from opening new Electron windows — open in system browser instead
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
   });
 }
 
