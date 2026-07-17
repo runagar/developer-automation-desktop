@@ -180,10 +180,6 @@ export default function App(): React.ReactElement {
     return useWorkspaceStore.getState().reorderGroup(name, toIndex);
   }, []);
 
-  const handleJiraPlan = useCallback((sessionId: string, key: string) => {
-    window.agentSmith.ptyWrite(sessionId, `Plan ${key}\r`);
-  }, []);
-
   // --- Spawn panels from context menu / double-click ---
 
   const handleSpawnPanel = useCallback((type: PanelType, sessionId: string): string | null => {
@@ -266,7 +262,6 @@ export default function App(): React.ReactElement {
         return (
           <JiraPanelInstance
             instance={instance}
-            onPlan={handleJiraPlan}
             jiraRefs={jiraRefs}
           />
         );
@@ -280,7 +275,7 @@ export default function App(): React.ReactElement {
     handleCreateSession, handleArchiveSession, handleUnarchiveSession,
     handleDestroySession, handleReviveSession, handleRenameSession,
     handleDoubleClickSession,
-    handleContextMenuSpawn, handleJiraPlan,
+    handleContextMenuSpawn,
   ]);
 
   const renderTitle = useCallback((instance: PanelInstance): React.ReactNode => {

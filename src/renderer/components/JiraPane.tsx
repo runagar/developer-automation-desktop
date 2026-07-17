@@ -15,12 +15,11 @@ interface JiraPaneProps {
   autoFetchEnabled: boolean;
   onAutoFetchToggle: () => void;
   onIssueLoaded: (issue: JiraIssue) => void;
-  onPlan: (sessionId: string, key: string) => void;
   onIssueLinkClick: (key: string, ctrlKey: boolean) => void;
 }
 
 export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraPane(
-  { sessionId, issue, autoFetchEnabled, onAutoFetchToggle, onIssueLoaded, onPlan, onIssueLinkClick },
+  { sessionId, issue, autoFetchEnabled, onAutoFetchToggle, onIssueLoaded, onIssueLinkClick },
   ref
 ) {
   const [inputKey, setInputKey] = useState(issue?.key ?? '');
@@ -66,10 +65,6 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
     },
     [handleFetch]
   );
-
-  const handlePlan = useCallback(() => {
-    if (issue) onPlan(sessionId, issue.key);
-  }, [issue, sessionId, onPlan]);
 
   // Custom link component for ReactMarkdown: intercepts jira:// URLs
   const onIssueLinkClickRef = useRef(onIssueLinkClick);
@@ -119,14 +114,6 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
           disabled={loading || !inputKey.trim()}
         >
           {loading ? '…' : 'FETCH'}
-        </button>
-        <button
-          className="btn btn--primary btn--micro jira-pane__action-btn"
-          onClick={handlePlan}
-          disabled={!issue}
-          title={issue ? `Send 'Plan ${issue.key}' to the terminal` : 'Fetch an issue first'}
-        >
-          PLAN
         </button>
         <button
           className={`btn btn--micro jira-pane__auto-toggle${autoFetchEnabled ? ' jira-pane__auto-toggle--on' : ''}`}

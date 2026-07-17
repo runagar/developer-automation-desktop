@@ -9,7 +9,6 @@ import './TerminalPane.css';
 
 interface Props {
   instance: PanelInstance;
-  onPlan: (sessionId: string, key: string) => void;
   jiraRefs: React.MutableRefObject<Map<string, JiraPaneHandle>>;
 }
 
@@ -18,7 +17,6 @@ interface Props {
  */
 export default function JiraPanelInstance({
   instance,
-  onPlan,
   jiraRefs,
 }: Props): React.ReactElement {
   const sessions = useSessionStore((s) => s.sessions);
@@ -103,7 +101,6 @@ export default function JiraPanelInstance({
           autoFetchEnabled={autoFetchEnabled}
           onAutoFetchToggle={toggleAutoFetch}
           onIssueLoaded={handleIssueLoaded}
-          onPlan={onPlan}
           onIssueLinkClick={handleIssueLinkClick}
         />
       </div>
