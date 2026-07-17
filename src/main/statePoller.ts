@@ -76,9 +76,15 @@ export class StatePoller {
 
 function detectStateFromPane(content: string): SessionState | null {
   const plain = content.replace(ANSI_RE, '');
-  if (plain.includes('Copilot has been suspended')) return 'suspended';
-  if (plain.includes('esc cancel')) return 'running';
-  if (plain.includes('enter to select') || plain.includes('enter to confirm') || plain.includes('Asking user')) return 'awaiting';
-  if (plain.includes('❯')) return 'idle';
+  // Only check the last portion of the pane for state indicators — all copilot
+  // status chrome (prompt, status bar) appears at the bottom. Checking the full
+  // pane risks false matches from copilot's own output/thinking text.
+  const lines = plain.split('\n');
+  const tail = lines.slice(-12).join('\n');
+
+  if (tail.includes('Copilot has been suspended')) return 'suspended';
+  if (tail.includes('enter to select') || tail.includes('enter to submit') || tail.includes('enter to confirm') || tail.includes('Asking user')) return 'awaiting';
+  if (tail.includes('esc interrupt')) return 'running';
+  if (tail.includes('❯')) return 'idle';
   return null;
 }
