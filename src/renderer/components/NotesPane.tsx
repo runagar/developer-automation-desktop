@@ -7,6 +7,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { useNotesStore, NotesTabState } from '../stores/notesStore';
+import { Dropdown, DropdownItem, DropdownSection } from './dropdown';
 import './NotesPane.css';
 
 // Markdown inline rendering highlight style
@@ -354,19 +355,20 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
           <div className="notes-pane__restore-container" ref={restoreRef}>
             <button className="btn btn--micro" onClick={handleOpenRestore} title="Restore closed tabs">Restore Tab</button>
             {restoreOpen && closedTabs.length > 0 && (
-              <div className="notes-pane__restore-dropdown">
-                <div className="notes-pane__restore-section">CLOSED TABS</div>
-                {closedTabs.map((t) => (
-                  <button key={t.id} className="notes-pane__restore-item" onClick={() => void handleRestoreTab(t.id)}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
+              <Dropdown className="notes-pane__restore-menu">
+                <DropdownSection label="CLOSED TABS">
+                  {closedTabs.map((t) => (
+                    <DropdownItem key={t.id} onClick={() => void handleRestoreTab(t.id)}>
+                      {t.name}
+                    </DropdownItem>
+                  ))}
+                </DropdownSection>
+              </Dropdown>
             )}
             {restoreOpen && closedTabs.length === 0 && (
-              <div className="notes-pane__restore-dropdown">
+              <Dropdown className="notes-pane__restore-menu">
                 <div className="notes-pane__restore-empty">No closed tabs</div>
-              </div>
+              </Dropdown>
             )}
           </div>
         </div>
@@ -374,15 +376,17 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
 
       {/* Tab context menu */}
       {tabContextMenu && (
-        <div
-          className="notes-pane__tab-context"
-          style={{ top: tabContextMenu.y, left: tabContextMenu.x }}
+        <Dropdown
+          className="notes-pane__tab-context-menu"
+          style={{ position: 'fixed', top: tabContextMenu.y, left: tabContextMenu.x }}
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
         >
-          <button className="notes-pane__restore-item" onClick={() => { void handleExport(); setTabContextMenu(null); }}>Export</button>
-          <button className="notes-pane__restore-item" onClick={() => { void handleCopyPath(); setTabContextMenu(null); requestAnimationFrame(() => editorViewRef.current?.focus()); }}>Copy Path</button>
-          <button className="notes-pane__restore-item" onClick={() => { handleCopyId(); setTabContextMenu(null); requestAnimationFrame(() => editorViewRef.current?.focus()); }}>Copy Reference</button>
-        </div>
+          <DropdownSection label="TAB OPTIONS">
+            <DropdownItem onClick={() => { void handleExport(); setTabContextMenu(null); }}>Export</DropdownItem>
+            <DropdownItem onClick={() => { void handleCopyPath(); setTabContextMenu(null); requestAnimationFrame(() => editorViewRef.current?.focus()); }}>Copy Path</DropdownItem>
+            <DropdownItem onClick={() => { handleCopyId(); setTabContextMenu(null); requestAnimationFrame(() => editorViewRef.current?.focus()); }}>Copy Reference</DropdownItem>
+          </DropdownSection>
+        </Dropdown>
       )}
 
       {/* Editor */}

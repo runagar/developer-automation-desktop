@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLayoutStore } from '../stores/layoutStore';
-import SubDropdown from './SubDropdown';
+import { Dropdown, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
 import './PanelMenu.css';
 
 export default function PanelMenu(): React.ReactElement {
@@ -59,99 +59,82 @@ export default function PanelMenu(): React.ReactElement {
       </button>
 
       {open && (
-        <div className="panel-menu__dropdown" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="panel-menu__section-label">PANELS</div>
-          <button
-            className="panel-menu__item"
-            onClick={() => toggleSessionsVisible()}
-          >
-            <span className="panel-menu__check">
-              {sessionsVisible ? '✔' : ''}
-            </span>
-            Sessions
-          </button>
-
-          <div
-            className="panel-menu__item sub-dropdown-trigger"
-            onMouseEnter={handleNotesHover}
-            onMouseLeave={() => setNotesSubOpen(false)}
-          >
-            <span className="panel-menu__check">{''}</span>
-            Notes
-            <span className="sub-dropdown-arrow">▸</span>
-            {notesSubOpen && (
-              <SubDropdown>
-                <button
-                  className="panel-menu__item"
-                  onClick={() => {
-                    const newId = useLayoutStore.getState().spawnGlobalPanel('notes');
-                    if (newId) {
-                      void window.agentSmith.notesCreatePanel({ kind: 'global', id: newId }, newId);
-                    }
-                    setOpen(false);
-                    setNotesSubOpen(false);
-                  }}
-                >
-                  New
-                </button>
-                {closedPanels.length > 0 && (
-                  <>
-                    <div className="panel-menu__divider" />
-                    <div className="panel-menu__section-label">RESTORE</div>
-                    {closedPanels.map((p) => (
-                      <div key={p.id} className="panel-menu__item panel-menu__item--restore">
-                        <span
-                          className="panel-menu__item-label"
-                          onClick={() => void handleRestorePanel(p.id)}
-                        >
-                          {p.scopeId}
-                        </span>
-                        {confirmDestroyId === p.id ? (
-                          <>
-                            <button
-                              className="btn btn--micro btn--primary"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void window.agentSmith.notesDestroyPanel(p.id).then(() => {
-                                  setClosedPanels((prev) => prev.filter((cp) => cp.id !== p.id));
-                                  setConfirmDestroyId(null);
-                                });
-                              }}
-                              title="Confirm delete"
-                            >✓</button>
-                            <button
-                              className="btn btn--micro"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(null); }}
-                              title="Cancel"
-                            >✕</button>
-                          </>
-                        ) : (
+        <Dropdown className="panel-menu__menu" onMouseDown={(e) => e.stopPropagation()}>
+          <DropdownSection label="PANELS">
+            <DropdownItem check={sessionsVisible ? '✓' : '✕'} onClick={() => toggleSessionsVisible()}>
+              Sessions
+            </DropdownItem>
+            <DropdownSubmenu
+              label="Notes"
+              check=""
+              open={notesSubOpen}
+              onOpen={() => { void handleNotesHover(); }}
+              onClose={() => setNotesSubOpen(false)}
+            >
+              <DropdownItem
+                onClick={() => {
+                  const newId = useLayoutStore.getState().spawnGlobalPanel('notes');
+                  if (newId) {
+                    void window.agentSmith.notesCreatePanel({ kind: 'global', id: newId }, newId);
+                  }
+                  setOpen(false);
+                  setNotesSubOpen(false);
+                }}
+              >
+                New
+              </DropdownItem>
+              {closedPanels.length > 0 && (
+                <DropdownSection label="RESTORE">
+                  {closedPanels.map((p) => (
+                    <div key={p.id} className="dropdown__item panel-menu__restore-row">
+                      <span
+                        className="panel-menu__restore-name"
+                        onClick={() => void handleRestorePanel(p.id)}
+                      >
+                        {p.scopeId}
+                      </span>
+                      {confirmDestroyId === p.id ? (
+                        <>
                           <button
-                            className="btn btn--micro btn--danger"
+                            className="btn btn--micro btn--primary"
                             onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(p.id); }}
-                            title="Delete permanently"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void window.agentSmith.notesDestroyPanel(p.id).then(() => {
+                                setClosedPanels((prev) => prev.filter((cp) => cp.id !== p.id));
+                                setConfirmDestroyId(null);
+                              });
+                            }}
+                            title="Confirm delete"
+                          >✓</button>
+                          <button
+                            className="btn btn--micro"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(null); }}
+                            title="Cancel"
                           >✕</button>
-                        )}
-                      </div>
-                    ))}
-                  </>
-                )}
-              </SubDropdown>
-            )}
-          </div>
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn--micro btn--danger"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(p.id); }}
+                          title="Delete permanently"
+                        >✕</button>
+                      )}
+                    </div>
+                  ))}
+                </DropdownSection>
+              )}
+            </DropdownSubmenu>
+          </DropdownSection>
 
-          <div className="panel-menu__section-label">LAYOUT</div>
-          <button
-            className="panel-menu__item"
-            onClick={() => setLocked(!locked)}
-          >
-            <span className="panel-menu__check">{locked ? '✔' : ''}</span>
-            Lock layout
-          </button>
-        </div>
+          <DropdownSection label="LAYOUT">
+            <DropdownItem check={locked ? '✓' : '✕'} onClick={() => setLocked(!locked)}>
+              Lock layout
+            </DropdownItem>
+          </DropdownSection>
+        </Dropdown>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { PanelType } from '../dashboard/layout';
-import './SessionContextMenu.css';
+import { Dropdown, DropdownItem, DropdownSection } from './dropdown';
 
 interface MenuItem {
   label: string;
@@ -77,22 +77,23 @@ export default function SessionContextMenu({ x, y, onSpawnPanel, onRename, onClo
   };
 
   return (
-    <div className="session-context-menu" ref={ref} style={style}>
-      {SECTIONS.map((section, i) => (
-        <div key={section.header}>
-          {i > 0 && <div className="session-context-menu__divider" />}
-          <div className="session-context-menu__header">{section.header}</div>
+    <Dropdown
+      ref={ref}
+      style={{ ...style, position: 'fixed' }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {SECTIONS.map((section) => (
+        <DropdownSection key={section.header} label={section.header}>
           {section.items.map((item) => (
-            <button
+            <DropdownItem
               key={item.action}
-              className="session-context-menu__item"
               onClick={() => handleAction(item.action)}
             >
               {item.label}
-            </button>
+            </DropdownItem>
           ))}
-        </div>
+        </DropdownSection>
       ))}
-    </div>
+    </Dropdown>
   );
 }

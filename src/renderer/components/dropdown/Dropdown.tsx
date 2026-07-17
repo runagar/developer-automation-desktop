@@ -6,19 +6,26 @@ import './Dropdown.css';
 interface DropdownProps {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
   onMouseDown?: (e: React.MouseEvent) => void;
 }
 
-export function Dropdown({ children, className, onMouseDown }: DropdownProps): React.ReactElement {
+export const Dropdown = React.forwardRef<HTMLDivElement, DropdownProps>(function Dropdown(
+  { children, className, style, onMouseDown },
+  ref,
+): React.ReactElement {
   return (
     <div
+      ref={ref}
       className={`dropdown${className ? ` ${className}` : ''}`}
+      style={style}
       onMouseDown={onMouseDown ?? ((e) => e.stopPropagation())}
     >
       {children}
     </div>
   );
-}
+});
+Dropdown.displayName = 'Dropdown';
 
 // --- Section header (with auto-divider except first) ---
 
@@ -53,7 +60,7 @@ export function DropdownItem({ children, check, onClick, disabled, className }: 
       onClick={onClick}
       disabled={disabled}
     >
-      {check !== undefined && <span className="dropdown__check">{check}</span>}
+      <span className="dropdown__check">{check ?? ''}</span>
       {children}
     </button>
   );
@@ -77,7 +84,7 @@ export function DropdownSubmenu({ label, check, children, open, onOpen, onClose 
       onMouseEnter={onOpen}
       onMouseLeave={onClose}
     >
-      {check !== undefined && <span className="dropdown__check">{check}</span>}
+      <span className="dropdown__check">{check ?? ''}</span>
       {label}
       <span className="dropdown__arrow">▸</span>
       {open && (

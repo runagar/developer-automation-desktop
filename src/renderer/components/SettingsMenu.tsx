@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ZoomControls } from './ZoomControl';
 import { getCrtEffects, setCrtEffect, setAllCrtEffects, CrtEffectState } from './crtEffects';
-import SubDropdown from './SubDropdown';
+import { Dropdown, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
 import './SettingsMenu.css';
 
 // Theme definitions (source of truth for theme IDs and labels)
@@ -118,85 +118,59 @@ export default function SettingsMenu({ onOpenWorkspaces, onOpenJira, onOpenNotes
       </button>
 
       {open && (
-        <div className="settings-menu__dropdown" onMouseDown={(e) => e.stopPropagation()}>
-          {/* ── Display ── */}
-          <div className="settings-menu__header">Display</div>
+        <Dropdown className="settings-menu__menu" onMouseDown={(e) => e.stopPropagation()}>
+          <DropdownSection label="Display">
+            <div className="dropdown__item settings-menu__zoom-row">
+              <span className="dropdown__check"></span>
+              <span className="settings-menu__zoom-label">Zoom</span>
+              <ZoomControls onReset={closeMenu} />
+            </div>
+            <DropdownSubmenu
+              label="Theme"
+              open={themeOpen}
+              onOpen={() => setThemeOpen(true)}
+              onClose={() => setThemeOpen(false)}
+            >
+              {THEMES.map((t) => (
+                <DropdownItem
+                  key={t.id}
+                  check={t.id === currentTheme ? '✓' : ' '}
+                  onClick={() => selectTheme(t.id)}
+                >
+                  {t.label}
+                </DropdownItem>
+              ))}
+            </DropdownSubmenu>
+            <DropdownItem
+              check={crtMasterIcon}
+              className={crtMixed ? 'settings-menu__item--mixed' : undefined}
+              onClick={toggleCrtMaster}
+            >
+              CRT Effects
+            </DropdownItem>
+            <DropdownItem check={crt.scanlines ? '✓' : '✕'} onClick={() => toggleCrt('scanlines')}>
+              Scanlines
+            </DropdownItem>
+            <DropdownItem check={crt.sweep ? '✓' : '✕'} onClick={() => toggleCrt('sweep')}>
+              Rolling Scan
+            </DropdownItem>
+            <DropdownItem check={crt.bloom ? '✓' : '✕'} onClick={() => toggleCrt('bloom')}>
+              Bloom
+            </DropdownItem>
+          </DropdownSection>
 
-          {/* Zoom controls */}
-          <div className="settings-menu__zoom-row">
-            <ZoomControls onReset={closeMenu} />
-          </div>
-
-          {/* Theme with sub-dropdown */}
-          <div
-            className="settings-menu__item sub-dropdown-trigger"
-            onMouseEnter={() => setThemeOpen(true)}
-            onMouseLeave={() => setThemeOpen(false)}
-          >
-            Theme
-            <span className="sub-dropdown-arrow">▸</span>
-            {themeOpen && (
-              <SubDropdown>
-                {THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    className={`settings-menu__item${t.id === currentTheme ? ' settings-menu__item--active' : ''}`}
-                    onClick={() => selectTheme(t.id)}
-                  >
-                    <span className="settings-menu__check">{t.id === currentTheme ? '✓' : ' '}</span>
-                    {t.label}
-                  </button>
-                ))}
-              </SubDropdown>
-            )}
-          </div>
-
-          {/* CRT Effects master toggle */}
-          <button className="settings-menu__item settings-menu__item--toggle" onClick={toggleCrtMaster}>
-            <span className={`settings-menu__check${crtMixed ? ' settings-menu__check--mixed' : ''}`}>{crtMasterIcon}</span>
-            CRT Effects
-          </button>
-
-          {/* Scanlines toggle */}
-          <button className="settings-menu__item settings-menu__item--toggle" onClick={() => toggleCrt('scanlines')}>
-            <span className="settings-menu__check">{crt.scanlines ? '✓' : '✕'}</span>
-            Scanlines
-          </button>
-
-          {/* Rolling Scan toggle */}
-          <button className="settings-menu__item settings-menu__item--toggle" onClick={() => toggleCrt('sweep')}>
-            <span className="settings-menu__check">{crt.sweep ? '✓' : '✕'}</span>
-            Rolling Scan
-          </button>
-
-          {/* Bloom toggle */}
-          <button className="settings-menu__item settings-menu__item--toggle" onClick={() => toggleCrt('bloom')}>
-            <span className="settings-menu__check">{crt.bloom ? '✓' : '✕'}</span>
-            Bloom
-          </button>
-
-          {/* ── Misc ── */}
-          <div className="settings-menu__header">Misc.</div>
-
-          <button
-            className="settings-menu__item"
-            onClick={() => { closeMenu(); onOpenWorkspaces(); }}
-          >
-            Workspaces
-          </button>
-          <button
-            className="settings-menu__item"
-            onClick={() => { closeMenu(); onOpenJira(); }}
-          >
-            Jira
-          </button>
-          <button
-            className="settings-menu__item"
-            onClick={() => { closeMenu(); onOpenNotes(); }}
-          >
-            Notes
-          </button>
-        </div>
+          <DropdownSection label="Misc.">
+            <DropdownItem onClick={() => { closeMenu(); onOpenWorkspaces(); }}>
+              Workspaces
+            </DropdownItem>
+            <DropdownItem onClick={() => { closeMenu(); onOpenJira(); }}>
+              Jira
+            </DropdownItem>
+            <DropdownItem onClick={() => { closeMenu(); onOpenNotes(); }}>
+              Notes
+            </DropdownItem>
+          </DropdownSection>
+        </Dropdown>
       )}
     </div>
   );
