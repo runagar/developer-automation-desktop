@@ -19,6 +19,9 @@ interface Props {
   mode: PanelMode;
   locked: boolean;
   isFocused: boolean;
+  isDragging?: boolean;
+  isSnapping?: boolean;
+  dragStyle?: React.CSSProperties;
   // Entry-point focus action invoked when the panel gains focus via Ctrl+Tab.
   focusEntry?: () => void;
   onDragStart: (e: React.PointerEvent) => void;
@@ -29,7 +32,7 @@ interface Props {
 }
 
 const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
-  { id, title, placement, mode, locked, isFocused, focusEntry, onDragStart, onResizeStart, onActivate, onClose, children },
+  { id, title, placement, mode, locked, isFocused, isDragging, isSnapping, dragStyle, focusEntry, onDragStart, onResizeStart, onActivate, onClose, children },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,7 +44,7 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
     },
   }), [focusEntry]);
 
-  const style: React.CSSProperties = {
+  const baseStyle: React.CSSProperties = {
     left: `${toPct(placement.x)}%`,
     top: `${toPct(placement.y)}%`,
     width: `${toPct(placement.w)}%`,
@@ -51,10 +54,20 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
     display: placement.visible ? undefined : 'none',
   };
 
+  // During drag or snap, override positioning with dragStyle
+  const style: React.CSSProperties = dragStyle ? { ...baseStyle, ...dragStyle } : baseStyle;
+
+  const classNames = [
+    'workspace-panel',
+    isFocused ? 'workspace-panel--focused' : '',
+    isDragging ? 'workspace-panel--dragging' : '',
+    isSnapping ? 'workspace-panel--snapping' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <section
       ref={containerRef}
-      className={['workspace-panel', isFocused ? 'workspace-panel--focused' : ''].filter(Boolean).join(' ')}
+      className={classNames}
       style={style}
       data-panel-id={id}
       tabIndex={-1}

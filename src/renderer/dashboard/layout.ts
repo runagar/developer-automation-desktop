@@ -59,7 +59,8 @@ export interface DashboardState {
 // ---------------------------------------------------------------------------
 
 export const GRID = 24;
-export const MIN_CELLS = 1;
+export const MIN_W = 2;
+export const MIN_H = 3;
 
 export const STORAGE_KEY = 'agent-smith-dashboard';
 
@@ -74,8 +75,8 @@ function clamp(v: number, min: number, max: number): number {
 export const toPct = (cells: number): number => (cells / GRID) * 100;
 
 export function clampPlacement(p: Placement): Placement {
-  const w = clamp(Math.round(p.w), MIN_CELLS, GRID);
-  const h = clamp(Math.round(p.h), MIN_CELLS, GRID);
+  const w = clamp(Math.round(p.w), MIN_W, GRID);
+  const h = clamp(Math.round(p.h), MIN_H, GRID);
   return {
     ...p,
     w,
@@ -229,7 +230,7 @@ export function findSpawnPlacement(
 
   // --- Strategy 1: empty space ---
   const occupied = buildOccupancyGrid(instances);
-  const emptyRect = findFirstEmptyRect(occupied, 2, 2);
+  const emptyRect = findFirstEmptyRect(occupied, MIN_W, MIN_H);
   if (emptyRect) {
     return {
       placement: {
@@ -245,7 +246,7 @@ export function findSpawnPlacement(
 
   // --- Strategy 2: split an existing panel of the same type ---
   const candidates = instances
-    .filter((inst) => inst.type === type && inst.placement.w >= 2 && inst.placement.h >= 2)
+    .filter((inst) => inst.type === type && inst.placement.w >= MIN_W * 2 && inst.placement.h >= MIN_H * 2)
     .sort((a, b) => {
       // Prefer larger panels to split
       const aArea = a.placement.w * a.placement.h;

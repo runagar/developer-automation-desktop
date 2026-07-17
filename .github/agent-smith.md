@@ -49,16 +49,16 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Right-click → context menu** on a session → spawn an individual panel type (Terminal/Shell/Jira/Notes). Focus moves to the spawned panel.
 - **Panel menu → Notes ▸** submenu → **New** spawns a global (session-unbound) notes panel. Closed global panels can be restored from the same submenu.
 - If a linked panel already exists for that session+type, focus moves to the existing panel instead.
-- Spawn placement: (1) fills the first empty space ≥ 2×2; (2) splits an existing same-type panel; (3) overlays at centre 3×3.
+- Spawn placement: (1) fills the first empty space ≥ 2×3; (2) splits an existing same-type panel (each half must be ≥ 2×3); (3) overlays at centre 3×3.
 
 **Closing panels:**
 - **✕ on a panel** destroys the instance (Sessions panel is hidden instead). Does NOT destroy session resources.
 - **Archiving a session** destroys all linked panels for that session.
 - **Restoring a session** activates it in Default panels (no new panels spawned).
 
-- **Drag** a panel by its header to move it (snaps to grid cells, clamped to bounds).
-- **Resize** from any of 8 edge/corner handles (minimum 1×1 cell).
-- **Z-order:** clicking a panel brings it to the front; panels may overlap.
+- **Drag** a panel by its header to move it. The panel follows the pointer smoothly at pixel level; a dashed shadow outline snaps to the nearest grid position beneath it, previewing the drop target. On release, the panel slides into the grid position with a brief ease-out animation. A 4 px dead zone prevents accidental drags when clicking the header to focus. Pointer events are captured via `setPointerCapture` on the header/handle element (no `window`-level listeners).
+- **Resize** from any of 8 edge/corner handles (minimum 2×3 cells). Same smooth-drag + shadow + snap-animation behaviour as move. The panel body stays at its original grid size during the resize drag and reflows only on release.
+- **Z-order:** clicking or dragging a panel brings it to the front; panels may overlap.
 - **Panel menu** (header, left of Settings): toggle Sessions panel visibility, **Notes** submenu (new/restore global panels), and **Lock layout** toggle.
 - **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
 - Default panels display a small **◆** badge in the header to distinguish them from linked panels.
