@@ -144,6 +144,7 @@ export default function App(): React.ReactElement {
     store.bumpAttachGen(id);
     store.updateSession(id, { archived: false, dead: false });
     store.setActiveSessionId(id);
+    await window.agentSmith.unarchiveSession(id);
     // PTY attach is handled by panel instance components when they detect the new currentSessionId
   }, []);
 
