@@ -254,6 +254,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                   value={renameValue}
                   autoFocus
                   spellCheck={false}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onBlur={() => {
                     const trimmed = renameValue.trim();
