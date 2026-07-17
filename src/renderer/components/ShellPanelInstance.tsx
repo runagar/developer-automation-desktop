@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import ShellPane, { ShellPaneHandle } from './ShellPane';
+import { handleOsc52 } from '../utils/osc52';
 import './TerminalPane.css';
 
 interface Props {
@@ -64,7 +65,8 @@ export default function ShellPanelInstance({
   useEffect(() => {
     const unsub = window.agentSmith.onShellData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
-      shellRef.current?.write(data);
+      const cleaned = handleOsc52(data);
+      shellRef.current?.write(cleaned);
     });
     return unsub;
   }, [instance.id]);

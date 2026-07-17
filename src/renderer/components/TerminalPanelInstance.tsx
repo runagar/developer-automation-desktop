@@ -3,6 +3,7 @@ import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import TerminalPane, { TerminalPaneHandle } from './TerminalPane';
 import { useJiraStore } from '../stores/jiraStore';
+import { handleOsc52 } from '../utils/osc52';
 
 interface Props {
   instance: PanelInstance;
@@ -80,7 +81,8 @@ export default function TerminalPanelInstance({
   useEffect(() => {
     const unsub = window.agentSmith.onPtyData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
-      termRef.current?.write(data);
+      const cleaned = handleOsc52(data);
+      termRef.current?.write(cleaned);
       if (session) handleTerminalInput(session.id, data);
     });
     return unsub;
