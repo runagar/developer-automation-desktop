@@ -122,6 +122,9 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
     try { drag.captureElement.releasePointerCapture(drag.pointerId); } catch { /* already released */ }
 
     if (!drag.active) {
+      // Dead-zone click — manually focus the panel (preventDefault blocks default focus)
+      const section = drag.captureElement.closest<HTMLElement>('[data-panel-id]');
+      section?.focus();
       setDragState(null);
       dragRef.current = null;
       return;
@@ -223,6 +226,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
   const handleDragStart = useCallback((id: string, placement: Placement) => (e: React.PointerEvent) => {
     if (locked) return;
+    e.preventDefault();
     const { cellW, cellH } = cellSize();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
@@ -239,6 +243,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
   const handleResizeStart = useCallback((id: string, placement: Placement) => (e: React.PointerEvent, handle: ResizeHandle) => {
     if (locked) return;
+    e.preventDefault();
     const { cellW, cellH } = cellSize();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
