@@ -57,7 +57,7 @@
 }
 .terminal-pane__dir {
   font-size: 0.6rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

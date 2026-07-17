@@ -51,7 +51,7 @@
   padding: 6px 10px;
   font-size: 0.6rem;
   letter-spacing: 0.15em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   border-bottom: 1px solid var(--c-dark);
 }
 .dropdown__empty {
@@ -96,7 +96,7 @@
 }
 .dropdown__repo {
   font-size: 0.62rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-align: right;
   overflow-wrap: break-word;
 }
@@ -183,7 +183,7 @@
 }
 .session-item__restored {
   font-size: 0.7rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 /* Manage workspaces button */
@@ -197,7 +197,7 @@
   width: 100%;
   font-size: 0.65rem;
   letter-spacing: 0.12em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   border-color: var(--c-dark);
 }
 
@@ -236,7 +236,7 @@
 }
 
 .session-list__archived-count {
-  color: var(--c-dim);
+  color: var(--c-mid);
   font-size: 0.6rem;
 }
 

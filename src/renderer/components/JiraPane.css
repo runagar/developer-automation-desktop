@@ -36,7 +36,7 @@
 }
 
 .jira-pane__key-input::placeholder {
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-transform: none;
 }
 
@@ -57,7 +57,7 @@
 
 /* ── Status messages ─────────────────────────────────── */
 .jira-pane__empty {
-  color: var(--c-dim);
+  color: var(--c-mid);
   font-size: 0.78rem;
   text-align: center;
   margin-top: 24px;
@@ -70,7 +70,7 @@
 }
 
 .jira-pane__loading {
-  color: var(--c-dim);
+  color: var(--c-mid);
   font-size: 0.78rem;
   padding: 6px 0;
 }
@@ -87,7 +87,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--c-dim);
+  color: var(--c-mid);
   border-bottom: 1px solid var(--c-border);
   padding-bottom: 2px;
 }
@@ -110,7 +110,7 @@
 /* Metadata row: status · priority · type */
 .jira-pane__meta-row {
   font-size: 0.68rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   letter-spacing: 0.08em;
 }
 
@@ -137,7 +137,7 @@
 }
 .jira-pane__link {
   font-size: 0.68rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   list-style: disc;
   display: list-item;
 }
@@ -170,7 +170,7 @@
   color: var(--c-amber);
 }
 .jira-pane__link-summary {
-  color: var(--c-dim);
+  color: var(--c-mid);
   font-size: 0.7rem;
 }
 
@@ -264,7 +264,7 @@
   border-left: 3px solid var(--c-dim);
   margin: 0.5em 0;
   padding: 0.25em 0.75em;
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 .jira-pane__markdown hr {
   border: none;

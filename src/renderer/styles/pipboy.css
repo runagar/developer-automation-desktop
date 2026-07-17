@@ -172,7 +172,7 @@
   padding: 1px 5px;
   font-size: 0.65rem;
   border-color: var(--c-dim);
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 .btn--micro:hover {
   color: var(--c-bright);

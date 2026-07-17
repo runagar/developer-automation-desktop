@@ -388,6 +388,12 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - All text in `Roboto Mono`
 - Theme (`agent-smith-theme`), zoom level (`agent-smith-zoom`), CRT toggle states, and dashboard layout are persisted to `localStorage`
 
+**Colour usage rules:**
+- `--c-dim` is for borders and decorative elements only. **Never use `--c-dim` for text colour** — use `--c-mid` as the minimum readable text colour.
+- `--c-mid` — secondary/subdued text (labels, placeholders, inactive tabs, metadata).
+- `--c-bright` — primary text, active elements, headings.
+- Terminal autocomplete suggestions use ANSI `brightBlack` (mapped to `--c-mid`-equivalent values in `xterm-theme.ts`).
+
 ---
 
 ## Keyboard shortcuts

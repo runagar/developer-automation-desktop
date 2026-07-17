@@ -29,7 +29,7 @@
   gap: 4px;
 }
 .app-header__bracket {
-  color: var(--c-dim);
+  color: var(--c-mid);
   font-size: 1.1rem;
   font-weight: 700;
 }

@@ -52,7 +52,7 @@
   padding: 6px 10px 4px;
   font-size: 0.55rem;
   letter-spacing: 0.18em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-transform: uppercase;
 }
 
@@ -121,7 +121,7 @@
 }
 .panel-menu__item-destroy {
   font-size: 0.55rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   background: none;
   border: none;
   cursor: pointer;

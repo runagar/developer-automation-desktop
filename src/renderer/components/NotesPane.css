@@ -39,7 +39,7 @@
   padding: 2px 6px;
   font-family: var(--font);
   font-size: 0.6rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
@@ -75,7 +75,7 @@
 
 .notes-pane__tab-close {
   font-size: 0.5rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   background: none;
   border: none;
   cursor: pointer;
@@ -89,7 +89,7 @@
 
 .notes-pane__scroll-btn {
   font-size: 0.55rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   background: none;
   border: none;
   cursor: pointer;
@@ -102,7 +102,7 @@
 
 .notes-pane__add-tab {
   font-size: 0.75rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   background: none;
   border: none;
   cursor: pointer;
@@ -172,12 +172,12 @@
   text-decoration: underline;
 }
 .notes-pane__editor .cm-content .cm-url {
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 /* Global icon */
 .notes-pane__global-icon {
-  color: var(--c-dim);
+  color: var(--c-mid);
   margin-right: 4px;
   flex-shrink: 0;
 }
@@ -205,7 +205,7 @@
   padding: 6px 10px 4px;
   font-size: 0.5rem;
   letter-spacing: 0.18em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-transform: uppercase;
 }
 .notes-pane__restore-item {
@@ -229,7 +229,7 @@
 .notes-pane__restore-empty {
   padding: 8px 10px;
   font-size: 0.6rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-align: center;
 }
 

@@ -27,7 +27,7 @@
   background: var(--c-dim);
 }
 .state-indicator--idle .state-indicator__label {
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 /* Running — bright pulsing */

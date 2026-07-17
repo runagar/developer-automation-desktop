@@ -49,7 +49,7 @@
 .manage-workspaces__empty {
   padding: 20px 16px;
   font-size: 0.75rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-align: center;
 }
 
@@ -68,7 +68,7 @@
   padding: 6px 12px;
   font-size: 0.6rem;
   letter-spacing: 0.15em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-align: left;
   font-weight: 400;
 }
@@ -156,7 +156,7 @@
 }
 
 .manage-workspaces__drop-target-group .manage-workspaces__group-drop-hint {
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 .manage-workspaces__drop-target-group {
@@ -258,7 +258,7 @@
 }
 
 .manage-workspaces__input::placeholder {
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 .manage-workspaces__select {
@@ -279,7 +279,7 @@
 
 .manage-workspaces__dir-preview {
   font-size: 0.65rem;
-  color: var(--c-dim);
+  color: var(--c-mid);
   padding: 4px 2px 0;
 }
 
@@ -298,7 +298,7 @@
 .manage-workspaces__settings-header {
   font-size: 0.6rem;
   letter-spacing: 0.18em;
-  color: var(--c-dim);
+  color: var(--c-mid);
   text-transform: uppercase;
   margin-bottom: 8px;
 }
