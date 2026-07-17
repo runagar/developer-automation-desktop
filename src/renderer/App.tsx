@@ -286,9 +286,6 @@ export default function App(): React.ReactElement {
   const renderTitle = useCallback((instance: PanelInstance): React.ReactNode => {
     if (instance.type === 'sessions') return PANEL_LABELS[instance.type];
 
-    const sid = instance.currentSessionId;
-    const session = sid ? sessions.find((s) => s.id === sid) : null;
-
     // Global notes panels show globe icon instead of session name
     if (instance.isGlobal) {
       return (
@@ -302,12 +299,9 @@ export default function App(): React.ReactElement {
     return (
       <>
         <span className="workspace-panel__title-main">{PANEL_LABELS[instance.type]}</span>
-        {session && (
-          <span className="workspace-panel__title-sub">{session.name}</span>
-        )}
       </>
     );
-  }, [sessions]);
+  }, []);
 
   const focusEntry = useCallback((instance: PanelInstance): (() => void) | undefined => {
     if (instance.type === 'sessions') {
