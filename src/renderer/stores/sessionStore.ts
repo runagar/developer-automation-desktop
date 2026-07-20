@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Session, SessionState, JiraIssue } from '../../main/types';
+import { useLayoutStore } from './layoutStore';
 
 interface SessionStore {
   sessions: Session[];
@@ -61,7 +62,12 @@ export async function initSessionStore(): Promise<void> {
   const { setSessions, setActiveSessionId } = useSessionStore.getState();
   setSessions(sessions);
   const firstActive = sessions.find((s) => !s.archived);
-  if (firstActive) setActiveSessionId(firstActive.id);
+  if (firstActive) {
+    setActiveSessionId(firstActive.id);
+    // Sync default panels immediately so the first render with populated
+    // sessions already shows the correct session (avoids stale PTY attach).
+    useLayoutStore.getState().switchDefaultPanels(firstActive.id);
+  }
 }
 
 /** Register IPC listeners that update the session store. */
