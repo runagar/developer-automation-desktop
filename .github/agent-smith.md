@@ -493,14 +493,40 @@ Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern
 
 ---
 
+## Prerequisites & Setup
+
+Agent Smith requires the following to run:
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| **tmux** | Session persistence — copilot runs inside tmux, survives app restarts | `sudo apt-get install tmux` |
+| **Node.js** (≥ 20) | Electron + build tooling | Via [fnm](https://github.com/Schniz/fnm) or nvm |
+| **build-essential, python3** | Native module compilation (`node-pty`, `better-sqlite3`) | `sudo apt-get install build-essential python3` |
+| **@github/copilot** | The Copilot CLI agent that runs inside each session | `npm install -g @github/copilot` |
+
+### Automated setup
+
+Run the included setup script to install everything in one go:
+
+```bash
+./setup.sh
+```
+
+It is idempotent — safe to re-run at any time.
+
+### Startup dependency check
+
+On launch the app validates that `tmux` and `copilot` are available in PATH. If either is missing, a native warning dialog is shown with install instructions and a pointer to `./setup.sh`. The app window still opens, but sessions cannot be created until the missing dependencies are installed.
+
+---
+
 ## Running
 
 ```bash
-cd "/home/rulu/projects/Agent Smith"
-npm start
+./launch.sh
 ```
 
-Or via `./launch.sh` (which initialises `fnm` first — needed when launching from a Windows desktop shortcut where `.zshrc` isn't sourced).
+`launch.sh` auto-detects fnm or nvm to ensure Node is on PATH, then runs `npm start` (electron-vite dev).
 
 Development uses `electron-vite dev` with Vite HMR for the renderer and auto-rebuild for the main process. Native modules (`better-sqlite3`, `node-pty`) are externalised and rebuilt via `postinstall`.
 

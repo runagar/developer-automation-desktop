@@ -5,12 +5,21 @@
 set -e
 cd "$(dirname "$0")"
 
-# Initialize fnm (Node version manager) — lives in .zshrc, not .bashrc,
-# so it won't be available when launched from a Windows desktop shortcut.
-FNM_PATH="/home/rulu/.local/share/fnm"
-if [ -d "$FNM_PATH" ]; then
-  export PATH="$FNM_PATH:$PATH"
+# Initialize Node version manager (fnm or nvm) so that `node` and `npm` are
+# available even when launched from a Windows desktop shortcut or bare shell.
+if command -v fnm >/dev/null 2>&1; then
   eval "$(fnm env --shell bash)"
+elif [ -d "$HOME/.local/share/fnm" ]; then
+  export PATH="$HOME/.local/share/fnm:$PATH"
+  eval "$(fnm env --shell bash)"
+elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+  source "$HOME/.nvm/nvm.sh"
+fi
+
+# Verify node is available
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: Node.js not found. Run ./setup.sh first." >&2
+  exit 1
 fi
 
 exec npm start

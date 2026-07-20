@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SessionManager } from './sessions';
@@ -105,13 +106,51 @@ async function initialize(): Promise<void> {
   registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, notesManager, () => mainWindow, dataDir);
 }
 
+// ---------------------------------------------------------------------------
+// Startup dependency check
+// ---------------------------------------------------------------------------
+
+function checkCommand(cmd: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, (err) => resolve(!err));
+  });
+}
+
+async function checkDependencies(): Promise<void> {
+  const missing: string[] = [];
+
+  if (!await checkCommand('tmux', ['-V'])) {
+    missing.push('• tmux — session persistence\n    Install: sudo apt-get install tmux');
+  }
+
+  if (!await checkCommand('copilot', ['--version'])) {
+    missing.push('• GitHub Copilot CLI — AI coding assistant\n    Install: npm install -g @github/copilot');
+  }
+
+  if (missing.length === 0) return;
+
+  const message = [
+    'Agent Smith requires the following dependencies that are not installed or not in PATH:\n',
+    ...missing,
+    '\nYou can run ./setup.sh from the project root to install all prerequisites automatically.',
+  ].join('\n');
+
+  dialog.showMessageBoxSync(mainWindow!, {
+    type: 'warning',
+    title: 'Missing Dependencies',
+    message: 'Agent Smith — Missing Dependencies',
+    detail: message,
+    buttons: ['OK'],
+  });
+}
+
 // WSLg: run GPU thread in-process to prevent separate GPU process crash.
 app.commandLine.appendSwitch('in-process-gpu');
 
 app.on('ready', async () => {
   await initialize();
   createWindow();
-
+  await checkDependencies();
 });
 
 app.on('window-all-closed', async () => {
