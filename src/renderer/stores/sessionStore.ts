@@ -13,6 +13,7 @@ interface SessionStore {
   updateSession: (id: string, patch: Partial<Session>) => void;
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
+  reorderSessions: (orderedIds: string[]) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -53,6 +54,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           : s.activeSessionId;
       return { sessions: next, activeSessionId };
     });
+  },
+
+  reorderSessions: (orderedIds) => {
+    set((s) => {
+      const idxMap = new Map(orderedIds.map((id, i) => [id, i]));
+      const sorted = [...s.sessions].sort((a, b) => {
+        const ai = idxMap.get(a.id) ?? Infinity;
+        const bi = idxMap.get(b.id) ?? Infinity;
+        return ai - bi;
+      });
+      return { sessions: sorted };
+    });
+    void window.agentSmith.reorderSessions(orderedIds);
   },
 }));
 

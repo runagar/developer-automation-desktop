@@ -137,6 +137,22 @@
 .session-item--dead {
   opacity: 0.5;
 }
+.session-item--dragging {
+  opacity: 0.4;
+}
+.session-item--drop-target {
+  border-top: 2px solid var(--c-bright);
+}
+
+/* Drop-at-end zone (inside the ul, right after last item) */
+.session-list__drop-end {
+  list-style: none;
+  height: 4px;
+  flex-shrink: 0;
+}
+.session-list__drop-end--active {
+  border-top: 2px solid var(--c-bright);
+}
 .session-item__top {
   display: flex;
   align-items: center;
@@ -270,4 +286,32 @@
 .session-list__destroy-all-btn {
   font-size: 0.58rem;
   letter-spacing: 0.1em;
+}
+
+/* Drag ghost — floating session representation */
+.session-drag-ghost {
+  position: fixed;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--c-panel);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow);
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.session-drag-ghost__name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-bright);
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-drag-ghost__project {
+  font-size: 0.6rem;
+  color: var(--c-mid);
 }

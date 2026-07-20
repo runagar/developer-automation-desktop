@@ -8,6 +8,7 @@ const api: IpcApi = {
   archiveSession: (id) => ipcRenderer.invoke('sessions:archive', id),
   unarchiveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:unarchive', id, cols, rows),
   renameSession: (id, name) => ipcRenderer.invoke('sessions:rename', id, name),
+  reorderSessions: (orderedIds) => ipcRenderer.invoke('sessions:reorder', orderedIds),
   reviveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:revive', id, cols, rows),
   resumeSession: (id) => ipcRenderer.invoke('sessions:resume', id),
 

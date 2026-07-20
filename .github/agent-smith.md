@@ -9,6 +9,7 @@ Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://g
 ### Multi-session management
 - Run any number of Copilot CLI sessions simultaneously.
 - Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
+- **Reorder sessions** by dragging them up/down in the list. A floating ghost follows the cursor; a bright line indicates the drop position. Order persists to the DB (`sort_order` column).
 - Rename any session by right-clicking it → **Session** → **Rename**.
 - Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.

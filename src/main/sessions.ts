@@ -51,6 +51,17 @@ export class SessionManager {
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_key TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_data TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN sort_order INTEGER DEFAULT 0'); } catch { /* already exists */ }
+
+    // Backfill sort_order for existing rows that have 0
+    const unordered = this.db.prepare('SELECT id FROM sessions WHERE sort_order = 0 ORDER BY created_at ASC').all() as any[];
+    if (unordered.length > 1) {
+      const update = this.db.prepare('UPDATE sessions SET sort_order = ? WHERE id = ?');
+      const tx = this.db.transaction(() => {
+        unordered.forEach((row: any, i: number) => update.run(i + 1, row.id));
+      });
+      tx();
+    }
 
     // Ensure Jira whitelist config exists (creates default on first run)
     ensureWhitelistConfig(this.dataDir);
@@ -88,10 +99,13 @@ export class SessionManager {
     const now = new Date().toISOString();
     const name = opts.name || `Session ${this.getSessionCount() + 1}`;
 
+    // New sessions get sort_order after all existing ones
+    const maxSort = (this.db.prepare('SELECT MAX(sort_order) as m FROM sessions').get() as any)?.m ?? 0;
+
     this.db.prepare(`
-      INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, created_at, last_active)
-      VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?)
-    `).run(id, name, opts.workingDir, opts.project ?? null, now, now);
+      INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, sort_order, created_at, last_active)
+      VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?, ?)
+    `).run(id, name, opts.workingDir, opts.project ?? null, maxSort + 1, now, now);
 
     await this.ensureTmuxSession(id, opts.workingDir);
 
@@ -299,13 +313,21 @@ export class SessionManager {
   }
 
   getSessions(): Session[] {
-    const rows = this.db.prepare('SELECT * FROM sessions ORDER BY created_at ASC').all() as any[];
+    const rows = this.db.prepare('SELECT * FROM sessions ORDER BY sort_order ASC, created_at ASC').all() as any[];
     return rows.map(this.rowToSession);
   }
 
   getSession(id: string): Session | null {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     return row ? this.rowToSession(row) : null;
+  }
+
+  reorderSessions(orderedIds: string[]): void {
+    const update = this.db.prepare('UPDATE sessions SET sort_order = ? WHERE id = ?');
+    const tx = this.db.transaction(() => {
+      orderedIds.forEach((id, i) => update.run(i + 1, id));
+    });
+    tx();
   }
 
   async persistAll(): Promise<void> {

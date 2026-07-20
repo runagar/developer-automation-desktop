@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Session, WorkspaceGroup } from '../../main/types';
 import { PanelType } from '../dashboard/layout';
+import { useSessionStore } from '../stores/sessionStore';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import SessionContextMenu from './SessionContextMenu';
@@ -70,6 +71,89 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
 
   const activeSessions = sessions.filter((s) => !s.archived);
   const archivedSessions = sessions.filter((s) => s.archived);
+
+  // --- Session drag-to-reorder ---
+  const [dragSessionId, setDragSessionId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const dragStartRef = useRef<{ id: string; y: number; x: number; active: boolean } | null>(null);
+  const justDraggedRef = useRef(false);
+  const DRAG_DEAD_ZONE = 5;
+
+  const handleDragPointerDown = useCallback((sessionId: string, e: React.PointerEvent) => {
+    // Only primary button, not on buttons/inputs
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button, input')) return;
+    e.stopPropagation(); // Prevent panel drag from activating
+    dragStartRef.current = { id: sessionId, y: e.clientY, x: e.clientX, active: false };
+  }, []);
+
+  useEffect(() => {
+    const handleMove = (e: PointerEvent) => {
+      const drag = dragStartRef.current;
+      if (!drag) return;
+      if (!drag.active) {
+        if (Math.abs(e.clientY - drag.y) < DRAG_DEAD_ZONE) return;
+        drag.active = true;
+        setDragSessionId(drag.id);
+        document.body.style.userSelect = 'none';
+      }
+      setDragPos({ x: e.clientX, y: e.clientY });
+      // Find which session item we're hovering over
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const li = el?.closest<HTMLElement>('.session-item[data-session-id]');
+      const targetId = li?.dataset.sessionId ?? null;
+      if (targetId && targetId !== drag.id) {
+        setDropTargetId(targetId);
+      } else if (!targetId && el?.closest('.session-list__items, .session-list__drop-end')) {
+        // Below all items or on the drop-end zone → move to end
+        setDropTargetId('__end__');
+      } else {
+        setDropTargetId(null);
+      }
+    };
+
+    const handleUp = () => {
+      const drag = dragStartRef.current;
+      if (!drag) return;
+      if (drag.active) {
+        justDraggedRef.current = true;
+        requestAnimationFrame(() => { justDraggedRef.current = false; });
+        if (dropTargetId) {
+          // Reorder: move dragged session before the drop target (or to end)
+          const ids = activeSessions.map((s) => s.id);
+          const fromIdx = ids.indexOf(drag.id);
+          if (fromIdx !== -1) {
+            ids.splice(fromIdx, 1);
+            if (dropTargetId === '__end__') {
+              ids.push(drag.id);
+            } else {
+              const toIdx = ids.indexOf(dropTargetId);
+              if (toIdx !== -1) {
+                ids.splice(toIdx, 0, drag.id);
+              }
+            }
+            const allIds = [...ids, ...archivedSessions.map((s) => s.id)];
+            useSessionStore.getState().reorderSessions(allIds);
+          }
+        }
+      }
+      dragStartRef.current = null;
+      setDragSessionId(null);
+      setDropTargetId(null);
+      setDragPos(null);
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('pointermove', handleMove);
+    document.addEventListener('pointerup', handleUp);
+    return () => {
+      document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerup', handleUp);
+    };
+  }, [activeSessions, archivedSessions, dropTargetId]);
+
+  const draggedSession = dragSessionId ? activeSessions.find((s) => s.id === dragSessionId) : null;
 
   // Flat list of all workspaces for keyboard navigation
   const allWorkspaces = workspaceGroups.flatMap((g) => g.workspaces);
@@ -226,15 +310,19 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         {activeSessions.map((session) => (
           <li
             key={session.id}
+            data-session-id={session.id}
             ref={session.id === activeSessionId ? activeItemRef : undefined}
             tabIndex={0}
             className={[
               'session-item',
               session.id === activeSessionId ? 'session-item--active' : '',
               session.dead ? 'session-item--dead' : '',
+              dragSessionId === session.id ? 'session-item--dragging' : '',
+              dropTargetId === session.id ? 'session-item--drop-target' : '',
             ].join(' ')}
-            onClick={() => onSelect(session.id)}
-            onFocus={() => onSelect(session.id)}
+            onClick={() => { if (!justDraggedRef.current && !dragStartRef.current) onSelect(session.id); }}
+            onFocus={() => { if (!justDraggedRef.current && !dragStartRef.current) onSelect(session.id); }}
+            onPointerDown={(e) => handleDragPointerDown(session.id, e)}
             onDoubleClick={() => {
               if (!session.archived && !session.dead) {
                 onDoubleClickSession(session.id);
@@ -306,6 +394,9 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
             )}
           </li>
         ))}
+        {dragSessionId && (
+          <li className={`session-list__drop-end${dropTargetId === '__end__' ? ' session-list__drop-end--active' : ''}`} />
+        )}
       </ul>
 
       {archivedSessions.length > 0 && (
@@ -413,6 +504,19 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
           }}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {draggedSession && dragPos && (
+        <div
+          className="session-drag-ghost"
+          style={{ left: dragPos.x + 12, top: dragPos.y - 14 }}
+        >
+          <StateIndicator state={draggedSession.dead ? 'dead' : draggedSession.state} />
+          <span className="session-drag-ghost__name">{draggedSession.name}</span>
+          {draggedSession.project && (
+            <span className="session-drag-ghost__project">[ {draggedSession.project} ]</span>
+          )}
+        </div>
       )}
     </aside>
   );

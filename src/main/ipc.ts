@@ -69,6 +69,10 @@ export function registerIpcHandlers(
     sessionManager.renameSession(id, name);
   });
 
+  ipcMain.handle('sessions:reorder', (_event, orderedIds: string[]) => {
+    sessionManager.reorderSessions(orderedIds);
+  });
+
   ipcMain.handle('sessions:revive', (_event, id: string, cols?: number, rows?: number) =>
     sessionManager.reviveSession(id, cols, rows)
   );

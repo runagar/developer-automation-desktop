@@ -46,6 +46,7 @@ export interface IpcApi {
   archiveSession: (id: string) => Promise<void>;
   unarchiveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
+  reorderSessions: (orderedIds: string[]) => Promise<void>;
   reviveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
   resumeSession: (id: string) => Promise<void>;
 
