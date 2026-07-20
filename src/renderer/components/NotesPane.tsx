@@ -117,7 +117,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
   const handleOpenRestore = useCallback(async () => {
     const scope = scopeFromKey(scopeKey);
     const tabs = await window.agentSmith.notesGetClosedTabs(scope);
-    setClosedTabs(tabs.map((t: any) => ({ id: t.id, name: t.name || t.id })));
+    setClosedTabs(tabs.map((t: any) => ({ id: t.id, name: t.name || 'Untitled' })));
     setRestoreOpen(true);
   }, [scopeKey]);
 

@@ -41,7 +41,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     const tabs = await window.agentSmith.notesGetTabs(scope);
     const mapped: NotesTabState[] = tabs.map((t: any) => ({
       id: t.id,
-      name: t.name || t.id,
+      name: t.name || 'Untitled',
       isOpen: t.isOpen,
       sortOrder: t.sortOrder,
     }));
@@ -69,7 +69,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     const tab = await window.agentSmith.notesCreateTab(scope);
     const newTab: NotesTabState = {
       id: tab.id,
-      name: tab.name || tab.id,
+      name: tab.name || 'Untitled',
       isOpen: true,
       sortOrder: tab.sortOrder,
     };
@@ -106,7 +106,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     if (!tab) return;
     const restored: NotesTabState = {
       id: tab.id,
-      name: tab.name || tab.id,
+      name: tab.name || 'Untitled',
       isOpen: true,
       sortOrder: tab.sortOrder,
     };

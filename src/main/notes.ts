@@ -16,6 +16,7 @@ export interface NotesPanelInfo {
   id: string;
   scopeKind: 'global' | 'session';
   scopeId: string;
+  name: string;
   createdAt: string;
   closedAt: string | null;
 }
@@ -56,10 +57,16 @@ export class NotesManager {
         id TEXT PRIMARY KEY,
         scope_kind TEXT NOT NULL,
         scope_id TEXT NOT NULL,
+        name TEXT DEFAULT 'Untitled',
         created_at TEXT NOT NULL,
         closed_at TEXT
       )
     `);
+    // Migration: add name column if missing
+    const panelCols = this.db.pragma('table_info(notes_panels)') as any[];
+    if (!panelCols.some((c: any) => c.name === 'name')) {
+      this.db.exec("ALTER TABLE notes_panels ADD COLUMN name TEXT DEFAULT 'Untitled'");
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS notes_tabs (
         id TEXT PRIMARY KEY,
@@ -115,9 +122,9 @@ export class NotesManager {
       return this.rowToPanel({ ...existing, closed_at: null });
     }
     this.db.prepare(
-      'INSERT INTO notes_panels (id, scope_kind, scope_id, created_at) VALUES (?, ?, ?, ?)'
-    ).run(id, scope.kind, scope.id, now);
-    return { id, scopeKind: scope.kind, scopeId: scope.id, createdAt: now, closedAt: null };
+      'INSERT INTO notes_panels (id, scope_kind, scope_id, name, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, scope.kind, scope.id, 'Untitled', now);
+    return { id, scopeKind: scope.kind, scopeId: scope.id, name: 'Untitled', createdAt: now, closedAt: null };
   }
 
   closePanel(panelId: string): void {
@@ -155,6 +162,22 @@ export class NotesManager {
     return rows.map(this.rowToPanel);
   }
 
+  getAllGlobalPanels(): NotesPanelInfo[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM notes_panels WHERE scope_kind = 'global' ORDER BY created_at ASC"
+    ).all() as any[];
+    return rows.map(this.rowToPanel);
+  }
+
+  renamePanel(panelId: string, name: string): void {
+    this.db.prepare('UPDATE notes_panels SET name = ? WHERE id = ?').run(name, panelId);
+  }
+
+  getPanelName(panelId: string): string {
+    const row = this.db.prepare('SELECT name FROM notes_panels WHERE id = ?').get(panelId) as any;
+    return row?.name || 'Untitled';
+  }
+
   // --- Tab operations ---
 
   createTab(scope: NotesScope): NotesTabInfo {
@@ -172,7 +195,7 @@ export class NotesManager {
       'INSERT INTO notes_tabs (id, scope_kind, scope_id, name, file_path, is_open, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?)'
     ).run(id, scope.kind, scope.id, null, relativePath, maxOrder + 1);
 
-    return { id, scopeKind: scope.kind, scopeId: scope.id, name: id, filePath: relativePath, isOpen: true, sortOrder: maxOrder + 1, closedAt: null };
+    return { id, scopeKind: scope.kind, scopeId: scope.id, name: 'Untitled', filePath: relativePath, isOpen: true, sortOrder: maxOrder + 1, closedAt: null };
   }
 
   closeTab(tabId: string): void {
@@ -274,6 +297,7 @@ export class NotesManager {
     id: row.id,
     scopeKind: row.scope_kind,
     scopeId: row.scope_id,
+    name: row.name || 'Untitled',
     createdAt: row.created_at,
     closedAt: row.closed_at,
   });
@@ -282,7 +306,7 @@ export class NotesManager {
     id: row.id,
     scopeKind: row.scope_kind,
     scopeId: row.scope_id,
-    name: row.name || row.id,
+    name: row.name || 'Untitled',
     filePath: row.file_path,
     isOpen: row.is_open === 1,
     sortOrder: row.sort_order,

@@ -3,6 +3,12 @@ import { useLayoutStore } from '../stores/layoutStore';
 import { Dropdown, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
 import './PanelMenu.css';
 
+interface GlobalPanelEntry {
+  id: string;
+  name: string;
+  isOpen: boolean;
+}
+
 export default function PanelMenu(): React.ReactElement {
   const instances = useLayoutStore((s) => s.instances);
   const locked = useLayoutStore((s) => s.locked);
@@ -13,7 +19,7 @@ export default function PanelMenu(): React.ReactElement {
 
   const [open, setOpen] = useState(false);
   const [notesSubOpen, setNotesSubOpen] = useState(false);
-  const [closedPanels, setClosedPanels] = useState<Array<{ id: string; scopeId: string }>>([]);
+  const [globalPanels, setGlobalPanels] = useState<GlobalPanelEntry[]>([]);
   const [confirmDestroyId, setConfirmDestroyId] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -32,16 +38,33 @@ export default function PanelMenu(): React.ReactElement {
   const handleNotesHover = useCallback(async () => {
     setNotesSubOpen(true);
     try {
-      const panels = await window.agentSmith.notesGetClosedPanels();
-      setClosedPanels(panels.map((p: any) => ({ id: p.id, scopeId: p.scopeId })));
+      const panels = await window.agentSmith.notesGetAllGlobalPanels();
+      // Determine which are currently open in the layout
+      const openIds = new Set(
+        useLayoutStore.getState().instances
+          .filter((inst) => inst.type === 'notes' && inst.isGlobal)
+          .map((inst) => inst.id)
+      );
+      setGlobalPanels(panels.map((p: any) => ({
+        id: p.id,
+        name: p.name || 'Untitled',
+        isOpen: openIds.has(p.id),
+      })));
     } catch {
-      setClosedPanels([]);
+      setGlobalPanels([]);
     }
   }, []);
 
-  const handleRestorePanel = useCallback(async (panelId: string) => {
-    await window.agentSmith.notesRestorePanel(panelId);
-    useLayoutStore.getState().spawnGlobalPanel('notes', panelId);
+  const handlePanelClick = useCallback(async (panel: GlobalPanelEntry) => {
+    if (panel.isOpen) {
+      // Focus and bring to front
+      useLayoutStore.getState().bringToFront(panel.id);
+    } else {
+      // Restore
+      await window.agentSmith.notesRestorePanel(panel.id);
+      const name = panel.name;
+      useLayoutStore.getState().spawnGlobalPanel('notes', panel.id, name);
+    }
     setOpen(false);
     setNotesSubOpen(false);
   }, []);
@@ -83,15 +106,16 @@ export default function PanelMenu(): React.ReactElement {
               >
                 New
               </DropdownItem>
-              {closedPanels.length > 0 && (
-                <DropdownSection label="RESTORE">
-                  {closedPanels.map((p) => (
+              {globalPanels.length > 0 && (
+                <DropdownSection label="SAVED NOTES">
+                  {globalPanels.map((p) => (
                     <div key={p.id} className="dropdown__item panel-menu__restore-row">
+                      <span className="dropdown__check"></span>
                       <span
-                        className="panel-menu__restore-name"
-                        onClick={() => void handleRestorePanel(p.id)}
+                        className={`panel-menu__restore-name${p.isOpen ? ' panel-menu__restore-name--open' : ''}`}
+                        onClick={() => void handlePanelClick(p)}
                       >
-                        {p.scopeId}
+                        {p.name}
                       </span>
                       {confirmDestroyId === p.id ? (
                         <>
@@ -101,7 +125,11 @@ export default function PanelMenu(): React.ReactElement {
                             onClick={(e) => {
                               e.stopPropagation();
                               void window.agentSmith.notesDestroyPanel(p.id).then(() => {
-                                setClosedPanels((prev) => prev.filter((cp) => cp.id !== p.id));
+                                // Close the panel in the layout if it's open
+                                if (p.isOpen) {
+                                  useLayoutStore.getState().destroyPanel(p.id);
+                                }
+                                setGlobalPanels((prev) => prev.filter((cp) => cp.id !== p.id));
                                 setConfirmDestroyId(null);
                               });
                             }}

@@ -327,6 +327,8 @@ export function registerIpcHandlers(
   ipcMain.handle('notes:destroyPanel', (_event, panelId: string) => notesManager.destroyPanel(panelId));
   ipcMain.handle('notes:restorePanel', (_event, panelId: string) => notesManager.restorePanel(panelId));
   ipcMain.handle('notes:getClosedPanels', () => notesManager.getClosedGlobalPanels());
+  ipcMain.handle('notes:getAllGlobalPanels', () => notesManager.getAllGlobalPanels());
+  ipcMain.handle('notes:renamePanel', (_event, panelId: string, name: string) => notesManager.renamePanel(panelId, name));
   ipcMain.handle('notes:createTab', (_event, scope: NotesScope) => notesManager.createTab(scope));
   ipcMain.handle('notes:closeTab', (_event, tabId: string) => notesManager.closeTab(tabId));
   ipcMain.handle('notes:restoreTab', (_event, tabId: string) => notesManager.restoreTab(tabId));

@@ -7,7 +7,7 @@ import {
 import './Workspace.css';
 
 interface Props {
-  renderBody: (instance: PanelInstance) => React.ReactNode;
+  renderBody: (instance: PanelInstance, isFocused: boolean) => React.ReactNode;
   renderTitle?: (instance: PanelInstance) => React.ReactNode;
   focusEntry: (instance: PanelInstance) => (() => void) | undefined;
 }
@@ -479,7 +479,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
               destroyPanel(inst.id);
             }}
           >
-            {renderBody(inst)}
+            {renderBody(inst, focusedInstanceId === inst.id)}
           </WorkspacePanel>
         );
       })}

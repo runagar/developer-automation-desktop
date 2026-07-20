@@ -124,6 +124,8 @@ export interface IpcApi {
   notesDestroyPanel: (panelId: string) => Promise<void>;
   notesRestorePanel: (panelId: string) => Promise<any>;
   notesGetClosedPanels: () => Promise<any[]>;
+  notesGetAllGlobalPanels: () => Promise<any[]>;
+  notesRenamePanel: (panelId: string, name: string) => Promise<void>;
   notesCreateTab: (scope: { kind: string; id: string }) => Promise<any>;
   notesCloseTab: (tabId: string) => Promise<void>;
   notesRestoreTab: (tabId: string) => Promise<any>;

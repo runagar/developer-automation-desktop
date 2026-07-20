@@ -53,3 +53,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.panel-menu__restore-name--open {
+  color: var(--c-bright);
+  font-weight: 600;
+}

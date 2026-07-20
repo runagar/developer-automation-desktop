@@ -224,7 +224,7 @@ export default function App(): React.ReactElement {
 
   // --- Render body / title / focusEntry for each panel instance ---
 
-  const renderBody = useCallback((instance: PanelInstance): React.ReactNode => {
+  const renderBody = useCallback((instance: PanelInstance, isFocused: boolean): React.ReactNode => {
     switch (instance.type) {
       case 'sessions':
         return (
@@ -267,7 +267,7 @@ export default function App(): React.ReactElement {
           />
         );
       case 'notes':
-        return <NotesPanelInstance instance={instance} />;
+        return <NotesPanelInstance instance={instance} isFocused={isFocused} />;
       default:
         return null;
     }

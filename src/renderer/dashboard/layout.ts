@@ -47,6 +47,7 @@ export interface PanelInstance {
   linkedSessionId?: string;  // set only when mode is 'linked'
   currentSessionId?: string; // what the panel is currently displaying
   isGlobal?: boolean;        // true for global panels (no session binding)
+  name?: string;             // user-facing name (global notes panels)
 }
 
 export interface DashboardState {
@@ -195,6 +196,7 @@ export function validateState(value: unknown): DashboardState | null {
       linkedSessionId: typeof r.linkedSessionId === 'string' ? r.linkedSessionId : undefined,
       currentSessionId: typeof r.currentSessionId === 'string' ? r.currentSessionId : undefined,
       isGlobal: r.isGlobal === true ? true : undefined,
+      name: typeof r.name === 'string' ? r.name : undefined,
     });
   }
 
@@ -245,8 +247,17 @@ export function findSpawnPlacement(
   }
 
   // --- Strategy 2: split an existing panel of the same type ---
+  // A panel is splittable if halving its longest dimension still leaves both halves >= minimum.
+  // Horizontal split needs: w >= MIN_W * 2, h >= MIN_H
+  // Vertical split needs: h >= MIN_H * 2, w >= MIN_W
   const candidates = instances
-    .filter((inst) => inst.type === type && inst.placement.w >= MIN_W * 2 && inst.placement.h >= MIN_H * 2)
+    .filter((inst) => {
+      if (inst.type !== type) return false;
+      const p = inst.placement;
+      const canSplitH = p.w >= MIN_W * 2 && p.h >= MIN_H;
+      const canSplitV = p.h >= MIN_H * 2 && p.w >= MIN_W;
+      return canSplitH || canSplitV;
+    })
     .sort((a, b) => {
       // Prefer larger panels to split
       const aArea = a.placement.w * a.placement.h;
@@ -257,8 +268,11 @@ export function findSpawnPlacement(
   if (candidates.length > 0) {
     const source = candidates[0];
     const sp = source.placement;
-    // Halve the longest dimension (horizontal wins ties)
-    if (sp.w >= sp.h) {
+    const canSplitH = sp.w >= MIN_W * 2 && sp.h >= MIN_H;
+    const canSplitV = sp.h >= MIN_H * 2 && sp.w >= MIN_W;
+    // Prefer splitting the longest dimension; fall back to whichever is possible
+    const splitHorizontally = canSplitH && (!canSplitV || sp.w >= sp.h);
+    if (splitHorizontally) {
       // Split horizontally
       const keptW = Math.ceil(sp.w / 2);
       const newW = sp.w - keptW;

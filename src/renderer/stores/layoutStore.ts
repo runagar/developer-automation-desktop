@@ -22,7 +22,7 @@ interface LayoutStore {
 
   // Spawning
   spawnPanel: (type: PanelType, sessionId: string) => string | null;
-  spawnGlobalPanel: (type: PanelType, existingId?: string) => string | null;
+  spawnGlobalPanel: (type: PanelType, existingId?: string, name?: string) => string | null;
 
   // Closing
   destroyPanel: (id: string) => void;
@@ -30,6 +30,9 @@ interface LayoutStore {
 
   // Default panel management
   switchDefaultPanels: (sessionId: string) => void;
+
+  // Panel renaming
+  renamePanel: (id: string, name: string) => void;
 
   // Helpers (non-reactive — read from getState())
   getInstance: (id: string) => PanelInstance | undefined;
@@ -181,7 +184,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     return id;
   },
 
-  spawnGlobalPanel: (type, existingId?) => {
+  spawnGlobalPanel: (type, existingId?, name?) => {
     if (!GLOBAL_CAPABLE_TYPES.has(type)) return null;
     const s = get();
     const { placement, splitInstanceId, splitPlacement } = findSpawnPlacement(s.instances, type);
@@ -193,6 +196,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       placement,
       mode: 'linked',
       isGlobal: true,
+      name: name || 'Untitled',
     };
 
     set((current) => {
@@ -289,6 +293,19 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         return { ...inst, currentSessionId: sessionId };
       });
       if (!changed) return s;
+      const next = { instances, locked: s.locked };
+      persistState(next);
+      return next;
+    });
+  },
+
+  // --- Panel renaming ---
+
+  renamePanel: (id, name) => {
+    set((s) => {
+      const instances = s.instances.map((inst) =>
+        inst.id === id ? { ...inst, name } : inst
+      );
       const next = { instances, locked: s.locked };
       persistState(next);
       return next;

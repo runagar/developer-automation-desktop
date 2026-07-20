@@ -41,6 +41,7 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - `linkedSessionId` — set only when mode is `linked`
 - `currentSessionId` — what the panel is currently displaying
 - `isGlobal` — `true` for global panels (no session binding); only applicable to `GLOBAL_CAPABLE_TYPES`
+- `name` — user-facing name for global notes panels; defaults to `"Untitled"`, persisted in both localStorage and SQLite
 
 **Default panel promotion:** When the Default panel of a type is closed, the first remaining instance of that type (in reading order) is promoted to Default. It loses its session link but keeps its current content.
 
@@ -49,7 +50,7 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Right-click → context menu** on a session → spawn an individual panel type (Terminal/Shell/Jira/Notes). Focus moves to the spawned panel.
 - **Panel menu → Notes ▸** submenu → **New** spawns a global (session-unbound) notes panel. Closed global panels can be restored from the same submenu.
 - If a linked panel already exists for that session+type, focus moves to the existing panel instead.
-- Spawn placement: (1) fills the first empty space ≥ 2×3; (2) splits an existing same-type panel (each half must be ≥ 2×3); (3) overlays at centre 3×3.
+- Spawn placement: (1) fills the first empty space ≥ 2×3; (2) splits an existing same-type panel (each half must be ≥ 2×3, checked per-axis — a 2×6 panel can split vertically into two 2×3 panels); (3) overlays at centre 3×3.
 
 **Closing panels:**
 - **✕ on a panel** destroys the instance (Sessions panel is hidden instead). Does NOT destroy session resources.
@@ -185,13 +186,19 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 
 **Scoping:**
 - **Session-bound notes** — created via double-click or session context menu. Scope key: `session:<sessionId>`. Notes are destroyed when the session is destroyed.
-- **Global notes** — created via Panel menu → Notes ▸ New. Scope key: `global:<panelId>`. Persists independently of sessions. Closed global panels can be restored from the Panel menu.
+- **Global notes** — created via Panel menu → Notes ▸ New. Scope key: `global:<panelId>`. Persists independently of sessions. The Panel menu → Notes submenu lists all global panels (open and closed) under "SAVED NOTES"; clicking an open panel focuses it, clicking a closed panel restores it.
 
 **Tabbed interface:**
 - Each notes scope contains multiple **tabs** (markdown files). A new scope auto-creates its first tab.
 - Tabs can be added (+), closed (×), renamed (click active tab), and restored (↻ dropdown for closed tabs).
+- New tabs default to the name "Untitled".
 - **Alt+Left / Alt+Right** cycles between tabs within the editor (highest-priority CM keymap).
 - Tab state (open/closed/order) is persisted to the `notes_tabs` SQLite table.
+
+**Global panel naming:**
+- Global notes panels have a `name` field (defaults to "Untitled") stored in the `notes_panels.name` SQLite column and mirrored on `PanelInstance.name` in localStorage.
+- The subheader displays `Notes - {name}`. When the panel is focused, clicking the name makes it inline-editable (auto-selects existing text). Enter or blur saves the new name.
+- Renaming persists to both the layout store (localStorage) and the DB (`notes:renamePanel` IPC channel).
 
 **Editor:**
 - CodeMirror 6 with `@codemirror/lang-markdown` and `@codemirror/language-data` (fenced code block highlighting).
@@ -211,7 +218,7 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 - Permanently destroying a closed global panel deletes all tabs, files, and the directory.
 - Session-bound notes panels follow normal panel destroy behaviour (data lives as long as the session).
 
-**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Settings dropdown
 The **⚙ SETTINGS** dropdown in the header is organised into two sections:
