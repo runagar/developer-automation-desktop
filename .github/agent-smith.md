@@ -54,8 +54,17 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 
 **Closing panels:**
 - **✕ on a panel** destroys the instance (Sessions panel is hidden instead). Does NOT destroy session resources.
+- **Close-expand:** When a panel is closed, if a same-type visible panel can grow into the freed space without overlapping, it expands automatically. Prefers growth in the shortest dimension; tie → horizontal; still tie → reading order.
 - **Archiving a session** destroys all linked panels for that session.
 - **Restoring a session** activates it in Default panels (no new panels spawned).
+
+**Maximize / Restore:**
+- **Double-click** a panel's header or sub-header (`terminal-pane__header`) to maximize/expand. Does not fire when layout is locked.
+- If adjacent empty space exists, the panel expands to fill it (never overlapping). Expansion prioritizes the shortest dimension; tie → horizontal.
+- If no adjacent empty space exists, the panel goes to full 24×24 (overlay at top z-level). The previous placement is stored in `preMaximizePlacement`.
+- Double-clicking a 24×24 maximized panel restores it to its original placement (if no overlap) or finds a fresh spawn placement.
+- The maximize/restore transition uses the same 150ms ease-out snap animation as drag/resize.
+- Interactive elements in the sub-header (buttons, inputs, rename labels) do NOT trigger maximize on double-click.
 
 - **Drag** a panel by its header to move it. The panel follows the pointer smoothly at pixel level; a dashed shadow outline snaps to the nearest grid position beneath it, previewing the drop target. On release, the panel slides into the grid position with a brief ease-out animation. A 4 px dead zone prevents accidental drags when clicking the header to focus. Pointer events are captured via `setPointerCapture` on the header/handle element (no `window`-level listeners).
 - **Resize** from any of 8 edge/corner handles (minimum 2×3 cells). Same smooth-drag + shadow + snap-animation behaviour as move. The panel body stays at its original grid size during the resize drag and reflows only on release.

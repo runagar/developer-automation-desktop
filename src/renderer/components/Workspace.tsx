@@ -3,6 +3,7 @@ import WorkspacePanel, { PanelHandle, ResizeHandle } from './WorkspacePanel';
 import { useLayoutStore } from '../stores/layoutStore';
 import {
   PanelInstance, PANEL_LABELS, panelOrder, Placement, GRID, clampPlacement, toPct,
+  computeMaxExpansion, maxZ, findSpawnPlacement,
 } from '../dashboard/layout';
 import './Workspace.css';
 
@@ -36,7 +37,7 @@ interface DragState {
 
 interface SnapState {
   id: string;
-  kind: 'move' | 'resize';
+  kind: 'move' | 'resize' | 'maximize';
   snap: Placement;
   original: Placement;
   // Move: pixel offsets for FLIP animation
@@ -44,7 +45,7 @@ interface SnapState {
   fromTransformY: number;
   targetTransformX: number;
   targetTransformY: number;
-  // Resize: pixel rects for animation
+  // Resize/maximize: pixel rects for animation
   fromPx?: { left: number; top: number; width: number; height: number };
   targetPx?: { left: number; top: number; width: number; height: number };
   // Whether the transition CSS has been applied (needs a frame delay)
@@ -81,6 +82,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
   const setPlacement = useLayoutStore((s) => s.setPlacement);
   const bringToFront = useLayoutStore((s) => s.bringToFront);
   const destroyPanel = useLayoutStore((s) => s.destroyPanel);
+  const maximizePanel = useLayoutStore((s) => s.maximizePanel);
   const rootRef = useRef<HTMLDivElement>(null);
   const [focusedInstanceId, setFocusedInstanceId] = useState<string | null>(null);
 
@@ -89,10 +91,89 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
   const panelRefs = useRef<Map<string, PanelHandle>>(new Map());
 
+  // Double-click detection for maximize (tracks dead-zone clicks on panel headers)
+  const lastHeaderClickRef = useRef<{ id: string; time: number } | null>(null);
+
   // --- Pointer drag / resize (with dead zone + pointer capture) ---
 
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = dragState;
+
+  // Animated maximize/restore — shared by header double-click and sub-header double-click
+  const animateMaximize = useCallback((id: string) => {
+    const currentInstances = useLayoutStore.getState().instances;
+    const inst = currentInstances.find((i) => i.id === id);
+    if (!inst) return;
+
+    const rootRect = rootRef.current?.getBoundingClientRect();
+    const cW = rootRect?.width ?? 1;
+    const cH = rootRect?.height ?? 1;
+    const fromPx = {
+      left: (inst.placement.x / GRID) * cW,
+      top: (inst.placement.y / GRID) * cH,
+      width: (inst.placement.w / GRID) * cW,
+      height: (inst.placement.h / GRID) * cH,
+    };
+
+    const p = inst.placement;
+    const isFullGrid = p.w === GRID && p.h === GRID;
+    let targetPlacement: Placement;
+
+    if (isFullGrid && inst.preMaximizePlacement) {
+      const orig = inst.preMaximizePlacement;
+      const othersGrid = Array.from({ length: GRID }, () => Array(GRID).fill(false));
+      for (const other of currentInstances) {
+        if (!other.placement.visible || other.id === id) continue;
+        const op = other.placement;
+        for (let r = op.y; r < op.y + op.h && r < GRID; r++) {
+          for (let c = op.x; c < op.x + op.w && c < GRID; c++) {
+            othersGrid[r][c] = true;
+          }
+        }
+      }
+      let canRestore = true;
+      for (let r = orig.y; r < orig.y + orig.h && canRestore; r++) {
+        for (let c = orig.x; c < orig.x + orig.w && canRestore; c++) {
+          if (othersGrid[r][c]) canRestore = false;
+        }
+      }
+      targetPlacement = canRestore
+        ? orig
+        : findSpawnPlacement(currentInstances.filter((i) => i.id !== id), inst.type).placement;
+    } else {
+      const expanded = computeMaxExpansion(currentInstances, id);
+      if (expanded) {
+        targetPlacement = expanded;
+      } else {
+        targetPlacement = {
+          x: 0, y: 0, w: GRID, h: GRID,
+          visible: true,
+          z: maxZ(currentInstances) + 1,
+        };
+      }
+    }
+
+    const targetPx = {
+      left: (targetPlacement.x / GRID) * cW,
+      top: (targetPlacement.y / GRID) * cH,
+      width: (targetPlacement.w / GRID) * cW,
+      height: (targetPlacement.h / GRID) * cH,
+    };
+
+    setSnapState({
+      id,
+      kind: 'maximize',
+      snap: targetPlacement,
+      original: inst.placement,
+      fromTransformX: 0,
+      fromTransformY: 0,
+      targetTransformX: 0,
+      targetTransformY: 0,
+      fromPx,
+      targetPx,
+      animating: false,
+    });
+  }, []);
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     const drag = dragRef.current;
@@ -125,6 +206,19 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
       // Dead-zone click — manually focus the panel (preventDefault blocks default focus)
       const section = drag.captureElement.closest<HTMLElement>('[data-panel-id]');
       section?.focus();
+
+      // Double-click detection: if same panel clicked within 300ms, maximize
+      if (drag.kind === 'move') {
+        const now = Date.now();
+        const last = lastHeaderClickRef.current;
+        if (last && last.id === drag.id && now - last.time < 300) {
+          lastHeaderClickRef.current = null;
+          animateMaximize(drag.id);
+        } else {
+          lastHeaderClickRef.current = { id: drag.id, time: now };
+        }
+      }
+
       setDragState(null);
       dragRef.current = null;
       return;
@@ -187,7 +281,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
     setDragState(null);
     dragRef.current = null;
-  }, [setPlacement]);
+  }, [setPlacement, animateMaximize]);
 
   // Trigger animation on next frame after snap state is set, then commit after duration
   useEffect(() => {
@@ -202,11 +296,15 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
   useEffect(() => {
     if (!snapState?.animating) return;
     const timer = setTimeout(() => {
-      setPlacement(snapState.id, snapState.snap);
+      if (snapState.kind === 'maximize') {
+        maximizePanel(snapState.id);
+      } else {
+        setPlacement(snapState.id, snapState.snap);
+      }
       setSnapState(null);
     }, SNAP_DURATION_MS + 10);
     return () => clearTimeout(timer);
-  }, [snapState?.animating, snapState?.id, setPlacement]);
+  }, [snapState?.animating, snapState?.id, setPlacement, maximizePanel]);
 
   const handleLostCapture = useCallback(() => {
     const drag = dragRef.current;
@@ -478,6 +576,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
               }
               destroyPanel(inst.id);
             }}
+            onMaximize={() => animateMaximize(inst.id)}
           >
             {renderBody(inst, focusedInstanceId === inst.id)}
           </WorkspacePanel>

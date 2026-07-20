@@ -48,6 +48,7 @@ export interface PanelInstance {
   currentSessionId?: string; // what the panel is currently displaying
   isGlobal?: boolean;        // true for global panels (no session binding)
   name?: string;             // user-facing name (global notes panels)
+  preMaximizePlacement?: Placement; // stored when panel is maximized, for restore
 }
 
 export interface DashboardState {
@@ -197,6 +198,9 @@ export function validateState(value: unknown): DashboardState | null {
       currentSessionId: typeof r.currentSessionId === 'string' ? r.currentSessionId : undefined,
       isGlobal: r.isGlobal === true ? true : undefined,
       name: typeof r.name === 'string' ? r.name : undefined,
+      preMaximizePlacement: r.preMaximizePlacement && typeof r.preMaximizePlacement === 'object'
+        ? clampPlacement(r.preMaximizePlacement as Placement)
+        : undefined,
     });
   }
 
@@ -371,4 +375,213 @@ function findFirstEmptyRect(
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Maximize / Expand algorithms
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an occupancy grid excluding a specific panel (so we can compute
+ * expansion for that panel ignoring its own footprint).
+ */
+function buildOccupancyGridExcluding(instances: PanelInstance[], excludeId: string): boolean[][] {
+  const grid: boolean[][] = Array.from({ length: GRID }, () => Array(GRID).fill(false));
+  for (const inst of instances) {
+    if (!inst.placement.visible || inst.id === excludeId) continue;
+    const p = inst.placement;
+    for (let r = p.y; r < p.y + p.h && r < GRID; r++) {
+      for (let c = p.x; c < p.x + p.w && c < GRID; c++) {
+        grid[r][c] = true;
+      }
+    }
+  }
+  return grid;
+}
+
+/**
+ * Compute the maximum rectangular expansion of a panel into empty space.
+ * The result is the largest rectangle containing the panel's current position
+ * that doesn't overlap any other visible panel.
+ *
+ * Strategy: expand each edge outward as far as possible, then find the
+ * largest rectangle that includes the original panel. Prioritize expansion
+ * in the shortest dimension, tie-break horizontal.
+ *
+ * Returns the expanded placement, or null if no expansion is possible.
+ */
+export function computeMaxExpansion(instances: PanelInstance[], panelId: string): Placement | null {
+  const inst = instances.find((i) => i.id === panelId);
+  if (!inst) return null;
+  const p = inst.placement;
+
+  const grid = buildOccupancyGridExcluding(instances, panelId);
+
+  // Find how far we can expand in each direction
+  // Expand left: find min x where all rows in [p.y, p.y+p.h) are free
+  let minX = p.x;
+  expandLeft:
+  for (let c = p.x - 1; c >= 0; c--) {
+    for (let r = p.y; r < p.y + p.h; r++) {
+      if (grid[r][c]) break expandLeft;
+    }
+    minX = c;
+  }
+
+  // Expand right
+  let maxX = p.x + p.w - 1;
+  expandRight:
+  for (let c = p.x + p.w; c < GRID; c++) {
+    for (let r = p.y; r < p.y + p.h; r++) {
+      if (grid[r][c]) break expandRight;
+    }
+    maxX = c;
+  }
+
+  // Expand up (using the full horizontal range we found)
+  let minY = p.y;
+  expandUp:
+  for (let r = p.y - 1; r >= 0; r--) {
+    for (let c = minX; c <= maxX; c++) {
+      if (grid[r][c]) break expandUp;
+    }
+    minY = r;
+  }
+
+  // Expand down (using the full horizontal range)
+  let maxY = p.y + p.h - 1;
+  expandDown:
+  for (let r = p.y + p.h; r < GRID; r++) {
+    for (let c = minX; c <= maxX; c++) {
+      if (grid[r][c]) break expandDown;
+    }
+    maxY = r;
+  }
+
+  // Also try expanding vertically first, then horizontally (to get a different result)
+  let minY2 = p.y;
+  expandUp2:
+  for (let r = p.y - 1; r >= 0; r--) {
+    for (let c = p.x; c < p.x + p.w; c++) {
+      if (grid[r][c]) break expandUp2;
+    }
+    minY2 = r;
+  }
+
+  let maxY2 = p.y + p.h - 1;
+  expandDown2:
+  for (let r = p.y + p.h; r < GRID; r++) {
+    for (let c = p.x; c < p.x + p.w; c++) {
+      if (grid[r][c]) break expandDown2;
+    }
+    maxY2 = r;
+  }
+
+  let minX2 = p.x;
+  expandLeft2:
+  for (let c = p.x - 1; c >= 0; c--) {
+    for (let r = minY2; r <= maxY2; r++) {
+      if (grid[r][c]) break expandLeft2;
+    }
+    minX2 = c;
+  }
+
+  let maxX2 = p.x + p.w - 1;
+  expandRight2:
+  for (let c = p.x + p.w; c < GRID; c++) {
+    for (let r = minY2; r <= maxY2; r++) {
+      if (grid[r][c]) break expandRight2;
+    }
+    maxX2 = c;
+  }
+
+  // Candidate 1: horizontal-first expansion
+  const c1 = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  // Candidate 2: vertical-first expansion
+  const c2 = { x: minX2, y: minY2, w: maxX2 - minX2 + 1, h: maxY2 - minY2 + 1 };
+
+  // Pick the better candidate: prefer expanding the shorter dimension
+  const candidates = [c1, c2].filter((c) => c.w > p.w || c.h > p.h);
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const aArea = a.w * a.h;
+    const bArea = b.w * b.h;
+    if (aArea !== bArea) return bArea - aArea; // Prefer larger area
+
+    // Same area: prefer the one that grows the shorter dimension more
+    const aShortGrowth = p.w <= p.h ? (a.w - p.w) : (a.h - p.h);
+    const bShortGrowth = p.w <= p.h ? (b.w - p.w) : (b.h - p.h);
+    if (aShortGrowth !== bShortGrowth) return bShortGrowth - aShortGrowth;
+
+    // Tie: prefer horizontal growth
+    return (b.w - p.w) - (a.w - p.w);
+  });
+
+  const best = candidates[0];
+  // Return only if it's actually larger than current
+  if (best.w === p.w && best.h === p.h) return null;
+
+  return { ...p, x: best.x, y: best.y, w: best.w, h: best.h };
+}
+
+/**
+ * After closing a panel, find a same-type neighbour that can expand into
+ * the freed space (fully or partially). Returns the id and new placement,
+ * or null if no candidate can fill.
+ */
+export function findCloseExpandCandidate(
+  instances: PanelInstance[],
+  closedPanel: PanelInstance,
+): { id: string; placement: Placement } | null {
+  // After the closed panel is removed, compute what each same-type neighbour
+  // could expand into. The "freed space" is the cells previously occupied by
+  // the closed panel that are not occupied by any other panel.
+  const remainingInstances = instances.filter((i) => i.id !== closedPanel.id);
+  const sameType = remainingInstances.filter(
+    (i) => i.type === closedPanel.type && i.placement.visible
+  );
+  if (sameType.length === 0) return null;
+
+  // For each same-type panel, compute its max expansion with the closed panel removed
+  const candidates: Array<{ id: string; placement: Placement; wGrowth: number; hGrowth: number }> = [];
+
+  for (const panel of sameType) {
+    const expanded = computeMaxExpansion(remainingInstances, panel.id);
+    if (!expanded) continue;
+    // Only accept if the expansion actually covers at least part of the freed space
+    const cp = closedPanel.placement;
+    const overlapX = Math.max(0, Math.min(expanded.x + expanded.w, cp.x + cp.w) - Math.max(expanded.x, cp.x));
+    const overlapY = Math.max(0, Math.min(expanded.y + expanded.h, cp.y + cp.h) - Math.max(expanded.y, cp.y));
+    if (overlapX <= 0 || overlapY <= 0) continue;
+
+    candidates.push({
+      id: panel.id,
+      placement: { ...panel.placement, x: expanded.x, y: expanded.y, w: expanded.w, h: expanded.h },
+      wGrowth: expanded.w - panel.placement.w,
+      hGrowth: expanded.h - panel.placement.h,
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Sort: prefer growth in shortest dimension, tie → horizontal, still tie → reading order
+  candidates.sort((a, b) => {
+    const panelA = sameType.find((i) => i.id === a.id)!;
+    const panelB = sameType.find((i) => i.id === b.id)!;
+
+    // Prefer the one whose growth is in its shorter dimension
+    const aGrowsShort = panelA.placement.w <= panelA.placement.h ? a.wGrowth > 0 : a.hGrowth > 0;
+    const bGrowsShort = panelB.placement.w <= panelB.placement.h ? b.wGrowth > 0 : b.hGrowth > 0;
+    if (aGrowsShort !== bGrowsShort) return aGrowsShort ? -1 : 1;
+
+    // Tie: prefer horizontal growth
+    if (a.wGrowth !== b.wGrowth) return b.wGrowth - a.wGrowth;
+
+    // Still tie: reading order (top-left first)
+    if (panelA.placement.y !== panelB.placement.y) return panelA.placement.y - panelB.placement.y;
+    return panelA.placement.x - panelB.placement.x;
+  });
+
+  return { id: candidates[0].id, placement: candidates[0].placement };
 }

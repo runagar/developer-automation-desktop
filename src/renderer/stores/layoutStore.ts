@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import {
-  DashboardState, Placement, PanelInstance, PanelType,
+  DashboardState, Placement, PanelInstance, PanelType, GRID,
   STORAGE_KEY, SINGLETON_TYPES, GLOBAL_CAPABLE_TYPES,
   defaultState, validateState, clampPlacement, maxZ, panelOrder,
-  generatePanelId, findSpawnPlacement,
+  generatePanelId, findSpawnPlacement, computeMaxExpansion, findCloseExpandCandidate,
 } from '../dashboard/layout';
 
 interface LayoutStore {
@@ -33,6 +33,9 @@ interface LayoutStore {
 
   // Panel renaming
   renamePanel: (id: string, name: string) => void;
+
+  // Maximize / restore
+  maximizePanel: (id: string) => void;
 
   // Helpers (non-reactive — read from getState())
   getInstance: (id: string) => PanelInstance | undefined;
@@ -252,6 +255,16 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         }
       }
 
+      // Close-expand: if a same-type neighbour can grow into the freed space, expand it
+      const expandResult = findCloseExpandCandidate(s.instances, inst);
+      if (expandResult) {
+        instances = instances.map((i) =>
+          i.id === expandResult.id
+            ? { ...i, placement: clampPlacement(expandResult.placement) }
+            : i
+        );
+      }
+
       const next = { instances, locked: s.locked };
       persistState(next);
       return next;
@@ -305,6 +318,84 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     set((s) => {
       const instances = s.instances.map((inst) =>
         inst.id === id ? { ...inst, name } : inst
+      );
+      const next = { instances, locked: s.locked };
+      persistState(next);
+      return next;
+    });
+  },
+
+  // --- Maximize / restore ---
+
+  maximizePanel: (id) => {
+    set((s) => {
+      const inst = s.instances.find((i) => i.id === id);
+      if (!inst || !inst.placement.visible) return s;
+
+      const p = inst.placement;
+      const isFullGrid = p.w === GRID && p.h === GRID;
+
+      if (isFullGrid && inst.preMaximizePlacement) {
+        // Restore from maximize: check if original position is free
+        const orig = inst.preMaximizePlacement;
+        const othersGrid = Array.from({ length: GRID }, () => Array(GRID).fill(false));
+        for (const other of s.instances) {
+          if (!other.placement.visible || other.id === id) continue;
+          const op = other.placement;
+          for (let r = op.y; r < op.y + op.h && r < GRID; r++) {
+            for (let c = op.x; c < op.x + op.w && c < GRID; c++) {
+              othersGrid[r][c] = true;
+            }
+          }
+        }
+        // Check if original position is free
+        let canRestore = true;
+        for (let r = orig.y; r < orig.y + orig.h && canRestore; r++) {
+          for (let c = orig.x; c < orig.x + orig.w && canRestore; c++) {
+            if (othersGrid[r][c]) canRestore = false;
+          }
+        }
+        const restoredPlacement = canRestore
+          ? orig
+          : clampPlacement({ ...orig, x: 0, y: 0, w: Math.max(orig.w, 2), h: Math.max(orig.h, 3) });
+
+        // If can't restore to original, find spawn placement
+        let finalPlacement = restoredPlacement;
+        if (!canRestore) {
+          const { placement: spawnP } = findSpawnPlacement(
+            s.instances.filter((i) => i.id !== id),
+            inst.type
+          );
+          finalPlacement = spawnP;
+        }
+
+        const instances = s.instances.map((i) =>
+          i.id === id ? { ...i, placement: finalPlacement, preMaximizePlacement: undefined } : i
+        );
+        const next = { instances, locked: s.locked };
+        persistState(next);
+        return next;
+      }
+
+      // Try expanding into empty space first
+      const expanded = computeMaxExpansion(s.instances, id);
+      if (expanded) {
+        const instances = s.instances.map((i) =>
+          i.id === id ? { ...i, placement: expanded, preMaximizePlacement: undefined } : i
+        );
+        const next = { instances, locked: s.locked };
+        persistState(next);
+        return next;
+      }
+
+      // No empty space: maximize to full grid (overlay)
+      const fullPlacement: Placement = {
+        x: 0, y: 0, w: GRID, h: GRID,
+        visible: true,
+        z: maxZ(s.instances) + 1,
+      };
+      const instances = s.instances.map((i) =>
+        i.id === id ? { ...i, placement: fullPlacement, preMaximizePlacement: p } : i
       );
       const next = { instances, locked: s.locked };
       persistState(next);

@@ -28,11 +28,12 @@ interface Props {
   onResizeStart: (e: React.PointerEvent, handle: ResizeHandle) => void;
   onActivate: () => void;
   onClose: () => void;
+  onMaximize?: () => void;
   children: React.ReactNode;
 }
 
 const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
-  { id, title, placement, mode, locked, isFocused, isDragging, isSnapping, dragStyle, focusEntry, onDragStart, onResizeStart, onActivate, onClose, children },
+  { id, title, placement, mode, locked, isFocused, isDragging, isSnapping, dragStyle, focusEntry, onDragStart, onResizeStart, onActivate, onClose, onMaximize, children },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +93,19 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
         )}
       </header>
 
-      <div className="workspace-panel__body">
+      <div
+        className="workspace-panel__body"
+        onDoubleClick={locked ? undefined : (e) => {
+          // Double-click on sub-header (terminal-pane__header) also triggers maximize
+          const target = e.target as HTMLElement;
+          if (target.closest('.terminal-pane__header') && onMaximize) {
+            // Don't trigger if clicking on an interactive element (buttons, inputs)
+            if (!target.closest('button, input, .notes-panel__name-label')) {
+              onMaximize();
+            }
+          }
+        }}
+      >
         <PanelErrorBoundary panelId={id}>
           {children}
         </PanelErrorBoundary>
