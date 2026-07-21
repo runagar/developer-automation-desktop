@@ -88,30 +88,10 @@ export function resolveCredential(dataDir: string, key: string): string {
 
 export function saveCredential(dataDir: string, key: string, value: string): void {
   const filePath = credentialsPath(dataDir);
-  const existing = fs.existsSync(filePath)
-    ? fs.readFileSync(filePath, 'utf-8')
-    : '';
+  const env = parseEnvFile(filePath);
+  env[key] = value;
 
-  const lines = existing.split('\n');
-  let found = false;
-  const updated = lines.map((line) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#') || !trimmed.includes('=')) return line;
-    const eqIdx = trimmed.indexOf('=');
-    const lineKey = trimmed.slice(0, eqIdx).trim();
-    if (lineKey === key) {
-      found = true;
-      return `${key}=${value}`;
-    }
-    return line;
-  });
-
-  if (!found) {
-    updated.push(`${key}=${value}`);
-  }
-
-  // Remove trailing empty lines, add final newline
-  const content = updated.filter((l, i, arr) => i < arr.length - 1 || l.trim() !== '').join('\n') + '\n';
+  const content = Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
 }
@@ -120,15 +100,11 @@ export function clearCredential(dataDir: string, key: string): void {
   const filePath = credentialsPath(dataDir);
   if (!fs.existsSync(filePath)) return;
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter((line) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#') || !trimmed.includes('=')) return true;
-    const eqIdx = trimmed.indexOf('=');
-    return trimmed.slice(0, eqIdx).trim() !== key;
-  });
+  const env = parseEnvFile(filePath);
+  delete env[key];
 
-  fs.writeFileSync(filePath, lines.join('\n'), { encoding: 'utf-8', mode: 0o600 });
+  const content = Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
+  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
 }
 
 // ---------------------------------------------------------------------------

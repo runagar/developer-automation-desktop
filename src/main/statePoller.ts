@@ -1,7 +1,5 @@
 import { SessionState } from './types';
-import { tmuxSessionName, listSmithSessions, capturePane } from './tmux';
-
-const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
+import { tmuxSessionName, listSmithSessions, capturePane, ANSI_RE } from './tmux';
 
 export class StatePoller {
   private interval: ReturnType<typeof setInterval> | null = null;

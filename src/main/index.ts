@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,7 +6,6 @@ import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
 import { WorkspaceManager } from './workspaces';
 import { NotesManager } from './notes';
-import type { StatePoller } from './statePoller';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
 import { loadSettings } from './settings';
 
@@ -15,7 +14,6 @@ let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
 let workspaceManager: WorkspaceManager;
 let notesManager: NotesManager;
-let statePoller: StatePoller | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -155,8 +153,6 @@ app.on('ready', async () => {
 
 app.on('window-all-closed', async () => {
   shellTmuxManager.killAll();
-  statePoller = getRegisteredStatePoller();
-  statePoller?.stop();
   stopRegisteredStatePoller();
   await sessionManager.persistAll();
   if (process.platform !== 'darwin') {

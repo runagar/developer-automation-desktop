@@ -21,7 +21,16 @@ src/main/          Electron main process (Node.js)
   tmux.ts          tmux CLI wrapper (create/kill/capture/query sessions)
   notes.ts         NotesManager — SQLite + filesystem notes storage (panels, tabs, markdown files)
   settings.ts      AppSettings — settings.json read/write + first-launch flag
-  ipc.ts           IPC handler registration
+  ipc.ts           IPC handler orchestrator (delegates to ipc/ modules)
+  ipc/             Domain-specific IPC handler modules
+    sessions.ts    Session CRUD handlers
+    pty.ts         PTY + shell attach/detach/write/resize handlers
+    workspaces.ts  Workspace management handlers
+    settings.ts    Settings getters/setters + migration handlers
+    jira.ts        Jira fetch/vault/issue handlers
+    notes.ts       Notes panel/tab CRUD handlers
+    window.ts      Window controls + state poller + renderer:ready
+    credentials.ts Credential save/clear/status + clipboard handlers
   types.ts         Shared types (Session, IpcApi, WorkspaceEntry)
 
 src/preload/
@@ -49,7 +58,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 
 ## Architecture rules
 
-- **IPC channel names** follow `noun:verb` format (e.g. `sessions:create`, `pty:write`). Add new channels consistently in `ipc.ts` (main handler) and `preload.ts` (renderer binding) and `types.ts` (`IpcApi` interface) together — all three must stay in sync.
+- **IPC channel names** follow `noun:verb` format (e.g. `sessions:create`, `pty:write`). Add new channels in the appropriate `src/main/ipc/*.ts` domain module, and update `preload.ts` (renderer binding) and `types.ts` (`IpcApi` interface) together — all three must stay in sync.
 - **`window.dad`** is the only way the renderer talks to the main process. Never use `require` or `ipcRenderer` directly in renderer code.
 - **`SessionState`** (`idle` | `running` | `awaiting` | `suspended`) lives in `types.ts`. The display-only `dead` state is added in the renderer (`StateIndicator`) and is never stored in the DB.
 - **`Session.restored`** is a runtime-only flag set by `SessionManager.restoredIds`. It is not a DB column and must not be persisted.
@@ -105,7 +114,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 
 ## What to check when adding a new feature
 
-1. Does it require a new IPC channel? → update `ipc.ts`, `preload.ts`, `types.ts`.
+1. Does it require a new IPC channel? → add handler in appropriate `src/main/ipc/*.ts` module, update `preload.ts`, `types.ts`.
 2. Does it add persistent data? → add a DB column with a migration-safe `ALTER TABLE IF NOT EXISTS` or update the `CREATE TABLE` statement.
 3. Does it add UI? → use existing `.btn` / `--c-*` variables; match BEM naming of the nearest component.
 4. Does it affect session lifecycle? → verify behaviour on fresh create, restore-from-disk, archive, unarchive, revive-dead, and destroy paths. Remember that destroy is only available from archived sessions. Destroy also cleans up session-bound notes (via `notesManager.destroySessionNotes()`).

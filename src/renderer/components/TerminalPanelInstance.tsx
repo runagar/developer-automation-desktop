@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
-import TerminalPane, { TerminalPaneHandle } from './TerminalPane';
 import { useJiraStore } from '../stores/jiraStore';
+import { PanelInstanceWrapper } from './PanelInstanceWrapper';
+import TerminalPane, { TerminalPaneHandle } from './TerminalPane';
 import { handleOsc52 } from '../utils/osc52';
+import { Session } from '../../main/types';
 
 interface Props {
   instance: PanelInstance;
@@ -18,12 +20,15 @@ export default function TerminalPanelInstance({
   instance,
   openDropdownWithKeyboardRef,
 }: Props): React.ReactElement {
-  const sessions = useSessionStore((s) => s.sessions);
-  const session = sessions.find((s) => s.id === instance.currentSessionId) ?? null;
   const attachGen = useSessionStore((s) => s.attachGen);
   const termRef = useRef<TerminalPaneHandle | null>(null);
   const attachedRef = useRef<string | null>(null);
-  const sessionRef = useRef(session);
+  const sessionRef = useRef<Session | null>(null);
+
+  // Granular selector for session (same as wrapper uses)
+  const session = useSessionStore((s) =>
+    s.sessions.find((sess) => sess.id === instance.currentSessionId) ?? null
+  );
   sessionRef.current = session;
 
   const handleTerminalInput = useCallback((sessionId: string, data: string) => {
@@ -40,7 +45,6 @@ export default function TerminalPanelInstance({
   // Attach PTY when session changes or on mount
   useEffect(() => {
     if (!session || session.dead || session.archived) {
-      // Detach if we were attached
       if (attachedRef.current) {
         void window.dad.ptyDetach(instance.id);
         attachedRef.current = null;
@@ -49,7 +53,6 @@ export default function TerminalPanelInstance({
     }
 
     const doAttach = async () => {
-      // Wait a frame for xterm to mount and fit
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const size = termRef.current?.fitAndMeasure();
       await window.dad.ptyAttach(
@@ -59,9 +62,6 @@ export default function TerminalPanelInstance({
         size?.rows ?? 36
       );
       attachedRef.current = session.id;
-      // Re-measure and resize after attach resolves — any resize events that
-      // fired during the async attach window were dropped because the
-      // attachment didn't exist yet in the main process.
       const postSize = termRef.current?.fitAndMeasure();
       if (postSize) {
         void window.dad.ptyResizePanel(instance.id, postSize.cols, postSize.rows);
@@ -71,7 +71,6 @@ export default function TerminalPanelInstance({
     void doAttach();
 
     return () => {
-      // Detach on unmount or session change
       void window.dad.ptyDetach(instance.id);
       attachedRef.current = null;
     };
@@ -88,46 +87,31 @@ export default function TerminalPanelInstance({
     return unsub;
   }, [instance.id, session?.id, handleTerminalInput]);
 
-  if (!session) {
-    return (
-      <div className="workspace-fill">
-        <div className="app-empty">
-          <div className="app-empty__text">NO ACTIVE SESSION</div>
-          <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
-        </div>
-      </div>
-    );
-  }
-
-  const gen = attachGen.get(session.id) ?? 0;
+  const gen = session ? (attachGen.get(session.id) ?? 0) : 0;
 
   return (
-    <div className="workspace-fill">
-      <div key={`${session.id}:${gen}`} className="workspace-slot">
-        <div className="terminal-pane__header">
-          <span className="terminal-pane__name">{session.name}</span>
-          {session.project && (
-            <span className="terminal-pane__project">[ {session.project} ]</span>
-          )}
-          <span className="terminal-pane__dir">{session.workingDir}</span>
-          {session.state === 'suspended' && (
-            <button
-              className="btn btn--micro terminal-pane__resume-btn"
-              onClick={handleResume}
-              title="Resume suspended session (Alt+R)"
-            >
-              ▶ RESUME
-            </button>
-          )}
-        </div>
+    <PanelInstanceWrapper
+      instance={instance}
+      slotKey={`${session?.id ?? ''}:${gen}`}
+      headerExtra={(s) => s.state === 'suspended' ? (
+        <button
+          className="btn btn--micro terminal-pane__resume-btn"
+          onClick={handleResume}
+          title="Resume suspended session (Alt+R)"
+        >
+          ▶ RESUME
+        </button>
+      ) : null}
+    >
+      {(s) => (
         <TerminalPane
           ref={(handle) => { termRef.current = handle; }}
-          session={session}
+          session={s}
           isActive={true}
           onResume={handleResume}
           openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
-      </div>
-    </div>
+      )}
+    </PanelInstanceWrapper>
   );
 }

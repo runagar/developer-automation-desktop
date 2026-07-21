@@ -214,7 +214,7 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 
 **Per-panel issue state:** The `jiraStore` keys issues by `panelInstanceId` (not `sessionId`). Each Jira panel manages its own issue independently. When the default panel's session changes, it reseeds from `session.jiraData`.
 
-**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc/jira.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Notes panel
 The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be either **session-bound** (created per-session like other panel types) or **global** (not associated with any session, persists independently).
@@ -253,7 +253,7 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 - Permanently destroying a closed global panel deletes all tabs, files, and the directory.
 - Session-bound notes panels follow normal panel destroy behaviour (data lives as long as the session).
 
-**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc/notes.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Settings dropdown
 The **⚙ SETTINGS** dropdown sits at the right end of the tool tab bar (global — not contextual to the active tab). It is organised into two sections:
@@ -462,7 +462,7 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 Two selection modes coexist because the Copilot CLI uses Ink, which enables terminal mouse tracking:
 
 - **Normal click+drag** — handled by the CLI's own Ink-based selection. The CLI copies to clipboard via `xclip` (must be installed: `sudo apt-get install xclip`). Our code does not intercept this.
-- **Shift+click+drag** — bypasses mouse tracking and creates a real xterm text selection. Ctrl+C/X copies via Electron's `clipboard` module through synchronous IPC (`clipboard:write` / `clipboard:read` in `ipc.ts`, bound in `preload.ts`).
+- **Shift+click+drag** — bypasses mouse tracking and creates a real xterm text selection. Ctrl+C/X copies via Electron's `clipboard` module through synchronous IPC (`clipboard:write` / `clipboard:read` in `ipc/credentials.ts`, bound in `preload.ts`).
 - **Shift+Arrow** — keyboard selection, creates an xterm selection via `term.select()`. Same copy mechanism as Shift+click.
 
 OSC 52 clipboard-write sequences from CLI applications are intercepted in the PTY data handler and forwarded to Electron's clipboard API.

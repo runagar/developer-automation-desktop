@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
+import { PanelInstanceWrapper } from './PanelInstanceWrapper';
 import ShellPane, { ShellPaneHandle } from './ShellPane';
 import { handleOsc52 } from '../utils/osc52';
 import './TerminalPane.css';
@@ -18,8 +19,9 @@ export default function ShellPanelInstance({
   instance,
   openDropdownWithKeyboardRef,
 }: Props): React.ReactElement {
-  const sessions = useSessionStore((s) => s.sessions);
-  const session = sessions.find((s) => s.id === instance.currentSessionId) ?? null;
+  const session = useSessionStore((s) =>
+    s.sessions.find((sess) => sess.id === instance.currentSessionId) ?? null
+  );
   const shellRef = useRef<ShellPaneHandle | null>(null);
   const attachedRef = useRef<string | null>(null);
 
@@ -44,9 +46,6 @@ export default function ShellPanelInstance({
         size?.rows ?? 36
       );
       attachedRef.current = session.id;
-      // Re-measure and resize after attach resolves — any resize events that
-      // fired during the async attach window were dropped because the
-      // attachment didn't exist yet in the main process.
       const postSize = shellRef.current?.fitAndMeasure();
       if (postSize) {
         void window.dad.shellResizePanel(instance.id, postSize.cols, postSize.rows);
@@ -75,41 +74,21 @@ export default function ShellPanelInstance({
   useEffect(() => {
     const unsub = window.dad.onShellExit((panelInstanceId) => {
       if (panelInstanceId !== instance.id) return;
-      // Shell tmux died — clear the terminal
-      // The user can re-attach by activating another session and coming back
     });
     return unsub;
   }, [instance.id]);
 
-  if (!session) {
-    return (
-      <div className="workspace-fill">
-        <div className="app-empty">
-          <div className="app-empty__text">NO ACTIVE SESSION</div>
-          <div className="app-empty__sub">CREATE A NEW SESSION TO BEGIN</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="workspace-fill">
-      <div key={session.id} className="workspace-slot">
-        <div className="terminal-pane__header">
-          <span className="terminal-pane__name">{session.name}</span>
-          {session.project && (
-            <span className="terminal-pane__project">[ {session.project} ]</span>
-          )}
-          <span className="terminal-pane__dir">{session.workingDir}</span>
-        </div>
+    <PanelInstanceWrapper instance={instance}>
+      {(s) => (
         <ShellPane
           ref={(handle) => { shellRef.current = handle; }}
-          session={session}
+          session={s}
           isActive={true}
           panelInstanceId={instance.id}
           openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
-      </div>
-    </div>
+      )}
+    </PanelInstanceWrapper>
   );
 }

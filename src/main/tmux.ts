@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 
-const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
+export const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
 
 function execTmux(args: string[], options?: { maxBuffer?: number }): Promise<string> {
   return new Promise((resolve, reject) => {

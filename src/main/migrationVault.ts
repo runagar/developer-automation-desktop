@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getJiraVaultPath, setJiraVaultPath } from './settings';
 import { clearCredentialCache } from './jira';
+import { copyDirRecursive, rollbackCopiedFiles, validatePathWritable } from './migrationUtils';
 
 /**
  * Migrate the Jira vault to a new path.
@@ -21,15 +22,8 @@ export async function migrateJiraVault(
   }
 
   try {
-    // Validate new path is writable
-    fs.mkdirSync(normalizedNew, { recursive: true });
-    const testFile = path.join(normalizedNew, '.write-test');
-    try {
-      fs.writeFileSync(testFile, '', 'utf-8');
-      fs.unlinkSync(testFile);
-    } catch {
-      return { success: false, error: `Path is not writable: ${normalizedNew}` };
-    }
+    const writeError = validatePathWritable(normalizedNew);
+    if (writeError) return { success: false, error: writeError };
 
     // Copy old vault contents if they exist
     const copiedFiles: string[] = [];
@@ -37,7 +31,6 @@ export async function migrateJiraVault(
       try {
         copyDirRecursive(normalizedOld, normalizedNew, copiedFiles);
       } catch (err: any) {
-        // Rollback: only delete files we actually copied
         rollbackCopiedFiles(copiedFiles);
         return { success: false, error: `Copy failed: ${err?.message ?? 'unknown error'}` };
       }
@@ -55,32 +48,5 @@ export async function migrateJiraVault(
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Migration failed' };
-  }
-}
-
-/**
- * Recursively copy a directory, skipping files that already exist at the destination.
- * Records all newly created files in `copiedFiles` for rollback.
- */
-function copyDirRecursive(src: string, dest: string, copiedFiles: string[]): void {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath, copiedFiles);
-    } else {
-      if (!fs.existsSync(destPath)) {
-        fs.copyFileSync(srcPath, destPath);
-        copiedFiles.push(destPath);
-      }
-    }
-  }
-}
-
-/** Delete only the files that were copied during migration. */
-function rollbackCopiedFiles(copiedFiles: string[]): void {
-  for (const f of copiedFiles) {
-    try { fs.unlinkSync(f); } catch { /* ok */ }
   }
 }

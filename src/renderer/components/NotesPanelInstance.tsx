@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import { useLayoutStore } from '../stores/layoutStore';
+import { PanelInstanceWrapper } from './PanelInstanceWrapper';
 import NotesPane from './NotesPane';
 import './NotesPane.css';
 
@@ -11,8 +12,9 @@ interface Props {
 }
 
 export default function NotesPanelInstance({ instance, isFocused }: Props): React.ReactElement {
-  const sessions = useSessionStore((s) => s.sessions);
-  const session = sessions.find((s) => s.id === instance.currentSessionId) ?? null;
+  const session = useSessionStore((s) =>
+    s.sessions.find((sess) => sess.id === instance.currentSessionId) ?? null
+  );
   const isGlobal = instance.isGlobal ?? false;
   const panelName = instance.name || 'Untitled';
 
@@ -52,59 +54,62 @@ export default function NotesPanelInstance({ instance, isFocused }: Props): Reac
     ? `global:${instance.id}`
     : session ? `session:${session.id}` : '';
 
+  // Custom header for notes (handles global/session variants and rename)
+  const renderHeader = () => (
+    <div className="terminal-pane__header">
+      <span className="terminal-pane__name">
+        {isGlobal ? (
+          <>
+            Notes
+            <span className="notes-panel__name-sep"> - </span>
+            {renaming ? (
+              <input
+                ref={inputRef}
+                className="notes-panel__name-input"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={handleRenameSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameSubmit();
+                  if (e.key === 'Escape') { setRenaming(false); setRenameValue(panelName); }
+                }}
+                autoFocus
+                spellCheck={false}
+              />
+            ) : (
+              <span
+                className={`notes-panel__name-label${isFocused ? ' notes-panel__name-label--editable' : ''}`}
+                onClick={handleNameClick}
+              >
+                {panelName}
+              </span>
+            )}
+          </>
+        ) : (
+          session?.name ?? 'Notes'
+        )}
+      </span>
+      {!isGlobal && session?.project && (
+        <span className="terminal-pane__project">[ {session.project} ]</span>
+      )}
+      {!isGlobal && session && (
+        <span className="terminal-pane__dir">{session.workingDir}</span>
+      )}
+    </div>
+  );
+
   if (!isGlobal && !session) {
     return (
-      <div className="workspace-fill">
-        <div className="app-empty app-empty--small">
-          <div className="app-empty__sub">NO ACTIVE SESSION</div>
-        </div>
-      </div>
+      <PanelInstanceWrapper instance={instance} smallEmpty>
+        {() => <></>}
+      </PanelInstanceWrapper>
     );
   }
 
   return (
     <div className="workspace-fill">
       <div className="workspace-slot">
-        <div className="terminal-pane__header">
-          <span className="terminal-pane__name">
-            {isGlobal ? (
-              <>
-                Notes
-                <span className="notes-panel__name-sep"> - </span>
-                {renaming ? (
-                  <input
-                    ref={inputRef}
-                    className="notes-panel__name-input"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={handleRenameSubmit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRenameSubmit();
-                      if (e.key === 'Escape') { setRenaming(false); setRenameValue(panelName); }
-                    }}
-                    autoFocus
-                    spellCheck={false}
-                  />
-                ) : (
-                  <span
-                    className={`notes-panel__name-label${isFocused ? ' notes-panel__name-label--editable' : ''}`}
-                    onClick={handleNameClick}
-                  >
-                    {panelName}
-                  </span>
-                )}
-              </>
-            ) : (
-              session?.name ?? 'Notes'
-            )}
-          </span>
-          {!isGlobal && session?.project && (
-            <span className="terminal-pane__project">[ {session.project} ]</span>
-          )}
-          {!isGlobal && session && (
-            <span className="terminal-pane__dir">{session.workingDir}</span>
-          )}
-        </div>
+        {renderHeader()}
         {scopeKey && <NotesPane scopeKey={scopeKey} isGlobal={isGlobal} />}
       </div>
     </div>

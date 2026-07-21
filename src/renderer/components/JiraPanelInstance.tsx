@@ -3,6 +3,7 @@ import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import { useJiraStore } from '../stores/jiraStore';
 import { useLayoutStore } from '../stores/layoutStore';
+import { PanelInstanceWrapper } from './PanelInstanceWrapper';
 import { JiraPane, JiraPaneHandle } from './JiraPane';
 import { JiraIssue } from '../../main/types';
 import './TerminalPane.css';
@@ -19,8 +20,9 @@ export default function JiraPanelInstance({
   instance,
   jiraRefs,
 }: Props): React.ReactElement {
-  const sessions = useSessionStore((s) => s.sessions);
-  const session = sessions.find((s) => s.id === instance.currentSessionId) ?? null;
+  const session = useSessionStore((s) =>
+    s.sessions.find((sess) => sess.id === instance.currentSessionId) ?? null
+  );
   const issue = useJiraStore((s) => s.issues.get(instance.id) ?? null);
   const autoFetchEnabled = useJiraStore((s) => s.autoFetchEnabled);
   const toggleAutoFetch = useJiraStore((s) => s.toggleAutoFetch);
@@ -44,17 +46,14 @@ export default function JiraPanelInstance({
 
   const handleIssueLoaded = useCallback((fetched: JiraIssue) => {
     setIssue(instance.id, fetched);
-    // Only persist to DB from default panels
     if (isDefault && session) {
       void window.dad.saveJiraIssue(session.id, fetched);
-      // Keep sessionStore in sync so switching away and back doesn't revert
       useSessionStore.getState().updateSession(session.id, { jiraData: fetched });
     }
   }, [instance.id, isDefault, session, setIssue]);
 
   const handleIssueLinkClick = useCallback(async (key: string, ctrlKey: boolean) => {
     if (ctrlKey && session) {
-      // Ctrl+click: spawn a new linked Jira panel
       const newPanelId = useLayoutStore.getState().spawnPanel('jira', session.id);
       if (newPanelId) {
         try {
@@ -63,7 +62,6 @@ export default function JiraPanelInstance({
         } catch { /* panel spawned but issue failed — user can manually fetch */ }
       }
     } else {
-      // Normal click: fetch and display in this panel
       try {
         const fetched = await window.dad.getOrFetchJiraIssue(key);
         handleIssueLoaded(fetched);
@@ -71,39 +69,22 @@ export default function JiraPanelInstance({
     }
   }, [session, handleIssueLoaded]);
 
-  if (!session) {
-    return (
-      <div className="workspace-fill">
-        <div className="app-empty app-empty--small">
-          <div className="app-empty__sub">NO ACTIVE SESSION</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="workspace-fill">
-      <div key={session.id} className="workspace-slot">
-        <div className="terminal-pane__header">
-          <span className="terminal-pane__name">{session.name}</span>
-          {session.project && (
-            <span className="terminal-pane__project">[ {session.project} ]</span>
-          )}
-          <span className="terminal-pane__dir">{session.workingDir}</span>
-        </div>
+    <PanelInstanceWrapper instance={instance} smallEmpty>
+      {(s) => (
         <JiraPane
           ref={(handle) => {
-            if (handle) jiraRefs.current.set(`${instance.id}:${session.id}`, handle);
-            else jiraRefs.current.delete(`${instance.id}:${session.id}`);
+            if (handle) jiraRefs.current.set(`${instance.id}:${s.id}`, handle);
+            else jiraRefs.current.delete(`${instance.id}:${s.id}`);
           }}
-          sessionId={session.id}
+          sessionId={s.id}
           issue={issue}
           autoFetchEnabled={autoFetchEnabled}
           onAutoFetchToggle={toggleAutoFetch}
           onIssueLoaded={handleIssueLoaded}
           onIssueLinkClick={handleIssueLinkClick}
         />
-      </div>
-    </div>
+      )}
+    </PanelInstanceWrapper>
   );
 }

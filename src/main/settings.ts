@@ -35,6 +35,13 @@ function defaultSettings(): AppSettings {
 }
 
 // ---------------------------------------------------------------------------
+// In-memory cache (avoids redundant disk reads)
+// ---------------------------------------------------------------------------
+
+let cachedSettings: AppSettings | null = null;
+let cachedDataDir: string | null = null;
+
+// ---------------------------------------------------------------------------
 // Load / save
 // ---------------------------------------------------------------------------
 
@@ -43,58 +50,63 @@ function settingsPath(dataDir: string): string {
 }
 
 export function loadSettings(dataDir: string): AppSettings {
+  if (cachedSettings && cachedDataDir === dataDir) return cachedSettings;
   const filePath = settingsPath(dataDir);
   const dataDirDefaults = {
     jiraVaultPath: path.join(dataDir, 'jira-context'),
     notesRootPath: path.join(dataDir, 'notes'),
   };
 
+  let settings: AppSettings;
+
   if (!fs.existsSync(filePath)) {
-    const defaults = defaultSettings();
-    defaults.jira.vaultPath = dataDirDefaults.jiraVaultPath;
-    defaults.notes.rootPath = dataDirDefaults.notesRootPath;
+    settings = defaultSettings();
+    settings.jira.vaultPath = dataDirDefaults.jiraVaultPath;
+    settings.notes.rootPath = dataDirDefaults.notesRootPath;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(defaults, null, 2), 'utf-8');
-    return defaults;
-  }
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(content);
-    // Merge with defaults to handle missing keys from older versions
-    const defaults = defaultSettings();
-    const settings: AppSettings = {
-      workspaces: {
-        defaultWorkingDirectoryRoot:
-          parsed?.workspaces?.defaultWorkingDirectoryRoot ?? defaults.workspaces.defaultWorkingDirectoryRoot,
-      },
-      jira: {
-        vaultPath: parsed?.jira?.vaultPath || dataDirDefaults.jiraVaultPath,
-      },
-      notes: {
-        rootPath: parsed?.notes?.rootPath || dataDirDefaults.notesRootPath,
-      },
-      firstLaunchComplete: parsed?.firstLaunchComplete === true,
-    };
+    fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+  } else {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(content);
+      const defaults = defaultSettings();
+      settings = {
+        workspaces: {
+          defaultWorkingDirectoryRoot:
+            parsed?.workspaces?.defaultWorkingDirectoryRoot ?? defaults.workspaces.defaultWorkingDirectoryRoot,
+        },
+        jira: {
+          vaultPath: parsed?.jira?.vaultPath || dataDirDefaults.jiraVaultPath,
+        },
+        notes: {
+          rootPath: parsed?.notes?.rootPath || dataDirDefaults.notesRootPath,
+        },
+        firstLaunchComplete: parsed?.firstLaunchComplete === true,
+      };
 
-    // Persist any newly computed defaults back to the file
-    const raw = JSON.stringify(settings, null, 2);
-    if (raw !== content) {
-      fs.writeFileSync(filePath, raw, 'utf-8');
+      // Persist any newly computed defaults back to the file
+      const raw = JSON.stringify(settings, null, 2);
+      if (raw !== content) {
+        fs.writeFileSync(filePath, raw, 'utf-8');
+      }
+    } catch {
+      settings = defaultSettings();
+      settings.jira.vaultPath = dataDirDefaults.jiraVaultPath;
+      settings.notes.rootPath = dataDirDefaults.notesRootPath;
     }
-
-    return settings;
-  } catch {
-    const defaults = defaultSettings();
-    defaults.jira.vaultPath = dataDirDefaults.jiraVaultPath;
-    defaults.notes.rootPath = dataDirDefaults.notesRootPath;
-    return defaults;
   }
+
+  cachedSettings = settings;
+  cachedDataDir = dataDir;
+  return settings;
 }
 
 export function saveSettings(dataDir: string, settings: AppSettings): void {
   const filePath = settingsPath(dataDir);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+  cachedSettings = settings;
+  cachedDataDir = dataDir;
 }
 
 // ---------------------------------------------------------------------------
