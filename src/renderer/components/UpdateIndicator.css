@@ -1,0 +1,43 @@
+/* =========================================================
+   UPDATE INDICATOR (titlebar inline)
+   ========================================================= */
+
+.update-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  white-space: nowrap;
+}
+
+.update-indicator__text {
+  font-family: var(--font);
+  font-size: 0.7rem;
+  color: var(--c-accent);
+  text-shadow: var(--glow-sm);
+}
+
+.update-indicator__restart {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+}
+
+.update-indicator__dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  color: var(--c-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+
+.update-indicator__dismiss:hover {
+  color: var(--c-bright);
+}

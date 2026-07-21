@@ -1,6 +1,7 @@
 {
   "name": "dad",
-  "version": "1.0.0",
+  "version": "0.0.0",
+  "desktopName": "dk.rulu.dad.desktop",
   "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
   "scripts": {
@@ -12,7 +13,10 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [],
-  "author": "rulu",
+  "author": {
+    "name": "rulu",
+    "email": "rulu@nykredit.dk"
+  },
   "license": "MIT",
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^5.0.0",
@@ -42,6 +46,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^11.0.0",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.24.0",
     "nanoid": "^5.1.11",
     "node-pty": "^1.0.0",
@@ -53,7 +58,7 @@
     "zustand": "^5.0.14"
   },
   "build": {
-    "appId": "com.dad.app",
+    "appId": "dk.rulu.dad",
     "productName": "Developer Automation Desktop",
     "asar": true,
     "asarUnpack": [
@@ -67,10 +72,20 @@
       "package.json"
     ],
     "linux": {
-      "target": [
-        "zip"
-      ],
-      "icon": "./assets/dad_icon.png"
+      "target": ["deb"],
+      "category": "Development",
+      "icon": "./assets/dad_icon.png",
+      "executableName": "dad",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": ["tmux"],
+      "packageName": "dad"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "RULU_NYK",
+      "repo": "agent-smith"
     }
   }
 }

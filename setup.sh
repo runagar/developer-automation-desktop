@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# Agent Smith — Setup Script
+# DAD — Development Setup Script
 # ===========================================================================
-# Installs all prerequisites for running Agent Smith on an Ubuntu/Debian WSL
-# distro. Safe to re-run (idempotent).
+# FOR DEVELOPMENT ONLY — end users should install the .deb package from
+# GitHub Releases (see README.md).
+#
+# Installs all prerequisites for building and running DAD from source on an
+# Ubuntu/Debian WSL distro. Safe to re-run (idempotent).
 #
 # Prerequisites installed:
 #   - tmux          (session persistence)
@@ -33,7 +36,7 @@ cd "$(dirname "$0")"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║          AGENT SMITH — ENVIRONMENT SETUP            ║"
+echo "║              DAD — DEVELOPMENT SETUP                ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 

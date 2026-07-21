@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import UpdateIndicator from './UpdateIndicator';
 import './TitleBar.css';
 
 export default function TitleBar(): React.ReactElement {
@@ -13,6 +14,7 @@ export default function TitleBar(): React.ReactElement {
     <div className="titlebar">
       <span className="titlebar__title">Developer Automation Desktop</span>
       <div className="titlebar__drag" />
+      <UpdateIndicator />
       <div className="titlebar__controls">
         <button
           className="titlebar__btn titlebar__btn--minimize"

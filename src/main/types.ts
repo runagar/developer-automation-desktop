@@ -144,6 +144,10 @@ export interface IpcApi {
   getCredentialStatus: () => Promise<CredentialStatusInfo[]>;
   saveCredentials: (updates: Array<{ key: string; value: string }>) => Promise<Array<{ key: string; valid: boolean; error?: string }>>;
   clearCredential: (key: string) => Promise<void>;
+
+  // Auto-updater
+  onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready'; version: string }) => void) => () => void;
+  updaterInstall: () => void;
 }
 
 export interface CredentialStatusInfo {

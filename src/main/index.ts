@@ -8,6 +8,7 @@ import { WorkspaceManager } from './workspaces';
 import { NotesManager } from './notes';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
 import { loadSettings } from './settings';
+import { initAutoUpdater } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager;
@@ -69,6 +70,11 @@ function createWindow(): void {
     }
     return { action: 'deny' };
   });
+
+  // Auto-updater (production only — skip in dev mode)
+  if (!process.env.ELECTRON_RENDERER_URL) {
+    initAutoUpdater(mainWindow);
+  }
 }
 
 async function initialize(): Promise<void> {

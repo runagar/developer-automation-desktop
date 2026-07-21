@@ -147,6 +147,14 @@ const api: IpcApi = {
   getCredentialStatus: () => ipcRenderer.invoke('credentials:status'),
   saveCredentials: (updates) => ipcRenderer.invoke('credentials:save', updates),
   clearCredential: (key) => ipcRenderer.invoke('credentials:clear', key),
+
+  // Auto-updater
+  onUpdaterStatus: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: { state: 'downloading' | 'ready'; version: string }) => cb(status);
+    ipcRenderer.on('updater:status', handler);
+    return () => { ipcRenderer.removeListener('updater:status', handler); };
+  },
+  updaterInstall: () => ipcRenderer.send('updater:install'),
 };
 
 contextBridge.exposeInMainWorld('dad', api);

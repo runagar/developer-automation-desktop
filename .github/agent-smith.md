@@ -331,7 +331,8 @@ Accessible from **Settings → Workspaces** in the header dropdown. Opens a dial
 | App shell | Electron 33 (WSLg) |
 | Renderer | React 18 + TypeScript |
 | Bundler | Vite via `electron-vite` |
-| Packager | `electron-builder` (Linux ZIP) |
+| Packager | `electron-builder` (Linux `.deb`) |
+| Auto-updater | `electron-updater` (checks GitHub Releases) |
 | Terminal emulator | xterm.js (`@xterm/xterm`) with FitAddon and WebLinksAddon |
 | Markdown editor | CodeMirror 6 (`@codemirror/view`, `@codemirror/lang-markdown`) |
 | Icons | Lucide (`lucide-react`) |
@@ -352,6 +353,7 @@ Main process
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
+├── updater.ts           auto-update via electron-updater (checks GitHub Releases, IPC for renderer notification)
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
 tmux server (independent process)
@@ -391,7 +393,8 @@ Renderer process
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
-├── TitleBar             frameless window controls
+├── TitleBar             frameless window controls + update indicator
+├── UpdateIndicator      inline titlebar notification for available app updates
 ├── CredentialRow        shared credential field component (used by JiraSettingsDialog)
 ├── JiraSettingsDialog   Jira vault path + Atlassian credentials
 ├── NotesSettingsDialog  Notes root path override + migration
@@ -564,4 +567,21 @@ To package a distributable:
 npm run package
 ```
 
-This runs `electron-vite build` followed by `electron-builder` to produce a Linux ZIP.
+This runs `electron-vite build` followed by `electron-builder` to produce a `.deb` package in `dist/`.
+
+### Releasing
+
+```bash
+npm version patch          # bumps version in package.json, creates git tag
+git push --follow-tags     # triggers GitHub Actions CI
+```
+
+The `.github/workflows/release.yml` workflow builds the `.deb` and publishes it as a GitHub Release with auto-generated release notes. `electron-updater` reads `latest-linux.yml` from the release to detect new versions.
+
+### Auto-update
+
+On each launch (production only — skipped in dev mode), `electron-updater` checks GitHub Releases for a newer version. If found, it downloads silently in the background. Once downloaded, an `UpdateIndicator` appears in the TitleBar (left of window controls) showing "v{x.y.z} ready" with a **Restart** button. Clicking Restart calls `autoUpdater.quitAndInstall()`. The indicator can be dismissed; it reappears on next launch. If the user never clicks Restart, the update is applied automatically when the app quits (`autoInstallOnAppQuit`).
+
+**IPC channels:** `updater:status` (main → renderer, event), `updater:install` (renderer → main, fire-and-forget).
+
+**Files:** `src/main/updater.ts`, `src/renderer/components/UpdateIndicator.tsx` + `.css`, wired into `TitleBar.tsx`.
