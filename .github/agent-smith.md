@@ -208,7 +208,7 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 
 **Project-key whitelist:** `<dataDir>/jira-whitelist.json` with named profiles. Default profile created on first run with the team's 9 project prefixes. Active profile is global (per-workspace profiles deferred).
 
-**Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal input is scanned for Jira key patterns. Detected keys are fetched (single issue, non-recursive) and written to the vault silently — the Jira pane is NOT updated. Per-session dedup prevents re-fetching. Toggle persisted to `localStorage`.
+**Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal input is scanned for Jira key patterns. Detected keys trigger a recursive fetch via `jira:fetchAndPopulateVault` (same traversal as the FETCH button — linked issues, parent/epic, epic children) and are written to the vault silently — the Jira pane is NOT updated. Per-session dedup prevents re-fetching. Toggle persisted to `localStorage`.
 
 **Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Only the **default** Jira panel's issue is persisted to the DB; linked/spawned panels are transient. Issues are restored on startup. The type includes `__schemaVersion: 3` for the Markdown-description format.
 

@@ -69,10 +69,7 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
       cache.add(key);
       keyCache.set(sessionId, cache);
 
-      window.dad.fetchJiraIssue(key)
-        .then((issue) => {
-          window.dad.writeToVault(issue);
-        })
+      window.dad.fetchAndPopulateVault(key)
         .catch(() => {});
     }
 
