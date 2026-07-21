@@ -26,7 +26,6 @@
   color: var(--c-bright);
   text-shadow: var(--glow-sm);
   white-space: nowrap;
-  -webkit-app-region: no-drag;
   pointer-events: none;
 }
 
