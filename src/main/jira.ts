@@ -17,6 +17,10 @@ const ISSUE_FIELDS = [
   'issuelinks', 'parent',
 ].join(',');
 
+function jiraHeaders(pat: string): Record<string, string> {
+  return { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' };
+}
+
 export function clearCredentialCache(): void {
   cachedPat = null;
   cachedBaseUrl = null;
@@ -56,10 +60,7 @@ export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
   const url = `${baseUrl}/rest/api/latest/issue/${encodeURIComponent(key)}?fields=${fields}`;
 
   const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${pat}`,
-      'Content-Type': 'application/json',
-    },
+    headers: jiraHeaders(pat),
   });
 
   if (!response.ok) {
@@ -120,7 +121,7 @@ export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
 // --- Epic field discovery ---
 
 async function discoverEpicField(baseUrl: string, pat: string): Promise<void> {
-  const headers = { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' };
+  const headers = jiraHeaders(pat);
   // Try multiple API versions — Jira Server uses v2, Jira Cloud uses v3
   for (const ver of ['latest', '3', '2']) {
     try {
@@ -244,7 +245,7 @@ async function fetchEpicChildren(epicKey: string, project: string, limit: number
 
   const url = `${baseUrl}/rest/api/latest/search?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(limit, 50)}&fields=key`;
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+    headers: jiraHeaders(pat),
   });
 
   if (!response.ok) {

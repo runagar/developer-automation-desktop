@@ -343,10 +343,10 @@ export function findSpawnPlacement(
 // Occupancy grid helpers
 // ---------------------------------------------------------------------------
 
-function buildOccupancyGrid(instances: PanelInstance[]): boolean[][] {
+function buildOccupancyGrid(instances: PanelInstance[], excludeId?: string): boolean[][] {
   const grid: boolean[][] = Array.from({ length: GRID }, () => Array(GRID).fill(false));
   for (const inst of instances) {
-    if (!inst.placement.visible) continue;
+    if (!inst.placement.visible || (excludeId && inst.id === excludeId)) continue;
     const p = inst.placement;
     for (let r = p.y; r < p.y + p.h && r < GRID; r++) {
       for (let c = p.x; c < p.x + p.w && c < GRID; c++) {
@@ -402,24 +402,6 @@ function findFirstEmptyRect(
 // ---------------------------------------------------------------------------
 
 /**
- * Build an occupancy grid excluding a specific panel (so we can compute
- * expansion for that panel ignoring its own footprint).
- */
-function buildOccupancyGridExcluding(instances: PanelInstance[], excludeId: string): boolean[][] {
-  const grid: boolean[][] = Array.from({ length: GRID }, () => Array(GRID).fill(false));
-  for (const inst of instances) {
-    if (!inst.placement.visible || inst.id === excludeId) continue;
-    const p = inst.placement;
-    for (let r = p.y; r < p.y + p.h && r < GRID; r++) {
-      for (let c = p.x; c < p.x + p.w && c < GRID; c++) {
-        grid[r][c] = true;
-      }
-    }
-  }
-  return grid;
-}
-
-/**
  * Compute the maximum rectangular expansion of a panel into empty space.
  * The result is the largest rectangle containing the panel's current position
  * that doesn't overlap any other visible panel.
@@ -435,7 +417,7 @@ export function computeMaxExpansion(instances: PanelInstance[], panelId: string)
   if (!inst) return null;
   const p = inst.placement;
 
-  const grid = buildOccupancyGridExcluding(instances, panelId);
+  const grid = buildOccupancyGrid(instances, panelId);
 
   // Find how far we can expand in each direction
   // Expand left: find min x where all rows in [p.y, p.y+p.h) are free

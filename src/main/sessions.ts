@@ -366,22 +366,15 @@ export class SessionManager {
 
   private async cleanupOrphanedSessions(): Promise<void> {
     const tmuxSessions = await listSmithSessions();
-    const dbIds = new Set<string>(
-      (this.db.prepare('SELECT id FROM sessions').all() as any[]).map((r) => r.id)
-    );
+    const dbIds = (this.db.prepare('SELECT id FROM sessions').all() as any[]).map((r) => r.id);
+
+    // Build a Set of 12-char prefixes for O(1) lookup
+    const dbPrefixes = new Set(dbIds.map((id: string) => id.slice(0, 12)));
 
     for (const ts of tmuxSessions) {
-      // Extract the session ID prefix from tmux name:
-      // Terminal: "smith-<12 chars>" → prefix is the 12-char UUID prefix
-      // Shell:   "smith-shell-<12 chars>" → prefix is the 12-char UUID prefix
-      let prefix: string;
-      if (ts.name.startsWith('smith-shell-')) {
-        prefix = ts.name.replace('smith-shell-', '');
-      } else {
-        prefix = ts.name.replace('smith-', '');
-      }
-      const hasDbRow = Array.from(dbIds).some((id) => id.startsWith(prefix));
-      if (!hasDbRow) {
+      const isShell = ts.name.startsWith('smith-shell-');
+      const prefix = ts.name.slice(isShell ? 'smith-shell-'.length : 'smith-'.length);
+      if (!dbPrefixes.has(prefix)) {
         console.log(`[tmux] Cleaning up orphaned tmux session: ${ts.name}`);
         await killTmuxSession(ts.name);
       }

@@ -10,11 +10,15 @@ interface JiraStore {
   clearIssue: (panelInstanceId: string) => void;
   toggleAutoFetch: () => void;
   handleTerminalInput: (sessionId: string, data: string) => void;
+  cleanupSession: (sessionId: string) => void;
 }
 
 // Internal state not exposed as reactive — kept in closure
 const keyBuffer = new Map<string, string>();
 const keyCache = new Map<string, Set<string>>();
+
+// Hoisted regex — avoids recompilation on every keystroke
+const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]+-\d+)\b(?=[\s\r,;:.!?]|$)/g;
 
 function loadAutoFetch(): boolean {
   try {
@@ -60,9 +64,9 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
     const buf = (keyBuffer.get(sessionId) ?? '') + data;
     keyBuffer.set(sessionId, buf);
 
-    const re = /\b([A-Z][A-Z0-9]+-\d+)\b(?=[\s\r,;:.!?]|$)/g;
+    JIRA_KEY_RE.lastIndex = 0;
     let match;
-    while ((match = re.exec(buf)) !== null) {
+    while ((match = JIRA_KEY_RE.exec(buf)) !== null) {
       const key = match[1];
       const cache = keyCache.get(sessionId) ?? new Set();
       if (cache.has(key)) continue;
@@ -76,6 +80,11 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
     // Keep only trailing partial-key fragment
     const lastBoundary = buf.search(/[A-Z][A-Z0-9]*-?\d*$/);
     keyBuffer.set(sessionId, lastBoundary >= 0 ? buf.slice(lastBoundary) : '');
+  },
+
+  cleanupSession: (sessionId) => {
+    keyBuffer.delete(sessionId);
+    keyCache.delete(sessionId);
   },
 }));
 

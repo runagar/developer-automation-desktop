@@ -134,6 +134,7 @@ export default function App(): React.ReactElement {
     useLayoutStore.getState().destroyLinkedPanels(id);
     await window.dad.destroySession(id);
     useSessionStore.getState().removeSession(id);
+    useJiraStore.getState().cleanupSession(id);
   }, []);
 
   const handleArchiveSession = useCallback(async (id: string) => {

@@ -146,7 +146,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
   const isVaultEdited = editedVaultPath !== null && editedVaultPath !== vaultPath;
 
   return (
-    <div className="credentials-overlay" ref={overlayRef} onClick={handleOverlayClick}>
+    <div className="dialog-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="credentials-dialog">
         <div className="credentials-dialog__header">
           <span className="credentials-dialog__title">JIRA SETTINGS</span>

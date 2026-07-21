@@ -35,7 +35,7 @@ export default function ConfirmDialog({
   }, [onCancel]);
 
   return (
-    <div className="confirm-overlay" onClick={onCancel}>
+    <div className="dialog-overlay" onClick={onCancel}>
       <div
         className="confirm-dialog"
         role="alertdialog"

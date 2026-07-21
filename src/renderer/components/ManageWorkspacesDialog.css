@@ -2,15 +2,7 @@
    MANAGE WORKSPACES DIALOG
    ========================================================= */
 
-.manage-workspaces-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+/* .manage-workspaces-overlay uses shared .dialog-overlay from pipboy.css */
 
 .manage-workspaces {
   background: var(--c-panel);

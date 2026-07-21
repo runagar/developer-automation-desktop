@@ -36,9 +36,9 @@ export function registerSettingsHandlers(
   ipcMain.handle('settings:isPathNonEmpty', (_event, dirPath: string) => {
     const resolved = path.resolve(dirPath);
     try {
-      if (!fs.existsSync(resolved)) return false;
-      const entries = fs.readdirSync(resolved);
-      return entries.length > 0;
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) return false;
+      return fs.readdirSync(resolved).length > 0;
     } catch { return false; }
   });
 }

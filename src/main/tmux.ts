@@ -135,20 +135,6 @@ export async function capturePane(name: string): Promise<string> {
 }
 
 /**
- * Capture the entire scrollback buffer (with ANSI escapes preserved).
- * Used on reattach to replay history into xterm.
- */
-export async function capturePaneFullScrollback(name: string): Promise<string> {
-  try {
-    return await execTmux(['capture-pane', '-t', name, '-p', '-S', '-'], {
-      maxBuffer: 50 * 1024 * 1024,
-    });
-  } catch {
-    return '';
-  }
-}
-
-/**
  * Query tmux session metadata.
  * Returns last activity epoch (seconds) and number of attached clients.
  */

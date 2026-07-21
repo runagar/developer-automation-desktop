@@ -129,6 +129,18 @@ function applyToActiveTab(
   persistTabState(activeTab, dashState);
 }
 
+// Setter helper: transforms instances, persists to active tab, returns new state.
+// Reduces boilerplate in store actions.
+type LayoutState = { activeTab: ToolTabId; instances: PanelInstance[]; locked: boolean };
+function updateTab(
+  s: LayoutState,
+  patch: { instances?: PanelInstance[]; locked?: boolean },
+): { instances: PanelInstance[]; locked: boolean } {
+  const next = { instances: patch.instances ?? s.instances, locked: patch.locked ?? s.locked };
+  applyToActiveTab(s.activeTab, next);
+  return next;
+}
+
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
   activeTab: initialTab,
   instances: initialState.instances,
@@ -150,9 +162,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const instances = s.instances.map((inst) =>
         inst.id === id ? { ...inst, placement: clampPlacement(placement) } : inst
       );
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -163,9 +173,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const instances = s.instances.map((i) =>
         i.id === id ? { ...i, placement: { ...i.placement, z: maxZ(s.instances) + 1 } } : i
       );
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -176,18 +184,12 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           ? { ...inst, placement: { ...inst.placement, visible: !inst.placement.visible } }
           : inst
       );
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
   setLocked: (locked) => {
-    set((s) => {
-      const next = { instances: s.instances, locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
-    });
+    set((s) => updateTab(s, { locked }));
   },
 
   spawnPanel: (type, sessionId) => {
@@ -231,9 +233,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
             : inst
         );
       }
-      const next = { instances, locked: current.locked };
-      applyToActiveTab(current.activeTab, next);
-      return next;
+      return updateTab(current, { instances });
     });
 
     return id;
@@ -263,9 +263,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
             : inst
         );
       }
-      const next = { instances, locked: current.locked };
-      applyToActiveTab(current.activeTab, next);
-      return next;
+      return updateTab(current, { instances });
     });
 
     return id;
@@ -281,9 +279,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         const instances = s.instances.map((i) =>
           i.id === id ? { ...i, placement: { ...i.placement, visible: false } } : i
         );
-        const next = { instances, locked: s.locked };
-        applyToActiveTab(s.activeTab, next);
-        return next;
+        return updateTab(s, { instances });
       }
 
       const wasDefault = inst.mode === 'default';
@@ -293,7 +289,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       // Default promotion: if we removed the default, promote the first of same type
       if (wasDefault) {
         const ordered = panelOrder(instances).filter((i) => i.type === type);
-        // If none visible, try any of same type
         const candidates = ordered.length > 0
           ? ordered
           : instances.filter((i) => i.type === type);
@@ -317,9 +312,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         );
       }
 
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -329,9 +322,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         (inst) => !(inst.mode === 'linked' && inst.linkedSessionId === sessionId)
       );
       if (instances.length === s.instances.length) return s;
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -340,7 +331,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       let changed = false;
       const instances = s.instances.map((inst) => {
         if (inst.mode !== 'default') return inst;
-        // If sessionId is empty, clear the panel
         if (!sessionId) {
           if (inst.currentSessionId) {
             changed = true;
@@ -348,7 +338,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           }
           return inst;
         }
-        // Skip if a linked panel of this type already exists for the session (A4/A9)
         const hasLinked = s.instances.some(
           (i) => i.type === inst.type && i.mode === 'linked' && i.linkedSessionId === sessionId
         );
@@ -358,9 +347,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         return { ...inst, currentSessionId: sessionId };
       });
       if (!changed) return s;
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -371,9 +358,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const instances = s.instances.map((inst) =>
         inst.id === id ? { ...inst, name } : inst
       );
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 
@@ -400,7 +385,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
             }
           }
         }
-        // Check if original position is free
         let canRestore = true;
         for (let r = orig.y; r < orig.y + orig.h && canRestore; r++) {
           for (let c = orig.x; c < orig.x + orig.w && canRestore; c++) {
@@ -411,7 +395,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           ? orig
           : clampPlacement({ ...orig, x: 0, y: 0, w: Math.max(orig.w, 2), h: Math.max(orig.h, 3) });
 
-        // If can't restore to original, find spawn placement
         let finalPlacement = restoredPlacement;
         if (!canRestore) {
           const { placement: spawnP } = findSpawnPlacement(
@@ -424,9 +407,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         const instances = s.instances.map((i) =>
           i.id === id ? { ...i, placement: finalPlacement, preMaximizePlacement: undefined } : i
         );
-        const next = { instances, locked: s.locked };
-        applyToActiveTab(s.activeTab, next);
-        return next;
+        return updateTab(s, { instances });
       }
 
       // Try expanding into empty space first
@@ -435,9 +416,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         const instances = s.instances.map((i) =>
           i.id === id ? { ...i, placement: expanded, preMaximizePlacement: undefined } : i
         );
-        const next = { instances, locked: s.locked };
-        applyToActiveTab(s.activeTab, next);
-        return next;
+        return updateTab(s, { instances });
       }
 
       // No empty space: maximize to full grid (overlay)
@@ -449,9 +428,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const instances = s.instances.map((i) =>
         i.id === id ? { ...i, placement: fullPlacement, preMaximizePlacement: p } : i
       );
-      const next = { instances, locked: s.locked };
-      applyToActiveTab(s.activeTab, next);
-      return next;
+      return updateTab(s, { instances });
     });
   },
 

@@ -194,3 +194,14 @@
   border: var(--panel-border);
   background: var(--panel-bg);
 }
+
+/* --- Shared dialog overlay --- */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}

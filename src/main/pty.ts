@@ -1,9 +1,8 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
-import { SessionState } from './types';
 import {
   tmuxSessionName, hasTmuxSession, createTmuxSession,
-  killTmuxSession, requireTmux,
+  requireTmux,
 } from './tmux';
 
 /**
@@ -19,7 +18,6 @@ export class PtySession extends EventEmitter {
   readonly id: string;
   readonly tmuxName: string;
   private ptyProcess: pty.IPty | null = null;
-  private state: SessionState = 'idle';
   private intentionalDetach = false;
 
   constructor(id: string) {
@@ -90,31 +88,4 @@ export class PtySession extends EventEmitter {
     }
   }
 
-  /**
-   * Permanently destroy both the attach PTY and the tmux session.
-   * Used only when the user explicitly destroys a session from the archived list.
-   */
-  async destroyTmux(): Promise<void> {
-    this.kill();
-    await killTmuxSession(this.tmuxName);
-  }
-
-  getState(): SessionState {
-    return this.state;
-  }
-
-  setState(newState: SessionState): void {
-    if (this.state !== newState) {
-      this.state = newState;
-      this.emit('stateChange', newState);
-    }
-  }
-
-  isAlive(): boolean {
-    return this.ptyProcess !== null;
-  }
-
-  async hasTmux(): Promise<boolean> {
-    return hasTmuxSession(this.tmuxName);
-  }
 }

@@ -309,7 +309,7 @@ export default function ManageWorkspacesDialog({
     .find((w) => w.key === pendingRemoveKey) ?? null;
 
   return (
-    <div className="manage-workspaces-overlay" onClick={onClose}>
+    <div className="dialog-overlay" onClick={onClose}>
       <div
         className="manage-workspaces"
         role="dialog"

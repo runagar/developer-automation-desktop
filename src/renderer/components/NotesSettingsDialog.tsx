@@ -72,7 +72,7 @@ export default function NotesSettingsDialog({ onClose }: Props): React.ReactElem
   const isEdited = editedPath !== null && editedPath !== notesRoot;
 
   return (
-    <div className="credentials-overlay" ref={overlayRef} onClick={handleOverlayClick}>
+    <div className="dialog-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="credentials-dialog">
         <div className="credentials-dialog__header">
           <span className="credentials-dialog__title">NOTES SETTINGS</span>
