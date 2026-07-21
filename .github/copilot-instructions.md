@@ -18,9 +18,16 @@ src/main/          Electron main process (Node.js)
   index.ts         App entry, BrowserWindow setup
   sessions.ts      SessionManager — SQLite + PTY + tmux lifecycle + state polling
   pty.ts           PtySession — node-pty wrapper for tmux attach-session client
-  tmux.ts          tmux CLI wrapper (create/kill/capture/query sessions)
+  tmux.ts          tmux CLI wrapper (create/kill/capture/query sessions, exports ANSI_RE)
+  statePoller.ts   SessionState polling via tmux capture-pane
   notes.ts         NotesManager — SQLite + filesystem notes storage (panels, tabs, markdown files)
-  settings.ts      AppSettings — settings.json read/write + first-launch flag
+  settings.ts      AppSettings — settings.json read/write + in-memory cache
+  jira.ts          Jira REST API client — fetch, graph traversal, epic discovery
+  vault.ts         Jira vault — write/read issue notes as markdown files
+  credentials.ts   .env file credential management + validation
+  migrationUtils.ts  Shared file migration helpers (copyDirRecursive, rollbackCopiedFiles, validatePathWritable)
+  shellTmux.ts     ShellTmuxManager — tmux-backed shell panel attachment
+  workspaces.ts    WorkspaceManager — workspaces.json CRUD
   ipc.ts           IPC handler orchestrator (delegates to ipc/ modules)
   ipc/             Domain-specific IPC handler modules
     sessions.ts    Session CRUD handlers
@@ -40,15 +47,19 @@ src/renderer/      React renderer process
   index.tsx        Entry point, theme + zoom init
   App.tsx          Root component, session + dashboard wiring, panel focus refs
   components/      One file per component + matching .css
-                   (ToolTabBar, SplashScreen, Workspace, WorkspacePanel, PanelMenu, SessionList, TerminalPane, JiraPane, NotesPane, …)
+                   PanelInstanceWrapper.tsx — generic session-aware panel wrapper (React.memo)
+                   *PanelInstance.tsx — per-type wrappers using PanelInstanceWrapper
+                   *Pane.tsx — inner pane components (domain logic)
+                   (ToolTabBar, SplashScreen, Workspace, WorkspacePanel, PanelMenu, SessionList, …)
   dashboard/       Panel grid system (framework-agnostic)
     layout.ts            grid math, panel ordering, tool tab types, presets, default layout
-    useDashboardLayout.ts  layout state + localStorage persistence + mutators
     usePanelFocus.ts     intra-panel Tab wrapping
-  stores/          Zustand state stores (sessionStore, jiraStore, notesStore, layoutStore, …)
+  stores/          Zustand state stores (sessionStore, jiraStore, notesStore, layoutStore, workspaceStore)
+  hooks/           Custom React hooks (useXterm)
+  utils/           Utilities (osc52.ts, cn.ts)
   styles/
     global.css     Reset, scrollbar, selection colours
-    pipboy.css     All theme variables, CRT effects, shared .btn classes
+    pipboy.css     All theme variables, CRT effects, shared .btn classes, shared .dialog-overlay
 
 workspaces.json    Workspace list (key → repo → workingDir), grouped
 launch.sh          Dev launcher (initialises fnm, runs npm start)
@@ -65,7 +76,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 - **`Session.archived`** is a DB column (`archived INTEGER DEFAULT 0`). Archived sessions have their attach PTY killed but their tmux session kept running.
 - **`restoreSessions()`** must only be called after `setWindow()` has been called (triggered by `renderer:ready`). Never call it from `initialize()`.
 - **tmux is a hard requirement.** Session creation fails with a descriptive error if tmux is not installed. There is no fallback to direct node-pty spawn.
-- **State detection** is done by `capturePane()` polling in `SessionManager` (every 3s), NOT in `PtySession`. `PtySession.setState()` is public so the polling loop can update state via the existing event system.
+- **State detection** is done by `capturePane()` polling in `StatePoller` (every 3s), NOT in `PtySession`. `PtySession` is a thin tmux-attach wrapper — it only handles spawn, write, resize, kill, and died-detection. All state logic lives in `SessionManager.handleStateChange()`.
 - **The ✕ button archives** (detaches PTY, keeps tmux alive). Permanent destruction is only available from the archived sessions list.
 - **Tool tabs** are defined in `TOOL_TABS` (`layout.ts`). Each tab has its own `DashboardState` managed by `layoutStore`. The active tab's state is exposed as `instances` / `locked`. Tab switching preserves all tab states in memory and persists each to `localStorage` (`dad-dashboard-<tabId>`).
 - **The workspace is a 24×24 panel grid** (`src/renderer/dashboard/`). Panels are absolutely positioned; placements persist to `localStorage` per tab. Hidden panels stay **mounted** (never unmount terminal/jira bodies — that would dispose xterm buffers). The terminal and jira panels render one component per session internally (active shown).
@@ -122,3 +133,67 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 6. Does it interact with tmux? → use functions from `src/main/tmux.ts`. Never call tmux commands directly elsewhere.
 7. Does it add a new panel type? → add to `PanelType` union in `layout.ts`, add label in `PANEL_LABELS`, add case in `App.tsx` `renderBody`, create a `*PanelInstance.tsx` wrapper + pane component. If it supports global mode, add to `GLOBAL_CAPABLE_TYPES`.
 8. Does it add a new tool tab? → add to `ToolTabId` union and `TOOL_TABS` array in `layout.ts`. Each tab needs a `panelTypes` list. The layout store automatically manages per-tab state.
+
+---
+
+## Development guidelines
+
+These guidelines exist to keep the codebase lean, avoid accidental duplication, and maintain a consistent architecture. Follow them strictly.
+
+### Before writing new code — check for reuse
+
+1. **Search before you create.** Before writing a new function, component, helper, or CSS class, search the codebase for existing implementations:
+   - Main process utilities: `src/main/` — check `tmux.ts` (tmux CLI), `migrationUtils.ts` (file copy/rollback), `settings.ts` (settings load/save).
+   - Renderer utilities: `src/renderer/utils/` — check `osc52.ts`, `cn.ts` (className concatenation).
+   - Shared CSS: `src/renderer/styles/pipboy.css` — check for existing `.btn-*`, `.dialog-overlay`, `--c-*` vars, etc.
+   - Store patterns: check if another store already solved the same pattern (e.g. `layoutStore.ts` `updateTab()` helper for tab-persisted mutations).
+
+2. **Reuse existing abstractions:**
+   - **Panel instances** → Use `PanelInstanceWrapper` (`components/PanelInstanceWrapper.tsx`). Never re-implement session lookup, empty state, or the standard header (name/project/dir) — that's what the wrapper provides.
+   - **Tmux operations** → Use `src/main/tmux.ts` functions. Never call `tmux` CLI directly from other files.
+   - **Settings access** → Use the getter/setter functions in `src/main/settings.ts`. They are cached in-memory.
+   - **IPC handlers** → Add to the appropriate domain module in `src/main/ipc/*.ts`. Never add handlers outside this directory.
+   - **File migrations** → Use `migrationUtils.ts` (`copyDirRecursive`, `rollbackCopiedFiles`, `validatePathWritable`).
+   - **ANSI escape stripping** → Use the exported `ANSI_RE` from `src/main/tmux.ts`. Do not define your own regex.
+   - **Dialog overlays** → Use `className="dialog-overlay"` from `pipboy.css`. Do not redefine overlay styles.
+   - **Class name concatenation** → Use `cn()` from `src/renderer/utils/cn.ts`.
+
+### Component architecture
+
+3. **One component per file, one concern per component.** Each `*.tsx` file exports a single React component. Split complex components into smaller ones via composition, not inheritance.
+
+4. **Panel types follow a strict pattern:**
+   - `*Pane.tsx` — The inner pane (TerminalPane, ShellPane, JiraPane, NotesPane). Handles the actual content, interactivity, and domain logic for that panel type. Takes data as props; does not look up sessions directly.
+   - `*PanelInstance.tsx` — The outer wrapper. Uses `PanelInstanceWrapper` for session lookup + header + empty state. Handles attach/detach lifecycle, event subscriptions, and passes data down to the `*Pane`. When creating a new panel type, follow this split exactly.
+
+5. **Store selectors must be granular.** Never subscribe to the full `sessions` array when you only need one session. Use `useSessionStore((s) => s.sessions.find(x => x.id === targetId))` or equivalent. The state poll ticks every 3s; broad subscriptions cause unnecessary re-renders.
+
+6. **Do not duplicate store patterns.** The layout store uses `updateTab()` for any mutation that updates instances and persists to the active tab. All new layout actions must use this helper — do not manually call `applyToActiveTab()` + construct + return.
+
+### Main process patterns
+
+7. **IPC handler domain modules.** Each domain (`sessions`, `pty`, `jira`, `notes`, `workspaces`, `settings`, `window`, `credentials`) has its own file in `src/main/ipc/`. New IPC channels go in the appropriate file. If a new domain emerges, create a new file and register it from `ipc.ts`.
+
+8. **Database queries stay in their manager class.** `SessionManager` owns the sessions table; `NotesManager` owns notes tables. Never write raw SQL outside the owning manager.
+
+9. **Credential access is centralized.** Use `resolveCredential()` from `credentials.ts` for reading, `jiraHeaders()` from `jira.ts` for auth headers. Never construct auth headers inline.
+
+10. **Cleanup on session destroy.** When adding per-session state (Maps, caches, listeners), always add cleanup in the destroy path. See `useJiraStore.getState().cleanupSession(id)` in `App.tsx`'s `handleDestroySession` for the pattern.
+
+### CSS conventions
+
+11. **Shared styles live in `pipboy.css`** — buttons, dialog overlays, panel borders, form inputs. Component-specific styles live in the component's own CSS file.
+
+12. **Never duplicate CSS across component files.** If two components need the same style, extract it to `pipboy.css` with a descriptive class name. If the style is purely cosmetic (colour, border, shadow), it must use a `--c-*` CSS variable.
+
+13. **BEM naming** scoped to the component: `.component-name__element--modifier`. The component prefix must match the filename.
+
+### What NOT to do
+
+- **Do not create wrapper components that duplicate `PanelInstanceWrapper` logic** (session lookup, empty state rendering, header). Use the wrapper.
+- **Do not define regex constants that already exist elsewhere** (e.g. `ANSI_RE`). Import them.
+- **Do not add inline `require()` calls** inside IPC handlers. Use top-level imports.
+- **Do not add new `localStorage` keys** without checking if an existing key/pattern already handles the use case. Layout state is managed by `layoutStore`; settings are managed by `settings.ts` on the main process side.
+- **Do not add synchronous file I/O in new code** on the main process unless performance is demonstrably acceptable. Prefer async I/O for new file operations.
+- **Do not create new migration files** without using the shared utilities in `migrationUtils.ts`.
+- **Do not add `console.log` for production logging.** Use descriptive `[module]` prefix format (e.g. `console.log('[tmux] Creating session...')`). Silent catches must have a comment explaining why silence is acceptable.
