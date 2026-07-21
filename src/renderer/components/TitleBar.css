@@ -14,6 +14,22 @@
   user-select: none;
 }
 
+.titlebar__title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--c-bright);
+  text-shadow: var(--glow-sm);
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+  pointer-events: none;
+}
+
 .titlebar__drag {
   flex: 1;
 }

@@ -18,7 +18,7 @@ const keyCache = new Map<string, Set<string>>();
 
 function loadAutoFetch(): boolean {
   try {
-    return localStorage.getItem('agent-smith-jira-autodetect') !== 'false';
+    return localStorage.getItem('dad-jira-autodetect') !== 'false';
   } catch {
     return true;
   }
@@ -48,7 +48,7 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
     set((s) => {
       const next = !s.autoFetchEnabled;
       try {
-        localStorage.setItem('agent-smith-jira-autodetect', String(next));
+        localStorage.setItem('dad-jira-autodetect', String(next));
       } catch { /* ok */ }
       return { autoFetchEnabled: next };
     });
@@ -69,9 +69,9 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
       cache.add(key);
       keyCache.set(sessionId, cache);
 
-      window.agentSmith.fetchJiraIssue(key)
+      window.dad.fetchJiraIssue(key)
         .then((issue) => {
-          window.agentSmith.writeToVault(issue);
+          window.dad.writeToVault(issue);
         })
         .catch(() => {});
     }

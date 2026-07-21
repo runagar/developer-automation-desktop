@@ -1,0 +1,62 @@
+/* =========================================================
+   TOOL TAB BAR — horizontal row between title bar and workspace
+   ========================================================= */
+
+.tool-tab-bar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 0;
+  height: 36px;
+  border-bottom: 2px solid var(--c-bright);
+  background: var(--c-bg);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 500;
+}
+
+.tool-tab-bar__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: -2px;
+  margin-left: 10px;
+}
+
+.tool-tab-bar__tab {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0 12px;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.tool-tab-bar__tab--active {
+  color: var(--c-bright);
+  text-shadow: var(--glow-sm);
+  background: var(--c-bg);
+  border-left: 2px solid var(--c-bright);
+  border-right: 2px solid var(--c-bright);
+  border-top: 2px solid var(--c-bright);
+  border-bottom: 2px solid var(--c-bg);
+}
+
+.tool-tab-bar__tab--inactive {
+  color: var(--c-dark);
+  border: 2px solid transparent;
+  border-bottom: 2px solid var(--c-bright);
+}
+.tool-tab-bar__tab--inactive:hover {
+  color: var(--c-mid);
+}
+
+.tool-tab-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 16px;
+}

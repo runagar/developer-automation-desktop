@@ -1,7 +1,7 @@
 {
-  "name": "agent-smith",
+  "name": "dad",
   "version": "1.0.0",
-  "description": "Atompunk Copilot CLI session manager",
+  "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
   "scripts": {
     "start": "electron-vite dev",
@@ -53,8 +53,8 @@
     "zustand": "^5.0.14"
   },
   "build": {
-    "appId": "com.agent-smith.app",
-    "productName": "Agent Smith",
+    "appId": "com.dad.app",
+    "productName": "Developer Automation Desktop",
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
@@ -70,7 +70,7 @@
       "target": [
         "zip"
       ],
-      "icon": "./assets/agent_smith_icon.png"
+      "icon": "./assets/dad_icon.png"
     }
   }
 }

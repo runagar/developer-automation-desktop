@@ -259,7 +259,7 @@ export async function requireTmux(): Promise<void> {
     await execTmuxQuiet(['-V']);
   } catch {
     throw new Error(
-      'tmux is not installed. Agent Smith requires tmux for session persistence. ' +
+      'tmux is not installed. DAD requires tmux for session persistence. ' +
       'Install it with: sudo apt-get install tmux'
     );
   }

@@ -125,7 +125,7 @@ export class SessionManager {
         const msg = err instanceof Error ? err.message : String(err);
         this.window?.webContents.send(
           'pty:data', id,
-          `\r\n\x1b[31m[Agent Smith] Failed to start session: ${msg}\x1b[0m\r\n`
+          `\r\n\x1b[31m[DAD] Failed to start session: ${msg}\x1b[0m\r\n`
         );
         this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
         this.window?.webContents.send('session:died', id);
@@ -183,7 +183,7 @@ export class SessionManager {
       const msg = err instanceof Error ? err.message : String(err);
       this.window?.webContents.send(
         'pty:data', panelInstanceId,
-        `\r\n\x1b[31m[Agent Smith] Failed to attach: ${msg}\x1b[0m\r\n`
+        `\r\n\x1b[31m[DAD] Failed to attach: ${msg}\x1b[0m\r\n`
       );
     }
   }

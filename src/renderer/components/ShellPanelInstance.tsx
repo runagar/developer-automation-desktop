@@ -27,7 +27,7 @@ export default function ShellPanelInstance({
   useEffect(() => {
     if (!session || session.dead || session.archived) {
       if (attachedRef.current) {
-        void window.agentSmith.shellDetach(instance.id);
+        void window.dad.shellDetach(instance.id);
         attachedRef.current = null;
       }
       return;
@@ -36,7 +36,7 @@ export default function ShellPanelInstance({
     const doAttach = async () => {
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const size = shellRef.current?.fitAndMeasure();
-      await window.agentSmith.shellAttach(
+      await window.dad.shellAttach(
         session.id,
         instance.id,
         session.workingDir,
@@ -49,21 +49,21 @@ export default function ShellPanelInstance({
       // attachment didn't exist yet in the main process.
       const postSize = shellRef.current?.fitAndMeasure();
       if (postSize) {
-        void window.agentSmith.shellResizePanel(instance.id, postSize.cols, postSize.rows);
+        void window.dad.shellResizePanel(instance.id, postSize.cols, postSize.rows);
       }
     };
 
     void doAttach();
 
     return () => {
-      void window.agentSmith.shellDetach(instance.id);
+      void window.dad.shellDetach(instance.id);
       attachedRef.current = null;
     };
   }, [instance.id, session?.id, session?.workingDir]);
 
   // Listen for shell data for this panel instance
   useEffect(() => {
-    const unsub = window.agentSmith.onShellData((panelInstanceId, data) => {
+    const unsub = window.dad.onShellData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
       const cleaned = handleOsc52(data);
       shellRef.current?.write(cleaned);
@@ -73,7 +73,7 @@ export default function ShellPanelInstance({
 
   // Listen for shell exit (tmux session died)
   useEffect(() => {
-    const unsub = window.agentSmith.onShellExit((panelInstanceId) => {
+    const unsub = window.dad.onShellExit((panelInstanceId) => {
       if (panelInstanceId !== instance.id) return;
       // Shell tmux died — clear the terminal
       // The user can re-attach by activating another session and coming back

@@ -407,6 +407,15 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
   instancesRef.current = instances;
 
   useEffect(() => {
+    const FOCUSABLE = [
+      'a[href]',
+      'button:not([disabled]):not([tabindex="-1"])',
+      'input:not([disabled])',
+      'textarea:not([disabled])',
+      'select:not([disabled])',
+      '[tabindex="0"]',
+    ].join(', ');
+
     const handler = (e: KeyboardEvent): void => {
       if (e.key !== 'Tab') return;
 
@@ -427,9 +436,33 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
         return;
       }
 
+      // Plain Tab: wrap within the focused panel so focus never escapes.
+      // Skip if focus is inside a dropdown (its own Tab handler manages cycling).
       const active = document.activeElement as HTMLElement | null;
-      if (!active?.closest('[data-panel-id]')) {
+      if (active?.closest('.dropdown')) return;
+
+      const panel = active?.closest('[data-panel-id]') as HTMLElement | null;
+      if (!panel) {
         e.preventDefault();
+        return;
+      }
+
+      const focusables = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE)
+      ).filter((n) => n.offsetParent !== null);
+
+      if (focusables.length === 0) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        first.focus(); // keep at boundary
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -572,7 +605,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
             onActivate={() => bringToFront(inst.id)}
             onClose={() => {
               if (inst.type === 'notes' && inst.isGlobal) {
-                void window.agentSmith.notesClosePanel(inst.id);
+                void window.dad.notesClosePanel(inst.id);
               }
               destroyPanel(inst.id);
             }}

@@ -16,6 +16,7 @@ export interface AppSettings {
   notes: {
     rootPath: string;
   };
+  firstLaunchComplete: boolean;
 }
 
 function defaultSettings(): AppSettings {
@@ -29,6 +30,7 @@ function defaultSettings(): AppSettings {
     notes: {
       rootPath: '',
     },
+    firstLaunchComplete: false,
   };
 }
 
@@ -71,6 +73,7 @@ export function loadSettings(dataDir: string): AppSettings {
       notes: {
         rootPath: parsed?.notes?.rootPath || dataDirDefaults.notesRootPath,
       },
+      firstLaunchComplete: parsed?.firstLaunchComplete === true,
     };
 
     // Persist any newly computed defaults back to the file
@@ -125,5 +128,15 @@ export function getNotesRootPath(dataDir: string): string {
 export function setNotesRootPath(dataDir: string, rootPath: string): void {
   const settings = loadSettings(dataDir);
   settings.notes.rootPath = rootPath;
+  saveSettings(dataDir, settings);
+}
+
+export function isFirstLaunch(dataDir: string): boolean {
+  return !loadSettings(dataDir).firstLaunchComplete;
+}
+
+export function markFirstLaunchComplete(dataDir: string): void {
+  const settings = loadSettings(dataDir);
+  settings.firstLaunchComplete = true;
   saveSettings(dataDir, settings);
 }

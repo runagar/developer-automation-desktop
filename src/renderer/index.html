@@ -3,10 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AGENT SMITH</title>
+    <title>DAD</title>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Apply saved theme before first paint to prevent FOUC on splash screen
+      try {
+        var theme = localStorage.getItem('dad-theme');
+        if (theme && theme !== 'phosphor-green') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      } catch (e) {}
+    </script>
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

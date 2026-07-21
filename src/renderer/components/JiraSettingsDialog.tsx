@@ -24,7 +24,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
 
   useEffect(() => {
     void (async () => {
-      const path = await window.agentSmith.getJiraVaultPath();
+      const path = await window.dad.getJiraVaultPath();
       setVaultPath(path);
     })();
     void loadCredentials();
@@ -33,7 +33,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
   const loadCredentials = useCallback(async () => {
     setLoadingCreds(true);
     try {
-      const statuses = await window.agentSmith.getCredentialStatus();
+      const statuses = await window.dad.getCredentialStatus();
       // Filter to Atlassian group only
       const atlassian = statuses.filter((s) => s.group === 'Atlassian');
       setFields(atlassian.map((s) => ({
@@ -68,7 +68,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
 
     // Check if target directory already contains data
     if (!confirmNeeded) {
-      const nonEmpty = await window.agentSmith.isPathNonEmpty(editedVaultPath);
+      const nonEmpty = await window.dad.isPathNonEmpty(editedVaultPath);
       if (nonEmpty) {
         setConfirmNeeded(true);
         return;
@@ -80,7 +80,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
     setMigrateError(null);
     setMigrateSaved(false);
     try {
-      const result = await window.agentSmith.migrateJiraVault(editedVaultPath);
+      const result = await window.dad.migrateJiraVault(editedVaultPath);
       if (result.success) {
         setVaultPath(editedVaultPath);
         setEditedVaultPath(null);
@@ -109,7 +109,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
     updateField(key, { saving: true, error: null, saved: false });
 
     try {
-      const results = await window.agentSmith.saveCredentials([{ key, value: field.editedValue }]);
+      const results = await window.dad.saveCredentials([{ key, value: field.editedValue }]);
       const result = results.find((r) => r.key === key);
       if (result?.valid) {
         updateField(key, {
@@ -132,7 +132,7 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
     if (!field || field.status.source === 'env') return;
 
     try {
-      await window.agentSmith.clearCredential(key);
+      await window.dad.clearCredential(key);
       updateField(key, {
         editedValue: null,
         error: null,

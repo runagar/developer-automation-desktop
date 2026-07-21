@@ -43,7 +43,7 @@ export default function NotesPanelInstance({ instance, isFocused }: Props): Reac
     setRenaming(false);
     if (trimmed !== panelName) {
       useLayoutStore.getState().renamePanel(instance.id, trimmed);
-      void window.agentSmith.notesRenamePanel(instance.id, trimmed);
+      void window.dad.notesRenamePanel(instance.id, trimmed);
     }
   }, [renameValue, panelName, instance.id]);
 

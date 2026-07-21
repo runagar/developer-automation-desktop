@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './ZoomControl.css';
 
-const STORAGE_KEY = 'agent-smith-zoom';
+const STORAGE_KEY = 'dad-zoom';
 const DEFAULT_ZOOM = 1.0;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3.0;
 const STEP = 0.1;
-const ZOOM_CHANGED_EVENT = 'agent-smith-zoom-changed';
+const ZOOM_CHANGED_EVENT = 'dad-zoom-changed';
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -24,14 +24,14 @@ function applyZoom(next: number): number {
   window.dispatchEvent(new CustomEvent(ZOOM_CHANGED_EVENT, { detail: clamped }));
   // Defer the expensive webFrame zoom so the UI repaints before the reflow
   requestAnimationFrame(() => {
-    window.agentSmith.setZoom(clamped);
+    window.dad.setZoom(clamped);
   });
   return clamped;
 }
 
 export function initZoom(): void {
   const factor = readZoom();
-  window.agentSmith.setZoom(factor);
+  window.dad.setZoom(factor);
 }
 
 /**

@@ -7,9 +7,9 @@ export interface CrtEffectState {
 }
 
 const STORAGE_KEYS: Record<CrtEffect, string> = {
-  scanlines: 'agent-smith-scanlines',
-  sweep:     'agent-smith-sweep',
-  bloom:     'agent-smith-bloom',
+  scanlines: 'dad-scanlines',
+  sweep:     'dad-sweep',
+  bloom:     'dad-bloom',
 };
 
 const CSS_CLASSES: Record<CrtEffect, string> = {

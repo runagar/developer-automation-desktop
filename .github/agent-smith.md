@@ -1,10 +1,35 @@
-# Agent Smith
+# Developer Automation Desktop (DAD)
 
-Agent Smith is a desktop terminal manager for the [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli), built with Electron, React, and TypeScript. It lets you run multiple Copilot CLI sessions side by side in a single window, persists them across restarts via tmux, and wraps them in an Atompunk Pip-Boy aesthetic.
+Developer Automation Desktop (DAD) is a multi-tool desktop environment for developers, built with Electron, React, and TypeScript. Its first tool tab is **Agent Smith**, a terminal manager for the [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) that lets you run multiple Copilot CLI sessions side by side, persists them across restarts via tmux, and wraps them in an Atompunk Pip-Boy aesthetic.
 
 ---
 
 ## Features
+
+### Tool tab system
+The app supports **tool tabs** — each tab hosts its own tool with its own panel layout. The tab bar sits between the title bar and the workspace area.
+
+- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). Currently only `agent-smith` exists; the union type `ToolTabId` grows as tools are added.
+- Each tab defines which `PanelType`s it can host (`ToolTabDef.panelTypes`).
+- **Only one tab is active** at a time. Clicking a tab switches the workspace to that tab's layout.
+- Tabs cannot be closed, hidden, or reordered.
+- Each tab has its **own layout state** persisted independently to `localStorage` (`dad-dashboard-<tabId>`). The in-memory `tabStates` map holds all tab states; the active tab's state is exposed as `instances` / `locked` in the layout store.
+- The **Panel menu** sits in its own bar below the tab bar and is contextual — it only shows panel types allowed by the active tab.
+- The **Settings dropdown** sits at the right end of the tab bar (global, not per-tab).
+
+**UI:** `ToolTabBar.tsx` renders the tab row. Active tab text is bright (`--c-bright`); inactive tabs are muted (`--c-dark`). The tab bar has a `2px solid var(--c-bright)` bottom border; the active tab's bottom border matches the background colour to "cut into" the line (classic tab pattern).
+
+### Splash screen
+On startup, a full-viewport splash screen displays a DAD joke:
+- **First launch** always shows `"Hi Hungry, I'm DAD"` (determined by `firstLaunchComplete` in `settings.json`).
+- **Subsequent launches** show a random message from 9 options.
+- **Timing:** 1s text fade-in → 3s hold → 1s fade-out (~5s total).
+- **Skippable:** any key or mouse press snaps the splash away instantly (no fade-out animation).
+- **Theme-aware:** an inline `<script>` in `index.html` reads the saved theme from `localStorage` and sets `data-theme` before first paint, preventing FOUC.
+- The splash renders after the native dependency check dialog (if shown).
+- `firstLaunchComplete` is set to `true` in `settings.json` only after the splash completes or is skipped.
+
+**Files:** `SplashScreen.tsx` + `SplashScreen.css`, IPC channels `settings:isFirstLaunch` / `settings:markFirstLaunchComplete`.
 
 ### Multi-session management
 - Run any number of Copilot CLI sessions simultaneously.
@@ -71,13 +96,13 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Resize** from any of 8 edge/corner handles (minimum 2×3 cells). Same smooth-drag + shadow + snap-animation behaviour as move. The panel body stays at its original grid size during the resize drag and reflows only on release.
 - **Z-order:** clicking or dragging a panel brings it to the front; panels may overlap.
 - **Panel menu** (header, left of Settings): toggle Sessions panel visibility, **Notes** submenu (new/restore global panels), and **Lock layout** toggle.
-- **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` (`agent-smith-dashboard`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
+- **Persistence:** the full layout (panel instances + lock state) is saved to `localStorage` per tab (`dad-dashboard-<tabId>`) and restored on launch. Old 12×12 layouts are automatically discarded and replaced with the 24×24 default.
 - Default panels display a small **◆** badge in the header to distinguish them from linked panels.
 
 #### Dashboard keyboard navigation
 Two-layer, **focus-gated** model:
 - **Ctrl+Tab / Ctrl+Shift+Tab** — cycle focus between visible panel instances in grid reading order (top-left → bottom-right, higher-z wins ties).
-- **Tab / Shift+Tab** — cycle focusable elements **within** the focused panel only (wraps at the ends). In the terminal panel, Tab goes to the PTY (shell autocomplete). When focus is **outside** any panel (e.g. header), plain Tab is suppressed — there is no global Tab navigation.
+- **Tab / Shift+Tab** — cycle focusable elements **within** the focused panel only (wraps at the ends, enforced by the Workspace capture handler scoping to `[data-panel-id]`). In the terminal panel, Tab goes to the PTY (shell autocomplete). When focus is **outside** any panel (e.g. tab bar), plain Tab is suppressed — there is no global Tab navigation.
 - **Sessions panel:** Tab moves between session items, selecting each on focus (Default panels switch to that session).
 - **Ctrl+N** opens the New Session dropdown.
 
@@ -231,7 +256,7 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 **IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Settings dropdown
-The **⚙ SETTINGS** dropdown in the header is organised into two sections:
+The **⚙ SETTINGS** dropdown sits at the right end of the tool tab bar (global — not contextual to the active tab). It is organised into two sections:
 
 **Display section:**
 - **Zoom** — inline `[−] 100% [+]` controls. Clicking `+`/`−` does not close the dropdown. Clicking the percentage resets to 100% and closes. Global hotkeys (`Ctrl++/−/0`) work regardless of dropdown state.
@@ -241,7 +266,7 @@ The **⚙ SETTINGS** dropdown in the header is organised into two sections:
 - **Rolling Scan** — toggle the periodic top-to-bottom sweep effect (`::before` on `.app-shell`).
 - **Bloom** — toggle the centre phosphor glow (`.crt-glow` element).
 
-CRT toggle states are persisted to `localStorage` (`agent-smith-scanlines`, `agent-smith-sweep`, `agent-smith-bloom`). Toggle logic lives in `src/renderer/components/crtEffects.ts`; CSS suppression rules are in `pipboy.css` (`.app-shell.no-scanlines::after`, `.app-shell.no-sweep::before`, `.app-shell.no-bloom .crt-glow`).
+CRT toggle states are persisted to `localStorage` (`dad-scanlines`, `dad-sweep`, `dad-bloom`). Toggle logic lives in `src/renderer/components/crtEffects.ts`; CSS suppression rules are in `pipboy.css` (`.app-shell.no-scanlines::after`, `.app-shell.no-sweep::before`, `.app-shell.no-bloom .crt-glow`).
 
 **Misc section:**
 - **Workspaces** — opens the Manage Workspaces dialog.
@@ -340,15 +365,17 @@ Renderer process
 │   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
-│   └── layoutStore.ts   PanelInstance[] management, spawn/destroy/promote/switchDefault
+│   └── layoutStore.ts   per-tab PanelInstance[] management, spawn/destroy/promote/switchDefault
 ├── hooks/
 │   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys
 ├── dashboard/           grid layout system (framework-agnostic)
-│   ├── layout.ts        24×24 grid math, PanelInstance types, spawn placement algorithm
-│   └── usePanelFocus.ts intra-panel Tab wrapping
-├── Workspace            24×24 grid container: drag/resize, Ctrl+Tab (instance cycling), focus tracking
+│   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTab types, spawn placement algorithm
+│   └── usePanelFocus.ts intra-panel Tab wrapping (supplemented by Workspace capture handler)
+├── ToolTabBar           tool tab row: tab switching + SettingsMenu (global)
+├── SplashScreen         startup splash overlay with DAD jokes + first-launch detection
+├── Workspace            24×24 grid container: drag/resize, Ctrl+Tab (instance cycling), Tab wrapping, focus tracking
 ├── WorkspacePanel       panel chrome: drag header, resize handles, close, default badge (◆), error boundary
-├── PanelMenu            header dropdown: Sessions toggle + lock
+├── PanelMenu            panel bar dropdown: Sessions toggle + Notes submenu + lock
 ├── SessionList          sessions panel body: new/archive/restore/destroy
 │   ├── Active sessions  main list with archive button (✕), double-click, context menu
 │   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
@@ -372,7 +399,7 @@ Renderer process
 └── ZoomControl          useZoomKeyboard hook + ZoomControls visual component
 
 Preload
-└── preload.ts           exposes window.agentSmith IPC API via contextBridge
+└── preload.ts           exposes window.dad IPC API via contextBridge
 ```
 
 **Data flow:**
@@ -403,7 +430,7 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - **Phosphor Green** (default, `:root` CSS) or **Amber Orange** (`[data-theme="amber-orange"]`) colour scheme, selectable from Settings → Theme
 - CRT effects (individually toggleable from Settings): rolling scanlines, periodic rolling scan sweep, centre phosphor bloom
 - All text in `Roboto Mono`
-- Theme (`agent-smith-theme`), zoom level (`agent-smith-zoom`), CRT toggle states, and dashboard layout are persisted to `localStorage`
+- Theme (`dad-theme`), zoom level (`dad-zoom`), CRT toggle states, and dashboard layout (per-tab) are persisted to `localStorage`
 
 **Colour usage rules:**
 - `--c-dim` is for borders and decorative elements only. **Never use `--c-dim` for text colour** — use `--c-mid` as the minimum readable text colour.
@@ -467,25 +494,26 @@ Application settings stored as grouped JSON. Created on first launch with auto-d
     "defaultWorkingDirectoryRoot": "/home/rulu/projects"
   },
   "jira": {
-    "vaultPath": "/home/rulu/.config/agent-smith/agent-smith/jira-context"
+    "vaultPath": "/home/rulu/.config/dad/dad/jira-context"
   },
   "notes": {
-    "rootPath": "/home/rulu/.config/agent-smith/agent-smith/notes"
-  }
+    "rootPath": "/home/rulu/.config/dad/dad/notes"
+  },
+  "firstLaunchComplete": true
 }
 ```
 
 ### Data directory
 Session data is stored at:
 ```
-$XDG_CONFIG_HOME/agent-smith/sessions.db
+$XDG_CONFIG_HOME/dad/sessions.db
 ```
-On WSLg this resolves to `~/.config/agent-smith/sessions.db`. The directory is created automatically on first launch.
+On WSLg this resolves to `~/.config/dad/dad/sessions.db`. The directory is created automatically on first launch.
 
 Notes markdown files are stored at:
 ```
-$XDG_CONFIG_HOME/agent-smith/notes/global/<panelId>/<tabId>.md
-$XDG_CONFIG_HOME/agent-smith/notes/sessions/<sessionId>/<tabId>.md
+$XDG_CONFIG_HOME/dad/notes/global/<panelId>/<tabId>.md
+$XDG_CONFIG_HOME/dad/notes/sessions/<sessionId>/<tabId>.md
 ```
 
 ### State detection patterns
@@ -495,7 +523,7 @@ Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern
 
 ## Prerequisites & Setup
 
-Agent Smith requires the following to run:
+DAD requires the following to run:
 
 | Dependency | Purpose | Install |
 |---|---|---|

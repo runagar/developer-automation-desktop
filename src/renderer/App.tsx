@@ -9,7 +9,8 @@ import NotesPanelInstance from './components/NotesPanelInstance';
 import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
-import SettingsMenu from './components/SettingsMenu';
+import ToolTabBar from './components/ToolTabBar';
+import SplashScreen from './components/SplashScreen';
 import JiraSettingsDialog from './components/JiraSettingsDialog';
 import NotesSettingsDialog from './components/NotesSettingsDialog';
 import ManageWorkspacesDialog from './components/ManageWorkspacesDialog';
@@ -28,7 +29,7 @@ import './styles/app.css';
 
 declare global {
   interface Window {
-    agentSmith: import('../main/types').IpcApi;
+    dad: import('../main/types').IpcApi;
   }
 }
 
@@ -40,6 +41,7 @@ export default function App(): React.ReactElement {
   const [workspacesDialogOpen, setWorkspacesDialogOpen] = useState(false);
   const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
 
   // Global zoom keyboard shortcuts (always active)
   useZoomKeyboard();
@@ -104,12 +106,12 @@ export default function App(): React.ReactElement {
   // OSC52 clipboard handling for PTY data
   useEffect(() => {
     const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
-    const unsub = window.agentSmith.onPtyData((_panelInstanceId, data) => {
+    const unsub = window.dad.onPtyData((_panelInstanceId, data) => {
       osc52Re.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = osc52Re.exec(data)) !== null) {
         try {
-          window.agentSmith.clipboardWrite(atob(match[1]));
+          window.dad.clipboardWrite(atob(match[1]));
         } catch {
           // Ignore invalid base64 clipboard payloads.
         }
@@ -120,7 +122,7 @@ export default function App(): React.ReactElement {
 
   const handleCreateSession = useCallback(
     async (workingDir: string, project?: string) => {
-      const session = await window.agentSmith.createSession({ workingDir, project });
+      const session = await window.dad.createSession({ workingDir, project });
       const store = useSessionStore.getState();
       store.addSession(session);
       store.setActiveSessionId(session.id);
@@ -130,13 +132,13 @@ export default function App(): React.ReactElement {
 
   const handleDestroySession = useCallback(async (id: string) => {
     useLayoutStore.getState().destroyLinkedPanels(id);
-    await window.agentSmith.destroySession(id);
+    await window.dad.destroySession(id);
     useSessionStore.getState().removeSession(id);
   }, []);
 
   const handleArchiveSession = useCallback(async (id: string) => {
     useLayoutStore.getState().destroyLinkedPanels(id);
-    await window.agentSmith.archiveSession(id);
+    await window.dad.archiveSession(id);
   }, []);
 
   const handleUnarchiveSession = useCallback(async (id: string) => {
@@ -144,7 +146,7 @@ export default function App(): React.ReactElement {
     store.bumpAttachGen(id);
     store.updateSession(id, { archived: false, dead: false });
     store.setActiveSessionId(id);
-    await window.agentSmith.unarchiveSession(id);
+    await window.dad.unarchiveSession(id);
     // PTY attach is handled by panel instance components when they detect the new currentSessionId
   }, []);
 
@@ -153,11 +155,11 @@ export default function App(): React.ReactElement {
     store.bumpAttachGen(id);
     store.updateSession(id, { dead: false, state: 'idle' });
     store.setActiveSessionId(id);
-    await window.agentSmith.reviveSession(id);
+    await window.dad.reviveSession(id);
   }, []);
 
   const handleRenameSession = useCallback(async (id: string, name: string) => {
-    await window.agentSmith.renameSession(id, name);
+    await window.dad.renameSession(id, name);
     useSessionStore.getState().updateSession(id, { name });
   }, []);
 
@@ -309,23 +311,17 @@ export default function App(): React.ReactElement {
 
   return (
     <div className="app-shell">
+      {!splashDone && <SplashScreen onComplete={() => setSplashDone(true)} />}
       <div className="crt-glow" aria-hidden="true" />
       <TitleBar />
-      <header className="app-header">
-        <div className="app-header__logo">
-          <span className="app-header__bracket">[</span>
-          <span className="app-header__title">AGENT SMITH</span>
-          <span className="app-header__bracket">]</span>
-        </div>
-        <div className="app-header__right">
-          <PanelMenu />
-          <SettingsMenu
-            onOpenWorkspaces={() => setWorkspacesDialogOpen(true)}
-            onOpenJira={() => setJiraDialogOpen(true)}
-            onOpenNotes={() => setNotesDialogOpen(true)}
-          />
-        </div>
-      </header>
+      <ToolTabBar
+        onOpenWorkspaces={() => setWorkspacesDialogOpen(true)}
+        onOpenJira={() => setJiraDialogOpen(true)}
+        onOpenNotes={() => setNotesDialogOpen(true)}
+      />
+      <div className="app-panel-bar">
+        <PanelMenu />
+      </div>
       <div className="app-body">
         <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
       </div>

@@ -67,7 +67,7 @@ export function useXterm(options: UseXtermOptions): UseXtermReturn {
       if (e.key === 'c' && e.ctrlKey && !e.shiftKey && !e.altKey) {
         const sel = term.getSelection();
         if (sel) {
-          window.agentSmith.clipboardWrite(sel);
+          window.dad.clipboardWrite(sel);
           return false;
         }
       }

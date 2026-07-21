@@ -46,7 +46,7 @@ export default function JiraPanelInstance({
     setIssue(instance.id, fetched);
     // Only persist to DB from default panels
     if (isDefault && session) {
-      void window.agentSmith.saveJiraIssue(session.id, fetched);
+      void window.dad.saveJiraIssue(session.id, fetched);
       // Keep sessionStore in sync so switching away and back doesn't revert
       useSessionStore.getState().updateSession(session.id, { jiraData: fetched });
     }
@@ -58,14 +58,14 @@ export default function JiraPanelInstance({
       const newPanelId = useLayoutStore.getState().spawnPanel('jira', session.id);
       if (newPanelId) {
         try {
-          const fetched = await window.agentSmith.getOrFetchJiraIssue(key);
+          const fetched = await window.dad.getOrFetchJiraIssue(key);
           useJiraStore.getState().setIssue(newPanelId, fetched);
         } catch { /* panel spawned but issue failed — user can manually fetch */ }
       }
     } else {
       // Normal click: fetch and display in this panel
       try {
-        const fetched = await window.agentSmith.getOrFetchJiraIssue(key);
+        const fetched = await window.dad.getOrFetchJiraIssue(key);
         handleIssueLoaded(fetched);
       } catch { /* ignore — user can retry */ }
     }

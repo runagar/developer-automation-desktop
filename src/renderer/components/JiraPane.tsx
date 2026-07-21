@@ -47,7 +47,7 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
     setError(null);
 
     try {
-      const fetched = await window.agentSmith.fetchAndPopulateVault(key);
+      const fetched = await window.dad.fetchAndPopulateVault(key);
       onIssueLoaded(fetched);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to fetch issue');

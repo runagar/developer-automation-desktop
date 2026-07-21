@@ -30,8 +30,8 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    title: 'AGENT SMITH',
-    icon: path.join(__dirname, '../../assets/agent_smith_icon.png'),
+    title: 'DAD',
+    icon: path.join(__dirname, '../../assets/dad_icon.png'),
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -74,7 +74,7 @@ function createWindow(): void {
 }
 
 async function initialize(): Promise<void> {
-  const dataDir = path.join(app.getPath('userData'), 'agent-smith');
+  const dataDir = path.join(app.getPath('userData'), 'dad');
   fs.mkdirSync(dataDir, { recursive: true });
 
   // Migrate projects.json → workspaces.json
@@ -130,7 +130,7 @@ async function checkDependencies(): Promise<void> {
   if (missing.length === 0) return;
 
   const message = [
-    'Agent Smith requires the following dependencies that are not installed or not in PATH:\n',
+    'DAD requires the following dependencies that are not installed or not in PATH:\n',
     ...missing,
     '\nYou can run ./setup.sh from the project root to install all prerequisites automatically.',
   ].join('\n');
@@ -138,7 +138,7 @@ async function checkDependencies(): Promise<void> {
   dialog.showMessageBoxSync(mainWindow!, {
     type: 'warning',
     title: 'Missing Dependencies',
-    message: 'Agent Smith — Missing Dependencies',
+    message: 'DAD — Missing Dependencies',
     detail: message,
     buttons: ['OK'],
   });

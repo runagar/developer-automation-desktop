@@ -27,6 +27,28 @@ export const SINGLETON_TYPES: Set<PanelType> = new Set(['sessions']);
 export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
 
 // ---------------------------------------------------------------------------
+// Tool tabs
+// ---------------------------------------------------------------------------
+
+export type ToolTabId = 'agent-smith'; // union grows as tools are added
+
+export interface ToolTabDef {
+  id: ToolTabId;
+  label: string;
+  panelTypes: PanelType[];
+}
+
+export const TOOL_TABS: ToolTabDef[] = [
+  { id: 'agent-smith', label: 'AGENT SMITH', panelTypes: ['sessions', 'terminal', 'jira', 'shell', 'notes'] },
+];
+
+export const DEFAULT_TAB: ToolTabId = 'agent-smith';
+
+export function storageKeyForTab(tabId: ToolTabId): string {
+  return `dad-dashboard-${tabId}`;
+}
+
+// ---------------------------------------------------------------------------
 // Placement & PanelInstance
 // ---------------------------------------------------------------------------
 
@@ -63,8 +85,6 @@ export interface DashboardState {
 export const GRID = 24;
 export const MIN_W = 2;
 export const MIN_H = 3;
-
-export const STORAGE_KEY = 'agent-smith-dashboard';
 
 // ---------------------------------------------------------------------------
 // Math helpers

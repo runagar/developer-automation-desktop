@@ -5,31 +5,32 @@ export default function TitleBar(): React.ReactElement {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    const unsub = window.agentSmith.onWindowMaximized((m) => setMaximized(m));
+    const unsub = window.dad.onWindowMaximized((m) => setMaximized(m));
     return unsub;
   }, []);
 
   return (
     <div className="titlebar">
+      <span className="titlebar__title">Developer Automation Desktop</span>
       <div className="titlebar__drag" />
       <div className="titlebar__controls">
         <button
           className="titlebar__btn titlebar__btn--minimize"
-          onClick={() => window.agentSmith.windowMinimize()}
+          onClick={() => window.dad.windowMinimize()}
           title="Minimize"
         >
           ─
         </button>
         <button
           className="titlebar__btn titlebar__btn--maximize"
-          onClick={() => window.agentSmith.windowMaximize()}
+          onClick={() => window.dad.windowMaximize()}
           title={maximized ? 'Restore' : 'Maximize'}
         >
           {maximized ? '❐' : '⊡'}
         </button>
         <button
           className="titlebar__btn titlebar__btn--close"
-          onClick={() => window.agentSmith.windowClose()}
+          onClick={() => window.dad.windowClose()}
           title="Close"
         >
           ✕

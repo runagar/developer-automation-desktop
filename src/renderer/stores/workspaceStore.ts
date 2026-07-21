@@ -15,7 +15,7 @@ interface WorkspaceStore {
 
 export const useWorkspaceStore = create<WorkspaceStore>((set) => {
   const refresh = async () => {
-    const groups = await window.agentSmith.getWorkspaceGroups();
+    const groups = await window.dad.getWorkspaceGroups();
     set({ groups });
   };
 
@@ -25,33 +25,33 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => {
     loadGroups: refresh,
 
     addWorkspace: async (key, repo, group, wdr?, createMissingDir?) => {
-      const result = await window.agentSmith.addWorkspace({ key, repo, group, wdr, createMissingDir });
+      const result = await window.dad.addWorkspace({ key, repo, group, wdr, createMissingDir });
       if (result.created) await refresh();
       return result;
     },
 
     removeWorkspace: async (key) => {
-      await window.agentSmith.removeWorkspace(key);
+      await window.dad.removeWorkspace(key);
       await refresh();
     },
 
     addGroup: async (name) => {
-      await window.agentSmith.addGroup(name);
+      await window.dad.addGroup(name);
       await refresh();
     },
 
     removeGroup: async (name) => {
-      await window.agentSmith.removeGroup(name);
+      await window.dad.removeGroup(name);
       await refresh();
     },
 
     moveWorkspace: async (key, toGroup, toIndex) => {
-      await window.agentSmith.moveWorkspace(key, toGroup, toIndex);
+      await window.dad.moveWorkspace(key, toGroup, toIndex);
       await refresh();
     },
 
     reorderGroup: async (name, toIndex) => {
-      await window.agentSmith.reorderGroup(name, toIndex);
+      await window.dad.reorderGroup(name, toIndex);
       await refresh();
     },
   };

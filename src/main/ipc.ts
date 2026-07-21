@@ -15,6 +15,7 @@ import {
   getDefaultWorkingRoot, setDefaultWorkingRoot,
   getJiraVaultPath, setJiraVaultPath,
   getNotesRootPath, setNotesRootPath,
+  isFirstLaunch, markFirstLaunchComplete,
 } from './settings';
 import { migrateJiraVault } from './migrationVault';
 import { migrateNotesRoot } from './migrationNotes';
@@ -123,6 +124,8 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:setJiraVaultPath', (_event, vaultPath: string) => setJiraVaultPath(dataDir, vaultPath));
   ipcMain.handle('settings:getNotesRoot', () => getNotesRootPath(dataDir));
   ipcMain.handle('settings:setNotesRoot', (_event, rootPath: string) => setNotesRootPath(dataDir, rootPath));
+  ipcMain.handle('settings:isFirstLaunch', () => isFirstLaunch(dataDir));
+  ipcMain.handle('settings:markFirstLaunchComplete', () => markFirstLaunchComplete(dataDir));
 
   // Migration
   ipcMain.handle('jira:migrateVault', (_event, newPath: string) =>

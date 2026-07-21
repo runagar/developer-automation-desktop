@@ -1,0 +1,45 @@
+/* =========================================================
+   SPLASH SCREEN — full-viewport overlay on startup
+   ========================================================= */
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-bg);
+  opacity: 1;
+}
+
+/* Text fades in while background stays opaque */
+.splash-screen__text {
+  font-family: var(--font);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--c-bright);
+  text-shadow: var(--glow-sm);
+  text-align: center;
+  padding: 0 24px;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.splash-screen--visible .splash-screen__text {
+  opacity: 1;
+}
+
+/* Full overlay fades out (text + background together) */
+.splash-screen--fading {
+  transition: opacity 1s ease;
+  opacity: 0;
+}
+
+/* Interrupted: snap out instantly */
+.splash-screen--snap {
+  transition: none;
+  opacity: 0;
+}

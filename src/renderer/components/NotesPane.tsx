@@ -116,7 +116,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
 
   const handleOpenRestore = useCallback(async () => {
     const scope = scopeFromKey(scopeKey);
-    const tabs = await window.agentSmith.notesGetClosedTabs(scope);
+    const tabs = await window.dad.notesGetClosedTabs(scope);
     setClosedTabs(tabs.map((t: any) => ({ id: t.id, name: t.name || 'Untitled' })));
     setRestoreOpen(true);
   }, [scopeKey]);
@@ -133,7 +133,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     updateContent(scopeKey, tabId, content);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      void window.agentSmith.notesSaveContent(tabId, content);
+      void window.dad.notesSaveContent(tabId, content);
     }, 500);
   }, [scopeKey, updateContent]);
 
@@ -166,7 +166,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     if (editorViewRef.current && prevTabIdRef.current && prevTabIdRef.current !== activeTabId) {
       const oldContent = editorViewRef.current.state.doc.toString();
       if (oldContent) {
-        void window.agentSmith.notesSaveContent(prevTabIdRef.current, oldContent);
+        void window.dad.notesSaveContent(prevTabIdRef.current, oldContent);
       }
       editorViewRef.current.destroy();
       editorViewRef.current = null;
@@ -179,7 +179,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     prevTabIdRef.current = currentTabId;
 
     // Load content and create editor
-    void window.agentSmith.notesLoadContent(currentTabId).then((content) => {
+    void window.dad.notesLoadContent(currentTabId).then((content) => {
       if (!editorContainerRef.current) return;
       // Guard: if activeTabId changed while loading, abort
       if (activeTabIdRef.current !== currentTabId) return;
@@ -243,7 +243,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
       if (editorViewRef.current) {
         const content = editorViewRef.current.state.doc.toString();
         if (capturedTabId && content) {
-          void window.agentSmith.notesSaveContent(capturedTabId, content);
+          void window.dad.notesSaveContent(capturedTabId, content);
         }
         editorViewRef.current.destroy();
         editorViewRef.current = null;
@@ -290,14 +290,14 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
 
   const handleExport = useCallback(() => {
     const tabId = contextTabIdRef.current || activeTabIdRef.current;
-    if (tabId) void window.agentSmith.notesExportTab(tabId);
+    if (tabId) void window.dad.notesExportTab(tabId);
   }, []);
 
   const handleCopyPath = useCallback(async () => {
     const tabId = contextTabIdRef.current || activeTabIdRef.current;
     if (tabId) {
-      const ref = await window.agentSmith.notesCopyRef(tabId);
-      if (ref) window.agentSmith.clipboardWrite(ref);
+      const ref = await window.dad.notesCopyRef(tabId);
+      if (ref) window.dad.clipboardWrite(ref);
     }
   }, []);
 
@@ -306,7 +306,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     if (tabId) {
       const scopeParts = scopeKey.split(':');
       const ref = `${scopeParts.slice(1).join(':')}-${tabId}`;
-      window.agentSmith.clipboardWrite(ref);
+      window.dad.clipboardWrite(ref);
     }
   }, [activeTabId, scopeKey]);
 

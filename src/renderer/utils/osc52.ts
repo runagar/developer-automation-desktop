@@ -22,7 +22,7 @@ export function handleOsc52(data: string): string {
     if (b64) {
       try {
         const text = atob(b64);
-        window.agentSmith.clipboardWrite(text);
+        window.dad.clipboardWrite(text);
       } catch {
         // invalid base64 — ignore
       }

@@ -74,6 +74,8 @@ export interface IpcApi {
   migrateJiraVault: (newPath: string) => Promise<{ success: boolean; error?: string }>;
   migrateNotesRoot: (newPath: string) => Promise<{ success: boolean; error?: string }>;
   isPathNonEmpty: (dirPath: string) => Promise<boolean>;
+  isFirstLaunch: () => Promise<boolean>;
+  markFirstLaunchComplete: () => Promise<void>;
 
   // Jira
   fetchJiraIssue: (key: string) => Promise<JiraIssue>;

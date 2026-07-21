@@ -10,52 +10,23 @@
   position: relative;
 }
 
-/* Header */
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  height: 36px;
-  border-bottom: var(--panel-border);
-  background: var(--c-panel);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 500;
-}
-.app-header__logo {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.app-header__bracket {
-  color: var(--c-mid);
-  font-size: 1.1rem;
-  font-weight: 700;
-}
-.app-header__title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--c-bright);
-  text-shadow: var(--glow-sm);
-}
-.app-header__hint {
-  font-size: 0.65rem;
-  color: var(--c-bright);
-  letter-spacing: 0.1em;
-}
-.app-header__right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 /* Body */
 .app-body {
   display: flex;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+/* Panel menu bar — sits between tab bar and workspace, never overlaps panels */
+.app-panel-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 8px;
+  height: 28px;
+  background: var(--c-bg);
+  flex-shrink: 0;
 }
 
 /* Empty state */

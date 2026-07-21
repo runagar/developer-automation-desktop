@@ -38,7 +38,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
 
   loadTabs: async (scopeKey) => {
     const scope = scopeFromKey(scopeKey);
-    const tabs = await window.agentSmith.notesGetTabs(scope);
+    const tabs = await window.dad.notesGetTabs(scope);
     const mapped: NotesTabState[] = tabs.map((t: any) => ({
       id: t.id,
       name: t.name || 'Untitled',
@@ -66,7 +66,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
 
   addTab: async (scopeKey) => {
     const scope = scopeFromKey(scopeKey);
-    const tab = await window.agentSmith.notesCreateTab(scope);
+    const tab = await window.dad.notesCreateTab(scope);
     const newTab: NotesTabState = {
       id: tab.id,
       name: tab.name || 'Untitled',
@@ -87,7 +87,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
   },
 
   closeTab: async (scopeKey, tabId) => {
-    await window.agentSmith.notesCloseTab(tabId);
+    await window.dad.notesCloseTab(tabId);
     set((s) => {
       const next = new Map(s.scopes);
       const current = next.get(scopeKey);
@@ -102,7 +102,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
   },
 
   restoreTab: async (scopeKey, tabId) => {
-    const tab = await window.agentSmith.notesRestoreTab(tabId);
+    const tab = await window.dad.notesRestoreTab(tabId);
     if (!tab) return;
     const restored: NotesTabState = {
       id: tab.id,
@@ -123,7 +123,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
   },
 
   renameTab: async (tabId, name) => {
-    await window.agentSmith.notesRenameTab(tabId, name);
+    await window.dad.notesRenameTab(tabId, name);
     set((s) => {
       const next = new Map(s.scopes);
       for (const [key, scope] of next) {

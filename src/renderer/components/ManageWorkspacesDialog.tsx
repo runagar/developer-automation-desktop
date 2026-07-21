@@ -49,18 +49,19 @@ export default function ManageWorkspacesDialog({
   const [defaultRootSaved, setDefaultRootSaved] = useState(false);
 
   useEffect(() => {
-    void window.agentSmith.getDefaultWorkingRoot().then((root) => {
+    void window.dad.getDefaultWorkingRoot().then((root) => {
       setDefaultRoot(root);
     });
   }, []);
 
   const handleSaveDefaultRoot = useCallback(async () => {
     if (defaultRootDraft === null || defaultRootDraft === defaultRoot) return;
-    await window.agentSmith.setDefaultWorkingRoot(defaultRootDraft);
+    await window.dad.setDefaultWorkingRoot(defaultRootDraft);
     setDefaultRoot(defaultRootDraft);
     setDefaultRootDraft(null);
     setDefaultRootSaved(true);
     setTimeout(() => setDefaultRootSaved(false), 2000);
+    window.dispatchEvent(new Event('dad-settings-changed'));
   }, [defaultRootDraft, defaultRoot]);
 
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);

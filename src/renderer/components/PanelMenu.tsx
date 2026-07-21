@@ -38,7 +38,7 @@ export default function PanelMenu(): React.ReactElement {
   const handleNotesHover = useCallback(async () => {
     setNotesSubOpen(true);
     try {
-      const panels = await window.agentSmith.notesGetAllGlobalPanels();
+      const panels = await window.dad.notesGetAllGlobalPanels();
       // Determine which are currently open in the layout
       const openIds = new Set(
         useLayoutStore.getState().instances
@@ -61,7 +61,7 @@ export default function PanelMenu(): React.ReactElement {
       useLayoutStore.getState().bringToFront(panel.id);
     } else {
       // Restore
-      await window.agentSmith.notesRestorePanel(panel.id);
+      await window.dad.notesRestorePanel(panel.id);
       const name = panel.name;
       useLayoutStore.getState().spawnGlobalPanel('notes', panel.id, name);
     }
@@ -98,7 +98,7 @@ export default function PanelMenu(): React.ReactElement {
                 onClick={() => {
                   const newId = useLayoutStore.getState().spawnGlobalPanel('notes');
                   if (newId) {
-                    void window.agentSmith.notesCreatePanel({ kind: 'global', id: newId }, newId);
+                    void window.dad.notesCreatePanel({ kind: 'global', id: newId }, newId);
                   }
                   setOpen(false);
                   setNotesSubOpen(false);
@@ -124,7 +124,7 @@ export default function PanelMenu(): React.ReactElement {
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
-                              void window.agentSmith.notesDestroyPanel(p.id).then(() => {
+                              void window.dad.notesDestroyPanel(p.id).then(() => {
                                 // Close the panel in the layout if it's open
                                 if (p.isOpen) {
                                   useLayoutStore.getState().destroyPanel(p.id);

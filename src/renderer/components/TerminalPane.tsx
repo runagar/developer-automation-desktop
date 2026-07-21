@@ -149,17 +149,17 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
 
     const onDataDisposable = term.onData((data) => {
       if (panelInstanceId) {
-        window.agentSmith.ptyWritePanel(panelInstanceId, data);
+        window.dad.ptyWritePanel(panelInstanceId, data);
       } else {
-        window.agentSmith.ptyWrite(session.id, data);
+        window.dad.ptyWrite(session.id, data);
       }
     });
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
       if (panelInstanceId) {
-        void window.agentSmith.ptyResizePanel(panelInstanceId, cols, rows);
+        void window.dad.ptyResizePanel(panelInstanceId, cols, rows);
       } else {
-        void window.agentSmith.ptyResize(session.id, cols, rows);
+        void window.dad.ptyResize(session.id, cols, rows);
       }
     });
 
@@ -177,9 +177,9 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
       const size = fitAndMeasure();
       if (size) {
         if (panelInstanceId) {
-          void window.agentSmith.ptyResizePanel(panelInstanceId, size.cols, size.rows);
+          void window.dad.ptyResizePanel(panelInstanceId, size.cols, size.rows);
         } else {
-          void window.agentSmith.ptyResize(session.id, size.cols, size.rows);
+          void window.dad.ptyResize(session.id, size.cols, size.rows);
         }
       }
     }));

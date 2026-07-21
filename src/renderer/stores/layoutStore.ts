@@ -1,14 +1,22 @@
 import { create } from 'zustand';
 import {
   DashboardState, Placement, PanelInstance, PanelType, GRID,
-  STORAGE_KEY, SINGLETON_TYPES, GLOBAL_CAPABLE_TYPES,
+  ToolTabId, TOOL_TABS, DEFAULT_TAB, storageKeyForTab,
+  SINGLETON_TYPES, GLOBAL_CAPABLE_TYPES,
   defaultState, validateState, clampPlacement, maxZ, panelOrder,
   generatePanelId, findSpawnPlacement, computeMaxExpansion, findCloseExpandCandidate,
 } from '../dashboard/layout';
 
 interface LayoutStore {
+  // Active tab
+  activeTab: ToolTabId;
+
+  // Derived from active tab (consumers read these directly)
   instances: PanelInstance[];
   locked: boolean;
+
+  // Tab switching
+  setActiveTab: (tabId: ToolTabId) => void;
 
   // Instance CRUD
   setPlacement: (id: string, placement: Placement) => void;
@@ -44,9 +52,18 @@ interface LayoutStore {
   findLinkedPanel: (type: PanelType, sessionId: string) => PanelInstance | undefined;
 }
 
-function loadState(): DashboardState {
+// ---------------------------------------------------------------------------
+// Per-tab persistence
+// ---------------------------------------------------------------------------
+
+const TAB_STORAGE_KEY = 'dad-active-tab';
+
+/** In-memory map of all tab states. */
+const tabStates = new Map<ToolTabId, DashboardState>();
+
+function loadTabState(tabId: ToolTabId): DashboardState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKeyForTab(tabId));
     if (raw) {
       const parsed = validateState(JSON.parse(raw));
       if (parsed) return normalizeZLevels(parsed);
@@ -55,6 +72,14 @@ function loadState(): DashboardState {
     /* corrupt — fall through to default */
   }
   return defaultState();
+}
+
+function loadActiveTab(): ToolTabId {
+  try {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY);
+    if (saved && TOOL_TABS.some((t) => t.id === saved)) return saved as ToolTabId;
+  } catch { /* ignore */ }
+  return DEFAULT_TAB;
 }
 
 /** Compact z-levels to 1..N retaining relative order. */
@@ -71,27 +96,54 @@ function normalizeZLevels(state: DashboardState): DashboardState {
   };
 }
 
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const persistTimers = new Map<ToolTabId, ReturnType<typeof setTimeout>>();
 
-function persistState(state: DashboardState): void {
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
+function persistTabState(tabId: ToolTabId, state: DashboardState): void {
+  const existing = persistTimers.get(tabId);
+  if (existing) clearTimeout(existing);
+  persistTimers.set(tabId, setTimeout(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      localStorage.setItem(storageKeyForTab(tabId), JSON.stringify({
         instances: state.instances,
         locked: state.locked,
       }));
     } catch {
       /* storage full / unavailable — non-fatal */
     }
-  }, 200);
+  }, 200));
 }
 
-const initial = loadState();
+// Initialize: load all tab states
+const initialTab = loadActiveTab();
+for (const tab of TOOL_TABS) {
+  tabStates.set(tab.id, loadTabState(tab.id));
+}
+const initialState = tabStates.get(initialTab)!;
+
+// Helper: update the active tab's state in the in-memory map and persist
+function applyToActiveTab(
+  activeTab: ToolTabId,
+  dashState: DashboardState,
+): void {
+  tabStates.set(activeTab, dashState);
+  persistTabState(activeTab, dashState);
+}
 
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
-  instances: initial.instances,
-  locked: initial.locked,
+  activeTab: initialTab,
+  instances: initialState.instances,
+  locked: initialState.locked,
+
+  setActiveTab: (tabId) => {
+    const s = get();
+    if (tabId === s.activeTab) return;
+    // Save current tab state
+    tabStates.set(s.activeTab, { instances: s.instances, locked: s.locked });
+    // Load new tab state
+    const next = tabStates.get(tabId) ?? defaultState();
+    try { localStorage.setItem(TAB_STORAGE_KEY, tabId); } catch { /* ok */ }
+    set({ activeTab: tabId, instances: next.instances, locked: next.locked });
+  },
 
   setPlacement: (id, placement) => {
     set((s) => {
@@ -99,7 +151,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         inst.id === id ? { ...inst, placement: clampPlacement(placement) } : inst
       );
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -112,7 +164,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         i.id === id ? { ...i, placement: { ...i.placement, z: maxZ(s.instances) + 1 } } : i
       );
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -125,7 +177,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           : inst
       );
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -133,7 +185,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
   setLocked: (locked) => {
     set((s) => {
       const next = { instances: s.instances, locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -180,7 +232,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         );
       }
       const next = { instances, locked: current.locked };
-      persistState(next);
+      applyToActiveTab(current.activeTab, next);
       return next;
     });
 
@@ -212,7 +264,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         );
       }
       const next = { instances, locked: current.locked };
-      persistState(next);
+      applyToActiveTab(current.activeTab, next);
       return next;
     });
 
@@ -230,7 +282,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           i.id === id ? { ...i, placement: { ...i.placement, visible: false } } : i
         );
         const next = { instances, locked: s.locked };
-        persistState(next);
+        applyToActiveTab(s.activeTab, next);
         return next;
       }
 
@@ -266,7 +318,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       }
 
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -278,7 +330,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       );
       if (instances.length === s.instances.length) return s;
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -307,7 +359,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       });
       if (!changed) return s;
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -320,7 +372,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         inst.id === id ? { ...inst, name } : inst
       );
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },
@@ -373,7 +425,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           i.id === id ? { ...i, placement: finalPlacement, preMaximizePlacement: undefined } : i
         );
         const next = { instances, locked: s.locked };
-        persistState(next);
+        applyToActiveTab(s.activeTab, next);
         return next;
       }
 
@@ -384,7 +436,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
           i.id === id ? { ...i, placement: expanded, preMaximizePlacement: undefined } : i
         );
         const next = { instances, locked: s.locked };
-        persistState(next);
+        applyToActiveTab(s.activeTab, next);
         return next;
       }
 
@@ -398,7 +450,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         i.id === id ? { ...i, placement: fullPlacement, preMaximizePlacement: p } : i
       );
       const next = { instances, locked: s.locked };
-      persistState(next);
+      applyToActiveTab(s.activeTab, next);
       return next;
     });
   },

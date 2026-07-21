@@ -33,7 +33,7 @@ export default function TerminalPanelInstance({
   const handleResume = useCallback(() => {
     const s = sessionRef.current;
     if (s && s.state === 'suspended') {
-      void window.agentSmith.resumeSession(s.id);
+      void window.dad.resumeSession(s.id);
     }
   }, []);
 
@@ -42,7 +42,7 @@ export default function TerminalPanelInstance({
     if (!session || session.dead || session.archived) {
       // Detach if we were attached
       if (attachedRef.current) {
-        void window.agentSmith.ptyDetach(instance.id);
+        void window.dad.ptyDetach(instance.id);
         attachedRef.current = null;
       }
       return;
@@ -52,7 +52,7 @@ export default function TerminalPanelInstance({
       // Wait a frame for xterm to mount and fit
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       const size = termRef.current?.fitAndMeasure();
-      await window.agentSmith.ptyAttach(
+      await window.dad.ptyAttach(
         session.id,
         instance.id,
         size?.cols ?? 120,
@@ -64,7 +64,7 @@ export default function TerminalPanelInstance({
       // attachment didn't exist yet in the main process.
       const postSize = termRef.current?.fitAndMeasure();
       if (postSize) {
-        void window.agentSmith.ptyResizePanel(instance.id, postSize.cols, postSize.rows);
+        void window.dad.ptyResizePanel(instance.id, postSize.cols, postSize.rows);
       }
     };
 
@@ -72,14 +72,14 @@ export default function TerminalPanelInstance({
 
     return () => {
       // Detach on unmount or session change
-      void window.agentSmith.ptyDetach(instance.id);
+      void window.dad.ptyDetach(instance.id);
       attachedRef.current = null;
     };
   }, [instance.id, session?.id, attachGen.get(instance.currentSessionId ?? '') ?? 0]);
 
   // Listen for PTY data for this panel instance
   useEffect(() => {
-    const unsub = window.agentSmith.onPtyData((panelInstanceId, data) => {
+    const unsub = window.dad.onPtyData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
       const cleaned = handleOsc52(data);
       termRef.current?.write(cleaned);

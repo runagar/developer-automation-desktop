@@ -10,7 +10,7 @@ export const THEMES = [
   { id: 'amber-orange',   label: 'Amber Orange'   },
 ] as const;
 
-const THEME_STORAGE_KEY = 'agent-smith-theme';
+const THEME_STORAGE_KEY = 'dad-theme';
 const DEFAULT_THEME = 'phosphor-green';
 
 // Migration map for old theme IDs

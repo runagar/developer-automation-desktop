@@ -66,13 +66,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       });
       return { sessions: sorted };
     });
-    void window.agentSmith.reorderSessions(orderedIds);
+    void window.dad.reorderSessions(orderedIds);
   },
 }));
 
 /** Initialise session store from main process on mount. */
 export async function initSessionStore(): Promise<void> {
-  const sessions = await window.agentSmith.getSessions();
+  const sessions = await window.dad.getSessions();
   const { setSessions, setActiveSessionId } = useSessionStore.getState();
   setSessions(sessions);
   const firstActive = sessions.find((s) => !s.archived);
@@ -88,15 +88,15 @@ export async function initSessionStore(): Promise<void> {
 export function registerSessionListeners(): () => void {
   const { updateSession } = useSessionStore.getState();
 
-  const unsubState = window.agentSmith.onSessionStateChange((id: string, state: SessionState) => {
+  const unsubState = window.dad.onSessionStateChange((id: string, state: SessionState) => {
     updateSession(id, { state });
   });
 
-  const unsubDied = window.agentSmith.onSessionDied((id: string) => {
+  const unsubDied = window.dad.onSessionDied((id: string) => {
     updateSession(id, { dead: true, state: 'idle' as SessionState });
   });
 
-  const unsubArchived = window.agentSmith.onSessionArchived((id: string) => {
+  const unsubArchived = window.dad.onSessionArchived((id: string) => {
     const store = useSessionStore.getState();
     updateSession(id, { archived: true });
     if (store.activeSessionId === id) {

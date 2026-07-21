@@ -41,11 +41,11 @@ const ShellPane = forwardRef<ShellPaneHandle, Props>(function ShellPane(
     if (!term) return;
 
     const onDataDisposable = term.onData((data) => {
-      window.agentSmith.shellWritePanel(panelInstanceId, data);
+      window.dad.shellWritePanel(panelInstanceId, data);
     });
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      void window.agentSmith.shellResizePanel(panelInstanceId, cols, rows);
+      void window.dad.shellResizePanel(panelInstanceId, cols, rows);
     });
 
     return () => {
@@ -62,7 +62,7 @@ const ShellPane = forwardRef<ShellPaneHandle, Props>(function ShellPane(
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const size = fitAndMeasure();
       if (size) {
-        void window.agentSmith.shellResizePanel(panelInstanceId, size.cols, size.rows);
+        void window.dad.shellResizePanel(panelInstanceId, size.cols, size.rows);
       }
     }));
   }, [activate, fitAndMeasure, isActive, panelInstanceId]);

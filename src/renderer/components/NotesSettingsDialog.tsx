@@ -17,7 +17,7 @@ export default function NotesSettingsDialog({ onClose }: Props): React.ReactElem
 
   useEffect(() => {
     void (async () => {
-      const root = await window.agentSmith.getNotesRootPath();
+      const root = await window.dad.getNotesRootPath();
       setNotesRoot(root);
     })();
   }, []);
@@ -41,7 +41,7 @@ export default function NotesSettingsDialog({ onClose }: Props): React.ReactElem
 
     // Check if target directory already contains data
     if (!confirmNeeded) {
-      const nonEmpty = await window.agentSmith.isPathNonEmpty(editedPath);
+      const nonEmpty = await window.dad.isPathNonEmpty(editedPath);
       if (nonEmpty) {
         setConfirmNeeded(true);
         return;
@@ -53,7 +53,7 @@ export default function NotesSettingsDialog({ onClose }: Props): React.ReactElem
     setMigrateError(null);
     setMigrateSaved(false);
     try {
-      const result = await window.agentSmith.migrateNotesRoot(editedPath);
+      const result = await window.dad.migrateNotesRoot(editedPath);
       if (result.success) {
         setNotesRoot(editedPath);
         setEditedPath(null);

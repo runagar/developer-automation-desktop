@@ -34,6 +34,8 @@ const api: IpcApi = {
   migrateJiraVault: (newPath) => ipcRenderer.invoke('jira:migrateVault', newPath),
   migrateNotesRoot: (newPath) => ipcRenderer.invoke('notes:migrateRoot', newPath),
   isPathNonEmpty: (dirPath) => ipcRenderer.invoke('settings:isPathNonEmpty', dirPath),
+  isFirstLaunch: () => ipcRenderer.invoke('settings:isFirstLaunch'),
+  markFirstLaunchComplete: () => ipcRenderer.invoke('settings:markFirstLaunchComplete'),
 
   // Jira
   fetchJiraIssue: (key) => ipcRenderer.invoke('jira:fetchIssue', key),
@@ -147,7 +149,7 @@ const api: IpcApi = {
   clearCredential: (key) => ipcRenderer.invoke('credentials:clear', key),
 };
 
-contextBridge.exposeInMainWorld('agentSmith', api);
+contextBridge.exposeInMainWorld('dad', api);
 
 // Notify main that renderer is ready
 ipcRenderer.send('renderer:ready');

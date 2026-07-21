@@ -86,6 +86,7 @@ const WorkspacePanel = forwardRef<PanelHandle, Props>(function WorkspacePanel(
         {!locked && (
           <button
             className="btn btn--micro btn--danger workspace-panel__close"
+            tabIndex={-1}
             title={mode === 'singleton' ? 'Hide panel' : 'Close panel'}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onClose(); }}

@@ -54,7 +54,10 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   // Default working directory root from settings
   const [defaultWorkDir, setDefaultWorkDir] = useState('/home');
   useEffect(() => {
-    void window.agentSmith.getDefaultWorkingRoot().then(setDefaultWorkDir);
+    const loadRoot = () => { void window.dad.getDefaultWorkingRoot().then(setDefaultWorkDir); };
+    loadRoot();
+    window.addEventListener('dad-settings-changed', loadRoot);
+    return () => window.removeEventListener('dad-settings-changed', loadRoot);
   }, []);
 
   useImperativeHandle(ref, () => ({
@@ -64,7 +67,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
     },
   }), []);
   const [archivedExpanded, setArchivedExpanded] = useState(() => {
-    try { return localStorage.getItem('smith-archived-expanded') === 'true'; } catch { return false; }
+    try { return localStorage.getItem('dad-archived-expanded') === 'true'; } catch { return false; }
   });
 
   const pendingDestroySession = sessions.find((s) => s.id === pendingDestroyId) ?? null;
@@ -406,7 +409,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
             onClick={() => {
               setArchivedExpanded((v) => {
                 const next = !v;
-                try { localStorage.setItem('smith-archived-expanded', String(next)); } catch { /* ok */ }
+                try { localStorage.setItem('dad-archived-expanded', String(next)); } catch { /* ok */ }
                 return next;
               });
             }}

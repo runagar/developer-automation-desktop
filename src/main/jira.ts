@@ -27,7 +27,7 @@ function loadCredentials(): { pat: string; baseUrl: string } {
     return { pat: cachedPat, baseUrl: cachedBaseUrl };
   }
 
-  const dataDir = path.join(app.getPath('userData'), 'agent-smith');
+  const dataDir = path.join(app.getPath('userData'), 'dad');
   const pat = resolveCredential(dataDir, 'ATLASSIAN_PAT');
   const baseUrl = resolveCredential(dataDir, 'ATLASSIAN_BASE_URL');
 
