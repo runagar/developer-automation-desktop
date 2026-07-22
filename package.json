@@ -1,6 +1,6 @@
 {
   "name": "dad",
-  "version": "1.0.1",
+  "version": "0.0.0",
   "desktopName": "dk.rulu.dad.desktop",
   "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
@@ -88,8 +88,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "RULU_NYK",
-      "repo": "agent-smith"
+      "owner": "runagar",
+      "repo": "developer-automation-desktop"
     }
   }
 }

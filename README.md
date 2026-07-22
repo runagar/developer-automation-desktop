@@ -19,11 +19,11 @@ npm install -g @github/copilot
 
 ### 2. Download & install DAD
 
-Download the latest `.deb` from [Releases](https://github.com/RULU_NYK/agent-smith/releases/latest):
+Download the latest `.deb` from [Releases](https://github.com/runagar/developer-automation-desktop/releases/latest):
 
 ```bash
 # Replace <version> with the actual version number (e.g. 1.0.0)
-wget https://github.com/RULU_NYK/agent-smith/releases/latest/download/dad_<version>_amd64.deb
+wget https://github.com/runagar/developer-automation-desktop/releases/latest/download/dad_<version>_amd64.deb
 sudo dpkg -i dad_<version>_amd64.deb
 ```
 
@@ -62,8 +62,8 @@ Settings are stored in `~/.config/dad/dad/`.
 To build and run from source:
 
 ```bash
-git clone https://github.com/RULU_NYK/agent-smith.git
-cd agent-smith
+git clone https://github.com/runagar/developer-automation-desktop.git
+cd developer-automation-desktop
 ./setup.sh          # installs all prerequisites (tmux, fnm, Node, copilot)
 ./launch.sh         # starts the app in dev mode
 ```
