@@ -88,7 +88,24 @@ export function useXterm(options: UseXtermOptions): UseXtermReturn {
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    // Copy-on-select: debounce selection changes so we copy only after the
+    // user finishes dragging (not during). Uses xterm's event system instead
+    // of DOM mouseup to avoid interfering with pointer event handling.
+    let selTimer: ReturnType<typeof setTimeout> | null = null;
+    const selDisposable = term.onSelectionChange(() => {
+      if (selTimer) clearTimeout(selTimer);
+      const sel = term.getSelection();
+      if (sel) {
+        selTimer = setTimeout(() => {
+          window.dad.clipboardWrite(sel);
+          term.clearSelection();
+        }, 150);
+      }
+    });
+
     return () => {
+      if (selTimer) clearTimeout(selTimer);
+      selDisposable.dispose();
       selObsRef.current?.disconnect();
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       term.dispose();
@@ -134,10 +151,12 @@ export function useXterm(options: UseXtermOptions): UseXtermReturn {
   const activate = useCallback(() => {
     if (openedRef.current || !containerRef.current || !termRef.current || !fitAddonRef.current) return;
     openedRef.current = true;
-    termRef.current.open(containerRef.current);
+    const term = termRef.current;
+    const container = containerRef.current;
+    term.open(container);
 
     // Wire up selection colour override via MutationObserver
-    const selectionContainer = containerRef.current.querySelector('.xterm-selection');
+    const selectionContainer = container.querySelector('.xterm-selection');
     if (selectionContainer) {
       const applySelColor = (el: HTMLElement) => {
         el.style.backgroundColor = (getXtermTheme().selectionBackground as string);
