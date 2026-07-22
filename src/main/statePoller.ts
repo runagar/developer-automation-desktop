@@ -78,6 +78,11 @@ function detectStateFromPane(content: string): SessionState | null {
   // status chrome (prompt, status bar) appears at the bottom. Checking the full
   // pane risks false matches from copilot's own output/thinking text.
   const lines = plain.split('\n');
+  // Strip trailing empty lines — suspended copilot sessions show the message
+  // near the top with empty rows filling the rest of the pane.
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+    lines.pop();
+  }
   const tail = lines.slice(-12).join('\n');
 
   if (tail.includes('Copilot has been suspended')) return 'suspended';

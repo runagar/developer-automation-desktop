@@ -160,10 +160,11 @@ State detection uses **tmux `capture-pane` polling** — a single `setInterval` 
 
 States are shown as coloured indicator pills in the session sidebar.
 
-**Detection patterns** (defined in `src/main/sessions.ts`, `detectStateFromPane()`):
+**Detection patterns** (defined in `src/main/statePoller.ts`, `detectStateFromPane()`):
 
 | Pattern in pane capture | Transition |
 |---|---|
+| `Copilot has been suspended` | → `suspended` |
 | `esc cancel` | → `running` |
 | `enter to select` | → `awaiting` |
 | `enter to confirm` | → `awaiting` |
