@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-Always review `.github/agent-smith.md` before making changes in this project.
+Always review `.github/developer-automation-desktop.md` before making changes in this project.
 Before doing any work, check <available_skills> and invoke a matching skill if one exists.
 
 ---

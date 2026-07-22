@@ -1,6 +1,6 @@
 # Developer Automation Desktop (DAD)
 
-An atompunk-themed Electron desktop environment for AI-assisted development. Manage multiple GitHub Copilot sessions, Jira integration, and markdown notes — all in a single tiled workspace.
+An atompunk-themed Electron desktop environment for AI-assisted development. Manage multiple GitHub Copilot sessions, Jira integration, and markdown notes all in a single tiled workspace.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ dad
 
 ## Updates
 
-DAD checks for updates automatically on each launch. When a new version is available, a notification appears in the title bar — click **Restart** to apply. Updates can also be dismissed and will reappear on the next launch.
+DAD checks for updates automatically on each launch. When a new version is available, a notification appears in the title bar. Click **Restart** to apply. Updates can also be dismissed and will reappear on the next launch.
 
 If you prefer to update manually, download the new `.deb` from Releases and install it with `dpkg -i`.
 

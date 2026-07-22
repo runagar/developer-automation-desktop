@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Agent Smith launcher
-# Run this from WSL to start the Agent Smith application.
+# Developer Automation Desktop launcher
+# Run this from WSL to start the Developer Automation Desktop application.
 
 set -e
 cd "$(dirname "$0")"
