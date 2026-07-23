@@ -69,70 +69,24 @@ cd developer-automation-desktop
 ```
 
 ### Automated Release
-
-To publish a new release, bump the version on a feature branch.
-
-```bash
-npm version patch         # 1.0.0 → 1.0.1 (bug fixes)
-npm version minor         # 1.0.0 → 1.1.0 (new features)
-npm version major         # 1.0.0 → 2.0.0 (breaking changes)
-```
-
-`npm version` updates `package.json`, creates a commit, and tags it (e.g. `v1.0.1`).
-Push and merge the branch, DO NOT push the new tag to the feature branch.
-Push the tag on main:
-
-```bash
-git push origin v1.0.1
-```
-
-The tag push triggers the GitHub Actions workflow which builds the `.deb` and publishes it as a GitHub Release. Existing installs will detect the new version on their next launch.
-
-### Manual release (when GitHub Actions is unavailable)
-
-If Actions is disabled (e.g. enterprise restrictions), release manually:
-
-#### 1. Verify the build
+To publish a new release, first verify the build
 
 ```bash
 npm run package
 ```
 
-Confirm `dist/dad_<version>_amd64.deb` and `dist/latest-linux.yml` are produced without errors.
-
-#### 2. Test the .deb (recommended for first release, optional after)
+Then build the release
 
 ```bash
-sudo dpkg -i dist/dad_<version>_amd64.deb
-dad                                        # verify it launches and works
-sudo apt remove dad                        # clean up
+npm run release
 ```
 
-#### 3. Bump version and tag
+`npm run release` updates `package.json` version to release version (e.g. `1.0.1-dev` -> `1.0.1`), creates a commit and tags it (e.g. `v1.0.1`).
+Finally it bumps and updates `package.json` version to dev (`1.0.1` -> `1.0.2-dev`)
+Push to remote
 
 ```bash
-npm version patch    # or minor / major — creates commit + tag
+git push --follow-tags
 ```
 
-#### 4. Push commit and tag
-
-```bash
-git push
-git push origin v<version>    # e.g. git push origin v1.0.1
-```
-
-#### 5. Rebuild with the new version
-
-```bash
-npm run package
-```
-
-The `.deb` now has the correct version baked in.
-
-#### 6. Publish the GitHub Release
-
-```bash
-gh release create v<version> dist/dad_<version>_amd64.deb dist/latest-linux.yml --generate-notes
-```
-
-This creates the release on GitHub. Installed copies of DAD will detect the new version on their next launch and show the update indicator.
+This push triggers the GitHub Actions workflow which builds the `.deb` and publishes it as a GitHub Release. Existing installs will detect the new version on their next launch.

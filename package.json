@@ -1,6 +1,6 @@
 {
   "name": "dad",
-  "version": "1.0.1",
+  "version": "1.0.2-dev",
   "desktopName": "dad.desktop",
   "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
@@ -10,7 +10,8 @@
     "package": "electron-vite build && electron-builder",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --ext .ts,.tsx .",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "release": "bash build/release.sh"
   },
   "keywords": [],
   "author": {
