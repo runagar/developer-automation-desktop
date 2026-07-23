@@ -1,6 +1,6 @@
 {
   "name": "dad",
-  "version": "1.0.3-dev",
+  "version": "1.0.3",
   "desktopName": "dad.desktop",
   "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
