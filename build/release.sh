@@ -30,7 +30,7 @@ echo ""
 npm version "$RELEASE" --no-git-tag-version --allow-same-version > /dev/null
 git add package.json package-lock.json
 git commit -m "release: v$RELEASE"
-git tag "v$RELEASE"
+git tag -a "v$RELEASE" -m "v$RELEASE"
 echo "✓ Tagged v$RELEASE"
 
 # Step 2: Bump to next dev version, commit
