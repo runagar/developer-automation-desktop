@@ -1,7 +1,7 @@
 {
   "name": "dad",
   "version": "1.0.1",
-  "desktopName": "dk.rulu.dad.desktop",
+  "desktopName": "dad.desktop",
   "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
   "scripts": {
@@ -76,7 +76,7 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "./assets/dad_icon.png",
+      "icon": "./assets/dad.png",
       "executableName": "dad",
       "syncDesktopName": true
     },
@@ -84,7 +84,8 @@
       "depends": [
         "tmux"
       ],
-      "packageName": "dad"
+      "packageName": "dad",
+      "afterInstall": "./build/postinst.sh"
     },
     "publish": {
       "provider": "github",

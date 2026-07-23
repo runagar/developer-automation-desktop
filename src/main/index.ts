@@ -30,7 +30,7 @@ function createWindow(): void {
       contextIsolation: true,
     },
     title: 'DAD',
-    icon: path.join(__dirname, '../../assets/dad_icon.png'),
+    icon: path.join(__dirname, '../../assets/dad.png'),
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
