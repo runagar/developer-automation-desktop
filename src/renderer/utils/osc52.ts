@@ -11,6 +11,13 @@
 
 const OSC52_RE = /\x1b\]52;[^;]*;([A-Za-z0-9+/=]*)\x07|\x1b\]52;[^;]*;([A-Za-z0-9+/=]*)\x1b\\/g;
 
+/** Decode base64 payload as UTF-8 (atob alone corrupts non-ASCII). */
+function decodeBase64Utf8(b64: string): string {
+  const binary = atob(b64);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 export function handleOsc52(data: string): string {
   let match: RegExpExecArray | null;
   let hasMatch = false;
@@ -21,7 +28,7 @@ export function handleOsc52(data: string): string {
     const b64 = match[1] ?? match[2];
     if (b64) {
       try {
-        const text = atob(b64);
+        const text = decodeBase64Utf8(b64);
         window.dad.clipboardWrite(text);
       } catch {
         // invalid base64 — ignore
