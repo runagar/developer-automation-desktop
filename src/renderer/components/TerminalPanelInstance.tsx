@@ -52,8 +52,11 @@ export default function TerminalPanelInstance({
       return;
     }
 
+    let cancelled = false;
+
     const doAttach = async () => {
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      if (cancelled) return;
       const size = termRef.current?.fitAndMeasure();
       await window.dad.ptyAttach(
         session.id,
@@ -61,6 +64,11 @@ export default function TerminalPanelInstance({
         size?.cols ?? 120,
         size?.rows ?? 36
       );
+      if (cancelled) {
+        // Attached but effect was cleaned up — detach the stale attachment
+        void window.dad.ptyDetach(instance.id);
+        return;
+      }
       attachedRef.current = session.id;
       const postSize = termRef.current?.fitAndMeasure();
       if (postSize) {
@@ -71,6 +79,7 @@ export default function TerminalPanelInstance({
     void doAttach();
 
     return () => {
+      cancelled = true;
       void window.dad.ptyDetach(instance.id);
       attachedRef.current = null;
     };
