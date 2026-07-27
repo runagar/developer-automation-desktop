@@ -6,6 +6,17 @@ let statePoller: StatePoller | null = null;
 let isSimulatedMaximized = false;
 let restoreBounds: Electron.Rectangle | null = null;
 
+/** Expose maximize state so window-state persistence can save pre-maximize bounds. */
+export function getMaximizeState(): { isSimulatedMaximized: boolean; restoreBounds: Electron.Rectangle | null } {
+  return { isSimulatedMaximized, restoreBounds };
+}
+
+/** Set simulated maximize state (used when restoring a maximized window on launch). */
+export function setMaximizeState(simMax: boolean, bounds: Electron.Rectangle | null): void {
+  isSimulatedMaximized = simMax;
+  restoreBounds = bounds;
+}
+
 export function getRegisteredStatePoller(): StatePoller | null {
   return statePoller;
 }
@@ -78,6 +89,11 @@ export function registerWindowHandlers(
     // Re-register native maximize interception on this window
     win.removeAllListeners('maximize');
     win.on('maximize', onNativeMaximize);
+
+    // Inform renderer of restored maximized state so titlebar button is correct
+    if (isSimulatedMaximized) {
+      win.webContents.send('window:maximized', true);
+    }
 
     sessionManager.setWindow(win);
     void (async () => {

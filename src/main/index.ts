@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,19 +7,105 @@ import { ShellTmuxManager } from './shellTmux';
 import { WorkspaceManager } from './workspaces';
 import { NotesManager } from './notes';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
+import { getMaximizeState, setMaximizeState } from './ipc/window';
 import { loadSettings } from './settings';
 import { initAutoUpdater } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
+let dataDir: string;
 let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
 let workspaceManager: WorkspaceManager;
 let notesManager: NotesManager;
 
+// ---------------------------------------------------------------------------
+// Window-state persistence
+// ---------------------------------------------------------------------------
+
+interface WindowState {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
+function windowStatePath(): string {
+  return path.join(dataDir, 'window-state.json');
+}
+
+function loadWindowState(): WindowState {
+  const defaults: WindowState = { width: 1920, height: 1080, isMaximized: false };
+  try {
+    const raw = fs.readFileSync(windowStatePath(), 'utf-8');
+    const p = JSON.parse(raw);
+    if (typeof p.width === 'number' && typeof p.height === 'number') {
+      return {
+        x: typeof p.x === 'number' ? p.x : undefined,
+        y: typeof p.y === 'number' ? p.y : undefined,
+        width: Math.max(p.width, 900),
+        height: Math.max(p.height, 600),
+        isMaximized: p.isMaximized === true,
+      };
+    }
+  } catch {
+    // Missing or corrupt — use defaults
+  }
+  return defaults;
+}
+
+function saveWindowState(state: WindowState): void {
+  try {
+    fs.writeFileSync(windowStatePath(), JSON.stringify(state), 'utf-8');
+  } catch {
+    // Non-critical — silently ignore write failures
+  }
+}
+
+/** Ensure saved bounds are visible on at least one connected display. */
+function ensureBoundsOnScreen(state: WindowState): WindowState {
+  if (state.x === undefined || state.y === undefined) return state;
+  const displays = screen.getAllDisplays();
+  const visible = displays.some((d) => {
+    const wa = d.workArea;
+    return (
+      state.x! < wa.x + wa.width &&
+      state.x! + state.width > wa.x &&
+      state.y! < wa.y + wa.height &&
+      state.y! + state.height > wa.y
+    );
+  });
+  if (!visible) {
+    const primary = screen.getPrimaryDisplay();
+    return {
+      ...state,
+      x: primary.workArea.x + Math.round((primary.workArea.width - state.width) / 2),
+      y: primary.workArea.y + Math.round((primary.workArea.height - state.height) / 2),
+    };
+  }
+  return state;
+}
+
+function saveCurrentWindowState(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const { isSimulatedMaximized: isMax, restoreBounds: rBounds } = getMaximizeState();
+  const bounds = isMax && rBounds ? rBounds : mainWindow.getBounds();
+  saveWindowState({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    isMaximized: isMax,
+  });
+}
+
 function createWindow(): void {
+  const saved = ensureBoundsOnScreen(loadWindowState());
+
   mainWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    ...(saved.x !== undefined && saved.y !== undefined ? { x: saved.x, y: saved.y } : {}),
+    width: saved.width,
+    height: saved.height,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#000000',
@@ -31,6 +117,27 @@ function createWindow(): void {
     },
     title: 'DAD',
     icon: path.join(__dirname, '../../assets/dad.png'),
+  });
+
+  // Restore simulated maximize if the window was maximized when last closed
+  if (saved.isMaximized) {
+    const normalBounds = mainWindow.getBounds();
+    setMaximizeState(true, normalBounds);
+    const display = screen.getDisplayMatching(normalBounds);
+    mainWindow.setBounds(display.workArea);
+  }
+
+  // Persist window bounds on move/resize (debounced) and on close
+  let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  const debouncedSave = () => {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveCurrentWindowState, 500);
+  };
+  mainWindow.on('resize', debouncedSave);
+  mainWindow.on('move', debouncedSave);
+  mainWindow.on('close', () => {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveCurrentWindowState();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -78,7 +185,7 @@ function createWindow(): void {
 }
 
 async function initialize(): Promise<void> {
-  const dataDir = path.join(app.getPath('userData'), 'dad');
+  dataDir = path.join(app.getPath('userData'), 'dad');
   fs.mkdirSync(dataDir, { recursive: true });
 
   // Migrate projects.json → workspaces.json
