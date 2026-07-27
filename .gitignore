@@ -11,10 +11,11 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Screenshots (dev artifacts)
+# dev directories
 Screenshots/
+features/
 
 # Secrets
 .env
 .env.*
-/implementation-plans/
+

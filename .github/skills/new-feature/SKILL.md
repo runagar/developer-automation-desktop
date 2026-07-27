@@ -1,16 +1,41 @@
 ---
 name: new-feature
-description: Guide for implementing new features end-to-end. Use this when asked to add, build, or implement a feature or when the user references a feature request
+description: Guide for implementing new features end-to-end. Use this when asked to review, begin, plan, add, build, or implement a feature or when the user references a feature plan
 allowed-tools: shell
 ---
 
-1. Checkout main and pull from origin
-2. Create a new working branch based on the described feature (e.g. feature/jira-issue-overview)
-3. Locate the implementation plan in ./implementation-plans/todo/
-7. Review implementation plan again. User might have added things or clarified ambiguities
-8. Implement the feature. Do not update ./.github/agent-smith.md at this stage
-9. Ask the user to perform manual tests when implemenation is complete
-10. Fix any bugs described by the user. Stay on the current working branch. Do not invoke the fix-bug skill.
-11. Once testing is complete, update ./.github/agent-smith.md
-12. Commit, push to remote, and open a pull request to main
-13. NEVER push to remote an open a pull request if user has not confirmed that everything is working as detailed by step 9. and 10.
+1. The user is the functional analyst for the app. You are the technical expert who will implement the requested feature.
+2. Locate the specified feature plan in `./features/plans/todo/`. They will always be in markdown, with the title format `{featureId}-{feature-summary}.md` e.g. `01-jira.foundations.md`
+3. Review the `## Requirements` section.
+4. Compare and contrast the requirements to the codebase. Remember to read and respect `copilot-instructions.md` and `developer-automation.desktop.md`
+5. Outline ambiguities in the feature plan `## Ambiguities` section
+   1. Explain which part of the requirement is ambiguous
+   2. Give a suggestions about how to resolve it
+   3. Before outlining a technical requirement, verify if there are other similar technical functions in the project that answer or indicate how the requirement should be resolved. 
+   4. follow the format:
+    ```
+        1. **{Referenced.Requirements}** (e.g. `1.5`) **{Relevant Requirement Detail}**: {Ambiguity}
+            > {leave a blank blockquote line. The user will resolve the ambiguity by editing this line.}
+        2. etc
+
+        example:
+
+        1. **1.5 Which format to display**: The requirement details to display the data. Which format should it be displayed in? 
+            > 
+    ``` 
+6. Ask the user to resolve the ambiguties. 
+   1. This might require back-and-forth conversation and multiple passes
+7. When all ambiguties are resolved, write an implementation plan in the `## Implementation Plan` section. 
+8. Perform rubberduck analysis of the plan against the requirements, ambiguities and codebase.
+9.  Ask the user to approve the plan.
+   1.  This might require back-and-forth conversation and multiple passes
+10. When the plan is approved, checkout main and pull from origin
+11. Do not create a new working branch, work directly on main
+12. Implement the feature. Do not update ./.github/developer-automation-desktop.md at this stage
+13. Ask the user to perform manual tests when implemenation is complete
+14. Fix any bugs described by the user. Do not invoke the fix-bug skill.
+15. Once testing is complete, update ./.github/developer-automation-desktop.md
+16. Commit, push to remote. Never create or push tags
+17. NEVER push to remote an open a pull request if user has not confirmed that everything is working as detailed by step 9. and 10.
+
+
