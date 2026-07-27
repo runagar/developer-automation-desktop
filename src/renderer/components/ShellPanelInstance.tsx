@@ -35,8 +35,11 @@ export default function ShellPanelInstance({
       return;
     }
 
+    let cancelled = false;
+
     const doAttach = async () => {
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      if (cancelled) return;
       const size = shellRef.current?.fitAndMeasure();
       await window.dad.shellAttach(
         session.id,
@@ -45,6 +48,11 @@ export default function ShellPanelInstance({
         size?.cols ?? 120,
         size?.rows ?? 36
       );
+      if (cancelled) {
+        // Attached but effect was cleaned up — detach the stale attachment
+        void window.dad.shellDetach(instance.id);
+        return;
+      }
       attachedRef.current = session.id;
       const postSize = shellRef.current?.fitAndMeasure();
       if (postSize) {
@@ -55,10 +63,11 @@ export default function ShellPanelInstance({
     void doAttach();
 
     return () => {
+      cancelled = true;
       void window.dad.shellDetach(instance.id);
       attachedRef.current = null;
     };
-  }, [instance.id, session?.id, session?.workingDir]);
+  }, [instance.id, session?.id, session?.dead, session?.archived, session?.workingDir]);
 
   // Listen for shell data for this panel instance
   useEffect(() => {
@@ -79,7 +88,7 @@ export default function ShellPanelInstance({
   }, [instance.id]);
 
   return (
-    <PanelInstanceWrapper instance={instance}>
+    <PanelInstanceWrapper instance={instance} slotKey={session?.id ?? ''}>
       {(s) => (
         <ShellPane
           ref={(handle) => { shellRef.current = handle; }}

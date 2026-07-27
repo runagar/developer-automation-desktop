@@ -21,6 +21,10 @@ export class SessionManager {
   private sessionsRestored = false;
   // IDs of sessions resumed from the previous run — runtime only, not persisted.
   private restoredIds = new Set<string>();
+  // IDs of sessions whose tmux is currently being created. The state poller
+  // skips these to avoid a race where the poller marks a session dead before
+  // its tmux session finishes spawning.
+  private pendingTmuxIds = new Set<string>();
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -102,12 +106,18 @@ export class SessionManager {
     // New sessions get sort_order after all existing ones
     const maxSort = (this.db.prepare('SELECT MAX(sort_order) as m FROM sessions').get() as any)?.m ?? 0;
 
-    this.db.prepare(`
-      INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, sort_order, created_at, last_active)
-      VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?, ?)
-    `).run(id, name, opts.workingDir, opts.project ?? null, maxSort + 1, now, now);
+    // Mark as pending so the state poller skips this session while tmux spawns.
+    this.pendingTmuxIds.add(id);
+    try {
+      this.db.prepare(`
+        INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, sort_order, created_at, last_active)
+        VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?, ?)
+      `).run(id, name, opts.workingDir, opts.project ?? null, maxSort + 1, now, now);
 
-    await this.ensureTmuxSession(id, opts.workingDir);
+      await this.ensureTmuxSession(id, opts.workingDir);
+    } finally {
+      this.pendingTmuxIds.delete(id);
+    }
 
     return this.getSession(id)!;
   }
@@ -237,9 +247,15 @@ export class SessionManager {
   async unarchiveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
-    this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
-    // Ensure tmux session exists (it may have died while archived)
-    await this.ensureTmuxSession(id, row.working_dir);
+
+    // Mark as pending so the state poller skips this session while tmux spawns.
+    this.pendingTmuxIds.add(id);
+    try {
+      this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
+      await this.ensureTmuxSession(id, row.working_dir);
+    } finally {
+      this.pendingTmuxIds.delete(id);
+    }
   }
 
   /**
@@ -259,10 +275,14 @@ export class SessionManager {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
     if (!row) return;
 
-    this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
-
-    // Re-create the tmux session so copilot can restart
-    await this.ensureTmuxSession(id, row.working_dir);
+    // Mark as pending so the state poller skips this session while tmux spawns.
+    this.pendingTmuxIds.add(id);
+    try {
+      this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
+      await this.ensureTmuxSession(id, row.working_dir);
+    } finally {
+      this.pendingTmuxIds.delete(id);
+    }
   }
 
   /**
@@ -345,7 +365,9 @@ export class SessionManager {
 
   getNonDeadSessions(): { id: string; state: SessionState }[] {
     const rows = this.db.prepare('SELECT id, state FROM sessions WHERE dead = 0').all() as Array<{ id: string; state: string }>;
-    return rows.map((row) => ({ id: row.id, state: row.state as SessionState }));
+    return rows
+      .filter((row) => !this.pendingTmuxIds.has(row.id))
+      .map((row) => ({ id: row.id, state: row.state as SessionState }));
   }
 
   handleStateChange(id: string, state: SessionState): void {
