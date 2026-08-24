@@ -66,6 +66,23 @@
   color: var(--c-amber);
 }
 
+/* Warm — archived, agent still loaded (filled dot) */
+.state-indicator--warm .state-indicator__dot {
+  background: var(--c-mid);
+}
+.state-indicator--warm .state-indicator__label {
+  color: var(--c-mid);
+}
+
+/* Cold — archived, agent unloaded (hollow dot) */
+.state-indicator--cold .state-indicator__dot {
+  background: transparent;
+  border: 1px solid var(--c-dim);
+}
+.state-indicator--cold .state-indicator__label {
+  color: var(--c-dim);
+}
+
 @keyframes pulse-primary {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--c-bright); }
   50%       { opacity: 0.5; box-shadow: 0 0 10px var(--c-bright); }

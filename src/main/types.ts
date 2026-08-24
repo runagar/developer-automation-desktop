@@ -31,6 +31,7 @@ export interface Session {
   state: SessionState;
   dead: boolean;
   archived: boolean;        // true if session is archived (tmux keeps running)
+  warm?: boolean;           // runtime-only: archived session whose copilot tmux is still alive
   restored: boolean;        // true if resumed from a previous run (runtime-only, not persisted)
   createdAt: string;
   lastActive: string;
@@ -120,6 +121,7 @@ export interface IpcApi {
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;
+  onSessionsWarmthChanged: (callback: (warmIds: string[]) => void) => () => void;
 
   // Notes
   notesCreatePanel: (scope: { kind: string; id: string }, panelId?: string) => Promise<any>;

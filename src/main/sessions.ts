@@ -7,9 +7,11 @@ import { Session, SessionState, JiraIssue } from './types';
 import { BrowserWindow } from 'electron';
 import {
   tmuxSessionName, hasTmuxSession, createTmuxSession,
-  getSessionInfo, listSmithSessions, killTmuxSession, getPanePid,
+  getSessionInfo, listSmithSessions, killTmuxSession, getPanePid, capturePane,
 } from './tmux';
+import { detectStateFromPane } from './statePoller';
 import { ensureWhitelistConfig } from './whitelist';
+import { ArchivedRow, selectDemotionCandidates } from './archivePolicy';
 
 export class SessionManager {
   private db!: Database.Database;
@@ -25,9 +27,30 @@ export class SessionManager {
   // skips these to avoid a race where the poller marks a session dead before
   // its tmux session finishes spawning.
   private pendingTmuxIds = new Set<string>();
+  // IDs of archived sessions whose copilot tmux is still alive ("warm").
+  // Runtime only — reconciled against real tmux state, never persisted.
+  private warmIds = new Set<string>();
+  // Per-session promise queues serialising lifecycle operations.
+  private locks = new Map<string, Promise<unknown>>();
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
+  }
+
+  /**
+   * Serialise lifecycle operations (archive/unarchive/revive/destroy/reap/evict)
+   * per session id, so that e.g. the reaper cannot kill a tmux session that a
+   * concurrent restore has just recreated. Re-check eligibility inside `fn` —
+   * holding the lock is not enough if the decision was made outside it.
+   */
+  private withSessionLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(id) ?? Promise.resolve();
+    const next = prev.catch(() => { /* previous failure must not block the queue */ }).then(fn);
+    this.locks.set(id, next);
+    void next.catch(() => { /* handled by the caller */ }).finally(() => {
+      if (this.locks.get(id) === next) this.locks.delete(id);
+    });
+    return next;
   }
 
   setWindow(win: BrowserWindow | null): void {
@@ -56,6 +79,13 @@ export class SessionManager {
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN jira_data TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN sort_order INTEGER DEFAULT 0'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived_at TEXT'); } catch { /* already exists */ }
+
+    // `dead` is meaningless for an archived session: before archived sessions
+    // were excluded from polling, every launch after a reboot flipped them to
+    // dead = 1 (their tmux was gone), so they rendered as DEAD even though
+    // restoring them worked. Clear it once.
+    this.db.prepare('UPDATE sessions SET dead = 0 WHERE archived = 1 AND dead = 1').run();
 
     // Backfill sort_order for existing rows that have 0
     const unordered = this.db.prepare('SELECT id FROM sessions WHERE sort_order = 0 ORDER BY created_at ASC').all() as any[];
@@ -79,6 +109,10 @@ export class SessionManager {
 
     // Clean up orphaned tmux sessions (no matching DB row)
     await this.cleanupOrphanedSessions();
+
+    // Establish which archived sessions still have a live copilot tmux. A
+    // previous run may have left some alive (e.g. a crash before eviction).
+    await this.reconcileWarmth();
 
     // Mark non-dead, non-archived sessions as restored.
     // PTY attachment is deferred to renderer-driven ptyAttach calls.
@@ -233,11 +267,13 @@ export class SessionManager {
   }
 
   /**
-   * Archive a session: detach all PTYs but keep the tmux session alive.
+   * Archive a session: detach all PTYs but keep the tmux session alive ("warm").
    */
   archiveSession(id: string): void {
     this.detachAllPtysForSession(id);
-    this.db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run(id);
+    this.db.prepare('UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), id);
+    this.warmIds.add(id);
     this.window?.webContents.send('session:archived', id);
   }
 
@@ -245,26 +281,34 @@ export class SessionManager {
    * Unarchive a session: mark as unarchived. PTY attachment is deferred to renderer.
    */
   async unarchiveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
-    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
-    if (!row) return;
+    return this.withSessionLock(id, async () => {
+      const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+      if (!row) return;
 
-    // Mark as pending so the state poller skips this session while tmux spawns.
-    this.pendingTmuxIds.add(id);
-    try {
-      this.db.prepare('UPDATE sessions SET archived = 0, dead = 0 WHERE id = ?').run(id);
-      await this.ensureTmuxSession(id, row.working_dir);
-    } finally {
-      this.pendingTmuxIds.delete(id);
-    }
+      // Mark as pending so the state poller skips this session while tmux spawns.
+      this.pendingTmuxIds.add(id);
+      try {
+        this.db.prepare(
+          "UPDATE sessions SET archived = 0, dead = 0, archived_at = NULL, state = 'idle' WHERE id = ?"
+        ).run(id);
+        this.warmIds.delete(id);
+        await this.ensureTmuxSession(id, row.working_dir);
+      } finally {
+        this.pendingTmuxIds.delete(id);
+      }
+    });
   }
 
   /**
    * Permanently destroy a session: kill tmux session and delete DB row.
    */
   async destroySession(id: string): Promise<void> {
-    this.detachAllPtysForSession(id);
-    await killTmuxSession(tmuxSessionName(id));
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    return this.withSessionLock(id, async () => {
+      this.detachAllPtysForSession(id);
+      await killTmuxSession(tmuxSessionName(id));
+      this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+      this.warmIds.delete(id);
+    });
   }
 
   renameSession(id: string, name: string): void {
@@ -272,17 +316,19 @@ export class SessionManager {
   }
 
   async reviveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
-    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
-    if (!row) return;
+    return this.withSessionLock(id, async () => {
+      const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
+      if (!row) return;
 
-    // Mark as pending so the state poller skips this session while tmux spawns.
-    this.pendingTmuxIds.add(id);
-    try {
-      this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
-      await this.ensureTmuxSession(id, row.working_dir);
-    } finally {
-      this.pendingTmuxIds.delete(id);
-    }
+      // Mark as pending so the state poller skips this session while tmux spawns.
+      this.pendingTmuxIds.add(id);
+      try {
+        this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
+        await this.ensureTmuxSession(id, row.working_dir);
+      } finally {
+        this.pendingTmuxIds.delete(id);
+      }
+    });
   }
 
   /**
@@ -362,7 +408,92 @@ export class SessionManager {
     const rows = this.db.prepare(
       'SELECT id FROM sessions WHERE archived = 1'
     ).all() as Array<{ id: string }>;
-    await Promise.all(rows.map((row) => killTmuxSession(tmuxSessionName(row.id))));
+    await Promise.all(rows.map((row) => this.withSessionLock(row.id, async () => {
+      await killTmuxSession(tmuxSessionName(row.id));
+      this.warmIds.delete(row.id);
+    })));
+  }
+
+  // --- Warm/cold lifecycle for archived sessions ---
+
+  /**
+   * Rebuild `warmIds` from the tmux sessions that actually exist.
+   *
+   * Warmth cannot be tracked by bookkeeping alone: a copilot process can exit
+   * on its own, and a previous run may have left tmux sessions alive. Notifies
+   * the renderer only when the set actually changed.
+   */
+  private async reconcileWarmth(liveNames?: Set<string>): Promise<void> {
+    const live = liveNames ?? new Set((await listSmithSessions()).map((s) => s.name));
+    const archived = this.db.prepare(
+      'SELECT id FROM sessions WHERE archived = 1'
+    ).all() as Array<{ id: string }>;
+
+    const next = new Set<string>();
+    for (const { id } of archived) {
+      if (live.has(tmuxSessionName(id))) next.add(id);
+    }
+
+    this.warmIds = next;
+    // Always notify: `renderer:ready` fires from preload before the renderer
+    // registers its listeners, so a change-only notification could be missed
+    // at startup and leave a stale badge forever. The renderer ignores
+    // no-op updates, so re-sending costs nothing.
+    this.notifyWarmth();
+  }
+
+  private notifyWarmth(): void {
+    this.window?.webContents.send('sessions:warmthChanged', [...this.warmIds]);
+  }
+
+  /**
+   * Demote archived sessions that have outlived their warm period, or that fall
+   * outside the warm-session cap, by killing their copilot tmux session. The
+   * shell tmux session is deliberately left running.
+   */
+  async reapArchivedSessions(liveNames?: Set<string>): Promise<void> {
+    await this.reconcileWarmth(liveNames);
+
+    const rows = this.db.prepare(
+      `SELECT id, state, archived_at FROM sessions
+       WHERE archived = 1 ORDER BY archived_at DESC`
+    ).all() as ArchivedRow[];
+
+    const warm = rows.filter((r) => this.warmIds.has(r.id));
+    if (warm.length === 0) return;
+
+    // Archived sessions are not polled, so their `state` is frozen at archive
+    // time. Without this a session archived mid-task would satisfy the
+    // busy-guard forever and never go cold. Bounded by the warm cap.
+    for (const row of warm) {
+      if (row.state !== 'running' && row.state !== 'awaiting') continue;
+      const content = await capturePane(tmuxSessionName(row.id));
+      const fresh = content ? detectStateFromPane(content) : null;
+      if (fresh && fresh !== row.state) {
+        this.db.prepare('UPDATE sessions SET state = ? WHERE id = ? AND archived = 1')
+          .run(fresh, row.id);
+        row.state = fresh;
+      }
+    }
+
+    const candidates = selectDemotionCandidates(warm, Date.now());
+    if (candidates.length === 0) return;
+
+    for (const id of candidates) {
+      await this.withSessionLock(id, async () => {
+        // Re-check inside the lock: the session may have been restored or
+        // destroyed while we were awaiting an earlier kill.
+        const row = this.db.prepare('SELECT archived FROM sessions WHERE id = ?')
+          .get(id) as { archived: number } | undefined;
+        if (!row || row.archived !== 1) return;
+
+        const tmuxName = tmuxSessionName(id);
+        await killTmuxSession(tmuxName);
+        // killTmuxSession swallows errors — only report cold if it really is.
+        if (!await hasTmuxSession(tmuxName)) this.warmIds.delete(id);
+      });
+    }
+    this.notifyWarmth();
   }
 
   async persistAll(): Promise<void> {
@@ -446,6 +577,7 @@ export class SessionManager {
     state: row.state as SessionState,
     dead: row.dead === 1,
     archived: row.archived === 1,
+    warm: this.warmIds.has(row.id),
     restored: this.restoredIds.has(row.id),
     createdAt: row.created_at,
     lastActive: row.last_active,

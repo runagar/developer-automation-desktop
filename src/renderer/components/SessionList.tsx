@@ -428,7 +428,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                   className="session-item session-item--archived"
                 >
                   <div className="session-item__top">
-                    <StateIndicator state={session.dead ? 'dead' : session.state} />
+                    <StateIndicator state={session.warm ? 'warm' : 'cold'} />
                     <span className="session-item__name">{session.name}</span>
                     <div className="session-item__actions session-item__actions--archived">
                       <button

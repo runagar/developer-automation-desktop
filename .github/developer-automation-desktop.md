@@ -36,7 +36,7 @@ On startup, a full-viewport splash screen displays a DAD joke:
 - Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
 - **Reorder sessions** by dragging them up/down in the list. A floating ghost follows the cursor; a bright line indicates the drop position. Order persists to the DB (`sort_order` column).
 - Rename any session by right-clicking it → **Session** → **Rename**.
-- Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background until the app quits.
+- Archive a session to move it to a collapsible archived section. The agent stays loaded (**WARM**) for 30 minutes, then unloads (**COLD**) to free ~350 MB; restoring a cold session resumes the full conversation, just a few seconds slower.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.
 - Permanently destroy a session from the archived list with confirmation (kills the tmux session).
 - Revive a dead session without losing its scrollback.
@@ -129,20 +129,29 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot. PTY attachment is deferred to the renderer.
 2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
 3. PTY output flows through the tmux attach client to xterm.js, routed by `panelInstanceId`.
-4. On archive, all PTY attachments for the session are killed; tmux sessions (terminal + shell) survive.
-5. On app quit, `before-quit` runs cleanup: `evictArchivedSessions()` kills the copilot tmux session (`smith-<id>`) of every **archived** session, then `persistAll()` kills all attach PTYs. Active sessions' tmux and all shell tmux sessions (`smith-shell-<id>`) keep running.
-6. On next launch, `restoreSessions()` ensures tmux sessions exist for active (non-archived, non-dead) sessions only; PTY attachment is deferred to panel mount.
-7. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions — they are never evicted on quit.
+4. On archive, all PTY attachments for the session are killed; tmux sessions (terminal + shell) survive. The session is **warm**.
+5. While warm, a background reaper (driven by the state poller tick) demotes archived sessions to **cold** — killing only `smith-<id>` — once they exceed `ARCHIVE_WARM_MINUTES` (30) or fall outside `ARCHIVE_WARM_MAX` (3). Both constants live in `src/main/archivePolicy.ts`. A session whose state is `running` or `awaiting` is never demoted by the reaper.
+6. On app quit, `before-quit` runs cleanup: `evictArchivedSessions()` kills the copilot tmux session of every **archived** session unconditionally (a busy archived session is interrupted rather than leaked past app exit), then `persistAll()` kills all attach PTYs. Active sessions' tmux and all shell tmux sessions (`smith-shell-<id>`) keep running.
+7. On next launch, `restoreSessions()` ensures tmux sessions exist for active (non-archived, non-dead) sessions only; PTY attachment is deferred to panel mount.
+8. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions — they are never evicted or demoted.
+
+**Warm/cold rules:**
+- `archived_at` is a DB column (ISO timestamp, `NULL` for rows archived by older versions — treated as expired). `Session.warm` is **runtime-only**, like `Session.restored`, and is never persisted.
+- Warmth is **reconciled against live tmux** (`listSmithSessions()`) at startup and on every reap — never inferred from bookkeeping, since a copilot process can exit on its own or survive a crash. The reconciled set is pushed to the renderer via `sessions:warmthChanged`; the renderer treats a no-op update as a no-op so it can be re-sent every tick.
+- All session lifecycle operations (unarchive, revive, destroy, reap, quit-eviction) are serialised per session id through `SessionManager.withSessionLock()`, and re-check eligibility **inside** the lock. Without this the reaper can kill a tmux session that a concurrent restore has just recreated. Any new lifecycle operation must use it.
+- `handleUnarchiveSession()` in the renderer must **await the unarchive IPC before** flipping `archived` in the store — a cold session has no tmux yet, so un-archiving first lets the panel attach to a session that does not exist.
+- The demotion decision is a pure function, `selectDemotionCandidates()` in `src/main/archivePolicy.ts`, unit tested in `archivePolicy.test.ts`. Keep it free of DB/tmux/Electron dependencies.
 
 Each session UUID is passed to copilot as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database.
 
 ### Session archiving
 - The **✕ button** on active sessions archives instead of destroying.
 - Archived sessions appear in a collapsible **ARCHIVED SESSIONS** section at the bottom of the sidebar.
-- Archived sessions are **not polled** for state — their indicator shows the last state observed before archiving.
+- Archived sessions show **WARM** (agent loaded, restores instantly) or **COLD** (agent unloaded, restore takes seconds) instead of a `SessionState`. They are never shown as DEAD — `dead` is meaningless for an archived session.
+- Archived sessions are **not polled** for state. The one exception is the reaper's bounded refresh: a warm session still marked `running`/`awaiting` is re-captured so it can eventually be demoted, capped at the warm limit.
 - Each archived session has a **Restore** (↺) button and a **Destroy** (✕) button.
 - Destroy permanently kills the tmux session and deletes the DB row (with confirmation).
-- An archived session keeps its copilot process alive (~350 MB RSS) until the app quits, at which point its copilot tmux is evicted. Restoring after eviction re-runs `copilot --session-id <uuid>`, which resumes the conversation from `~/.copilot/session-state/` — the terminal comes back visually blank because scrollback is not repainted.
+- An archived session keeps its copilot process alive (~350 MB RSS) while it is **warm**. It is demoted to **cold** (copilot tmux killed, shell tmux kept) after 30 minutes, when it falls outside the 3-session warm cap, or when the app quits. Restoring a cold session re-runs `copilot --session-id <uuid>`, which resumes the conversation from `~/.copilot/session-state/` and repaints it — it just takes a few seconds instead of being instant.
 - Archived sessions are excluded from **Tab** / **Shift+Tab** cycling.
 - The collapse state of the archived section is persisted to `localStorage`.
 
@@ -157,7 +166,9 @@ State detection uses **tmux `capture-pane` polling** — a single `setInterval` 
 | **Running** | Output is streaming (`esc cancel` pattern detected) |
 | **Awaiting** | CLI is waiting for user input (`enter to select` / `enter to confirm` / `Asking user`) |
 | **Suspended** | Copilot was suspended with Ctrl+Z (`Copilot has been suspended` detected). Resumed via SIGCONT (▶ RESUME button or Alt+R in terminal panel) |
-| **Dead** *(flag)* | tmux session has exited; session row has `dead = 1` in the DB |
+| **Dead** *(flag)* | tmux session of an **active** session has exited; session row has `dead = 1`. Never applies to archived sessions |
+| **Warm** *(display)* | Archived, copilot tmux still alive — restores instantly |
+| **Cold** *(display)* | Archived, copilot tmux killed — restore re-runs copilot and takes a few seconds |
 
 States are shown as coloured indicator pills in the session sidebar.
 
@@ -178,6 +189,7 @@ States are shown as coloured indicator pills in the session sidebar.
 - ~3 second latency on state changes (acceptable since indicators are informational).
 - No chunk-tail bridging needed — `capture-pane` returns complete lines.
 - The polling loop is managed by `StatePoller`, not `PtySession`. `poll()` holds a re-entrancy guard so a slow cycle cannot overlap the next tick.
+- The tick also drives the archived-session reaper via `onReap`, which **must run even when there are no pollable sessions** — otherwise a user whose sessions are all archived would never have them demoted. The poller passes its existing tmux listing to the reaper to avoid a second subprocess.
 
 ### Jira issue overview
 The Jira pane is a dashboard panel (`jira`) that displays issue details for a session. Multiple Jira panel instances can exist per session (unique among panel types — terminals and shells are limited to one linked panel per session), each linked to a specific session or following the active session (Default mode). Each Jira panel maintains its own issue state independently.
@@ -565,6 +577,16 @@ On launch the app validates that `tmux` and `copilot` are available in PATH. If 
 `launch.sh` auto-detects fnm or nvm to ensure Node is on PATH, then runs `npm start` (electron-vite dev).
 
 Development uses `electron-vite dev` with Vite HMR for the renderer and auto-rebuild for the main process. Native modules (`better-sqlite3`, `node-pty`) are externalised and rebuilt via `postinstall`.
+
+Checks:
+
+```bash
+npm run typecheck   # tsc --noEmit
+npm test            # vitest run
+npm run build       # electron-vite build
+```
+
+Unit tests use **vitest** and cover pure logic only (e.g. `src/main/archivePolicy.ts`). There is no Electron/DOM test harness — keep testable logic in dependency-free modules rather than reaching for one.
 
 To package a distributable:
 

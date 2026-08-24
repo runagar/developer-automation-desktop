@@ -124,6 +124,13 @@ const api: IpcApi = {
     return () => ipcRenderer.removeListener('session:archived', listener);
   },
 
+  onSessionsWarmthChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, warmIds: string[]) =>
+      callback(warmIds);
+    ipcRenderer.on('sessions:warmthChanged', listener);
+    return () => ipcRenderer.removeListener('sessions:warmthChanged', listener);
+  },
+
   // Notes
   notesCreatePanel: (scope, panelId) => ipcRenderer.invoke('notes:createPanel', scope, panelId),
   notesClosePanel: (panelId) => ipcRenderer.invoke('notes:closePanel', panelId),

@@ -2,13 +2,14 @@
   "name": "dad",
   "version": "1.0.4-dev",
   "desktopName": "dad.desktop",
-  "description": "Developer Automation Desktop — atompunk dev environment",
+  "description": "Developer Automation Desktop \u2014 atompunk dev environment",
   "main": "out/main/index.js",
   "scripts": {
     "start": "electron-vite dev",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "eslint --ext .ts,.tsx .",
     "postinstall": "electron-builder install-app-deps",
     "release": "bash build/release.sh"
@@ -28,7 +29,8 @@
     "electron-vite": "^6.0.0-beta.1",
     "eslint": "^8.0.1",
     "eslint-plugin-import": "^2.25.0",
-    "typescript": "~5.0.4"
+    "typescript": "~5.0.4",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

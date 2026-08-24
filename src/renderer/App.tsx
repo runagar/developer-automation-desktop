@@ -144,10 +144,15 @@ export default function App(): React.ReactElement {
 
   const handleUnarchiveSession = useCallback(async (id: string) => {
     const store = useSessionStore.getState();
-    store.bumpAttachGen(id);
-    store.updateSession(id, { archived: false, dead: false });
-    store.setActiveSessionId(id);
+
+    // Await tmux (re)creation *before* un-archiving in the store. A cold
+    // session has no tmux yet, so flipping `archived` first would let the
+    // terminal panel mount and attach to a session that does not exist.
     await window.dad.unarchiveSession(id);
+
+    store.bumpAttachGen(id);
+    store.updateSession(id, { archived: false, dead: false, warm: false, state: 'idle' });
+    store.setActiveSessionId(id);
     // PTY attach is handled by panel instance components when they detect the new currentSessionId
   }, []);
 

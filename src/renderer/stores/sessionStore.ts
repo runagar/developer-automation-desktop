@@ -98,16 +98,34 @@ export function registerSessionListeners(): () => void {
 
   const unsubArchived = window.dad.onSessionArchived((id: string) => {
     const store = useSessionStore.getState();
-    updateSession(id, { archived: true });
+    updateSession(id, { archived: true, warm: true });
     if (store.activeSessionId === id) {
       const next = store.sessions.find((s) => s.id !== id && !s.archived);
       useSessionStore.getState().setActiveSessionId(next?.id ?? null);
     }
   });
 
+  const unsubWarmth = window.dad.onSessionsWarmthChanged((warmIds: string[]) => {
+    const warm = new Set(warmIds);
+    useSessionStore.setState((s) => {
+      let changed = false;
+      const sessions = s.sessions.map((sess) => {
+        if (!sess.archived) return sess;
+        const next = warm.has(sess.id);
+        if (sess.warm === next) return sess;
+        changed = true;
+        return { ...sess, warm: next };
+      });
+      // Returning the same state keeps this a no-op for subscribers, so the
+      // main process can safely re-send warmth on every poll tick.
+      return changed ? { sessions } : s;
+    });
+  });
+
   return () => {
     unsubState();
     unsubDied();
     unsubArchived();
+    unsubWarmth();
   };
 }
