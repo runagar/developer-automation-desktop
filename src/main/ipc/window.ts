@@ -101,7 +101,7 @@ export function registerWindowHandlers(
       if (!statePoller) {
         statePoller = new StatePoller({
           pollMs: 3000,
-          getSessionIds: () => sessionManager.getNonDeadSessions(),
+          getSessionIds: () => sessionManager.getPollableSessions(),
           onStateChange: (id, state) => sessionManager.handleStateChange(id, state),
           onDied: (id) => sessionManager.handleDied(id),
         });

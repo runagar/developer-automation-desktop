@@ -3,6 +3,7 @@ import { tmuxSessionName, listSmithSessions, capturePane, ANSI_RE } from './tmux
 
 export class StatePoller {
   private interval: ReturnType<typeof setInterval> | null = null;
+  private polling = false;
   private readonly pollMs: number;
   private getSessionIds: () => { id: string; state: SessionState }[];
   private onStateChange: (id: string, state: SessionState) => void;
@@ -35,6 +36,8 @@ export class StatePoller {
   }
 
   private async poll(): Promise<void> {
+    if (this.polling) return;
+    this.polling = true;
     try {
       const sessions = this.getSessionIds();
       if (sessions.length === 0) return;
@@ -68,6 +71,8 @@ export class StatePoller {
       }
     } catch (error) {
       console.error('[StatePoller] Poll failed', error);
+    } finally {
+      this.polling = false;
     }
   }
 }

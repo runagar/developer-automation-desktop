@@ -36,7 +36,7 @@ On startup, a full-viewport splash screen displays a DAD joke:
 - Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
 - **Reorder sessions** by dragging them up/down in the list. A floating ghost follows the cursor; a bright line indicates the drop position. Order persists to the DB (`sort_order` column).
 - Rename any session by right-clicking it → **Session** → **Rename**.
-- Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background.
+- Archive a session to move it to a collapsible archived section. The tmux session (and copilot agent) keeps running in the background until the app quits.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.
 - Permanently destroy a session from the archived list with confirmation (kills the tmux session).
 - Revive a dead session without losing its scrollback.
@@ -130,18 +130,19 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
 3. PTY output flows through the tmux attach client to xterm.js, routed by `panelInstanceId`.
 4. On archive, all PTY attachments for the session are killed; tmux sessions (terminal + shell) survive.
-5. On app close, `persistAll()` kills all attach PTYs but leaves tmux sessions running.
-6. On next launch, `restoreSessions()` ensures tmux sessions exist; PTY attachment is deferred to panel mount.
-7. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions.
+5. On app quit, `before-quit` runs cleanup: `evictArchivedSessions()` kills the copilot tmux session (`smith-<id>`) of every **archived** session, then `persistAll()` kills all attach PTYs. Active sessions' tmux and all shell tmux sessions (`smith-shell-<id>`) keep running.
+6. On next launch, `restoreSessions()` ensures tmux sessions exist for active (non-archived, non-dead) sessions only; PTY attachment is deferred to panel mount.
+7. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions — they are never evicted on quit.
 
 Each session UUID is passed to copilot as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database.
 
 ### Session archiving
 - The **✕ button** on active sessions archives instead of destroying.
 - Archived sessions appear in a collapsible **ARCHIVED SESSIONS** section at the bottom of the sidebar.
-- Archived sessions show a live state indicator (updated by capturePane polling).
+- Archived sessions are **not polled** for state — their indicator shows the last state observed before archiving.
 - Each archived session has a **Restore** (↺) button and a **Destroy** (✕) button.
 - Destroy permanently kills the tmux session and deletes the DB row (with confirmation).
+- An archived session keeps its copilot process alive (~350 MB RSS) until the app quits, at which point its copilot tmux is evicted. Restoring after eviction re-runs `copilot --session-id <uuid>`, which resumes the conversation from `~/.copilot/session-state/` — the terminal comes back visually blank because scrollback is not repainted.
 - Archived sessions are excluded from **Tab** / **Shift+Tab** cycling.
 - The collapse state of the archived section is persisted to `localStorage`.
 
@@ -172,10 +173,11 @@ States are shown as coloured indicator pills in the session sidebar.
 | `❯` | → `idle` |
 
 **Key design decisions:**
-- Polling works for **both active and archived sessions** — no attach PTY needed for state detection.
+- Only **active** sessions are polled. `getPollableSessions()` filters `dead = 0 AND archived = 0`, so archived sessions cost no `capture-pane` subprocess and are never marked dead.
+- `handleDied()` and `handleStateChange()` additionally guard with `AND archived = 0` and return early when no row changed. This covers a poll cycle already in flight when a session is archived — its stale result must not be applied.
 - ~3 second latency on state changes (acceptable since indicators are informational).
 - No chunk-tail bridging needed — `capture-pane` returns complete lines.
-- The polling loop is managed by `StatePoller`, not `PtySession`.
+- The polling loop is managed by `StatePoller`, not `PtySession`. `poll()` holds a re-entrancy guard so a slow cycle cannot overlap the next tick.
 
 ### Jira issue overview
 The Jira pane is a dashboard panel (`jira`) that displays issue details for a session. Multiple Jira panel instances can exist per session (unique among panel types — terminals and shells are limited to one linked panel per session), each linked to a specific session or following the active session (Default mode). Each Jira panel maintains its own issue state independently.
@@ -420,9 +422,11 @@ Main process → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data
 3. PTY output is routed to the specific panel instance via `pty:data(panelInstanceId)` IPC events.
 4. On archive (✕ button), all PTY attachments for the session are killed, linked panels are destroyed, but tmux sessions (terminal + shell) keep running.
 5. On restore (↺ from archived list), the session is activated and Default panels switch to it. PTY attachment happens when the panel instance mounts.
-6. On app close, `persistAll()` kills all attach PTYs and stops state polling. tmux sessions survive.
-7. On next launch, `restoreSessions()` ensures tmux sessions exist; PTY attachment is driven by panel instance mount.
+6. On app quit, `before-quit` runs cleanup: archived sessions' copilot tmux is evicted, then `persistAll()` kills all attach PTYs and state polling is stopped. Active sessions' tmux and all shell tmux sessions survive.
+7. On next launch, `restoreSessions()` ensures tmux sessions exist for active sessions; PTY attachment is driven by panel instance mount.
 8. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
+
+> **Shutdown cleanup must live on `before-quit`, not `window-all-closed`.** The latter is not emitted when `app.quit()` is called directly (e.g. by the auto-updater's `quitAndInstall()`), which would skip cleanup entirely. The handler calls `event.preventDefault()`, awaits cleanup, then calls `app.quit()` from a `finally` block — guarded by a `cleanupDone` flag for idempotency. Returning a Promise from an Electron event handler does **not** make Electron await it.
 
 > Scrollback is owned by tmux; on reattach the current screen is repainted by tmux into a clean xterm. There is no manual scrollback replay (it collided with the live buffer and tmux's repaint).
 

@@ -350,6 +350,21 @@ export class SessionManager {
     tx();
   }
 
+  /**
+   * Kill the copilot tmux session for every archived session. Shell tmux
+   * sessions and non-archived sessions are left running so the app can
+   * reattach on next launch.
+   *
+   * Unconditional by design: a busy archived session is interrupted rather
+   * than leaked as a ~350 MB copilot process that outlives the app.
+   */
+  async evictArchivedSessions(): Promise<void> {
+    const rows = this.db.prepare(
+      'SELECT id FROM sessions WHERE archived = 1'
+    ).all() as Array<{ id: string }>;
+    await Promise.all(rows.map((row) => killTmuxSession(tmuxSessionName(row.id))));
+  }
+
   async persistAll(): Promise<void> {
     // Update last_active for all live sessions
     this.db.prepare('UPDATE sessions SET last_active = ? WHERE dead = 0')
@@ -363,8 +378,10 @@ export class SessionManager {
     this.panelToSession.clear();
   }
 
-  getNonDeadSessions(): { id: string; state: SessionState }[] {
-    const rows = this.db.prepare('SELECT id, state FROM sessions WHERE dead = 0').all() as Array<{ id: string; state: string }>;
+  getPollableSessions(): { id: string; state: SessionState }[] {
+    const rows = this.db.prepare(
+      'SELECT id, state FROM sessions WHERE dead = 0 AND archived = 0'
+    ).all() as Array<{ id: string; state: string }>;
     return rows
       .filter((row) => !this.pendingTmuxIds.has(row.id))
       .map((row) => ({ id: row.id, state: row.state as SessionState }));
@@ -372,15 +389,21 @@ export class SessionManager {
 
   handleStateChange(id: string, state: SessionState): void {
     // State changes come from the state poller, not from PTY sessions.
-    // Update the DB and notify the renderer directly.
-    this.db.prepare('UPDATE sessions SET state = ?, last_active = ? WHERE id = ?')
-      .run(state, new Date().toISOString(), id);
+    // The `archived = 0` guard covers a poll cycle that was already in flight
+    // when the session was archived — its stale result must not be applied.
+    const res = this.db.prepare(
+      'UPDATE sessions SET state = ?, last_active = ? WHERE id = ? AND archived = 0'
+    ).run(state, new Date().toISOString(), id);
+    if (res.changes === 0) return;
     this.window?.webContents.send('session:stateChange', id, state);
   }
 
   handleDied(id: string): void {
+    const res = this.db.prepare(
+      "UPDATE sessions SET dead = 1, state = 'idle' WHERE id = ? AND archived = 0"
+    ).run(id);
+    if (res.changes === 0) return;
     this.detachAllPtysForSession(id);
-    this.db.prepare('UPDATE sessions SET dead = 1, state = ? WHERE id = ?').run('idle', id);
     this.window?.webContents.send('session:died', id);
   }
 

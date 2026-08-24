@@ -264,10 +264,31 @@ app.on('ready', async () => {
   await checkDependencies();
 });
 
-app.on('window-all-closed', async () => {
-  shellTmuxManager.killAll();
-  stopRegisteredStatePoller();
-  await sessionManager.persistAll();
+// Shutdown cleanup lives on `before-quit`, not `window-all-closed`: the latter
+// is not emitted when app.quit() is called directly (e.g. by the auto-updater's
+// quitAndInstall), which would skip eviction entirely.
+let cleanupDone = false;
+
+app.on('before-quit', (event) => {
+  if (cleanupDone) return;
+  event.preventDefault();
+  void (async () => {
+    try {
+      shellTmuxManager.killAll();
+      stopRegisteredStatePoller();
+      await sessionManager.evictArchivedSessions();
+      await sessionManager.persistAll();
+    } catch (error) {
+      console.error('[shutdown] Cleanup failed', error);
+    } finally {
+      // Must always run — a throw here would otherwise leave the app unquittable.
+      cleanupDone = true;
+      app.quit();
+    }
+  })();
+});
+
+app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
