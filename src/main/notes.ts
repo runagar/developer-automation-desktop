@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { nanoid } from 'nanoid';
+import { getNotesRootPath } from './settings';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +45,10 @@ export class NotesManager {
   constructor(db: Database.Database, dataDir: string) {
     this.db = db;
     this.dataDir = dataDir;
-    this.notesRoot = path.join(dataDir, 'notes');
+    // Must read the configured root from settings. Defaulting to
+    // <dataDir>/notes here would silently ignore a user-configured vault on
+    // every launch and write notes to the wrong location.
+    this.notesRoot = getNotesRootPath(dataDir);
   }
 
   setNotesRoot(root: string): void {
@@ -95,14 +99,14 @@ export class NotesManager {
     if (rows.length === 0) return;
 
     const oldRoot = path.join(this.dataDir, 'notes');
-    const prefix = oldRoot.endsWith(path.sep) ? oldRoot : oldRoot + path.sep;
+    const prefixes = [this.notesRoot, oldRoot]
+      .map((root) => (root.endsWith(path.sep) ? root : root + path.sep));
 
     const migrate = this.db.transaction(() => {
       for (const row of rows) {
         const abs: string = row.file_path;
-        const relative = abs.startsWith(prefix)
-          ? abs.slice(prefix.length)
-          : abs;
+        const prefix = prefixes.find((p) => abs.startsWith(p));
+        const relative = prefix ? abs.slice(prefix.length) : abs;
         this.db.prepare('UPDATE notes_tabs SET file_path = ? WHERE id = ?')
           .run(relative, row.id);
       }

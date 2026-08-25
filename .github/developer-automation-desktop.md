@@ -304,6 +304,8 @@ Accessible from **Settings → Notes**. A modal dialog with one section:
 
 **Relative paths:** The `notes_tabs.file_path` DB column stores paths relative to the notes root (e.g. `sessions/abc/tab-xyz.md`). At runtime, absolute paths are composited via `NotesManager.resolveTabPath()`. This means changing the notes root only requires moving files + updating `settings.json` — no DB row updates. A one-time migration in `NotesManager.initialize()` converts any legacy absolute paths to relative.
 
+**Root path resolution:** `settings.json` (`notes.rootPath`) is the single source of truth, exactly as it is for the Jira vault. `NotesManager` reads it via `getNotesRootPath(dataDir)` **in its constructor** — never default to `<dataDir>/notes`. `NotesManager.notesRoot` is a runtime mirror of that setting, so **every code path that writes `notes.rootPath` must also call `notesManager.setNotesRoot()`** (currently `migrationNotes.ts` and the `settings:setNotesRoot` IPC handler). Letting the two drift silently writes notes to the wrong directory while Settings still displays the configured path — the failure is invisible until the user notices missing notes.
+
 ### Credentials (shared component)
 The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is extracted as a shared component used by the Jira Settings dialog. It renders a single credential field with edit/save/clear/show-hide controls and status indicators.
 
@@ -562,10 +564,10 @@ $XDG_CONFIG_HOME/dad/sessions.db
 ```
 On WSLg this resolves to `~/.config/dad/dad/sessions.db`. The directory is created automatically on first launch.
 
-Notes markdown files are stored at:
+Notes markdown files are stored under the configured notes root (`settings.json` → `notes.rootPath`, default `$XDG_CONFIG_HOME/dad/notes`):
 ```
-$XDG_CONFIG_HOME/dad/notes/global/<panelId>/<tabId>.md
-$XDG_CONFIG_HOME/dad/notes/sessions/<sessionId>/<tabId>.md
+<notesRoot>/global/<panelId>/<tabId>.md
+<notesRoot>/sessions/<sessionId>/<tabId>.md
 ```
 
 ### State detection patterns
