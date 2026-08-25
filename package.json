@@ -1,8 +1,8 @@
 {
   "name": "dad",
-  "version": "1.0.4-dev",
+  "version": "1.1.0",
   "desktopName": "dad.desktop",
-  "description": "Developer Automation Desktop \u2014 atompunk dev environment",
+  "description": "Developer Automation Desktop — atompunk dev environment",
   "main": "out/main/index.js",
   "scripts": {
     "start": "electron-vite dev",
