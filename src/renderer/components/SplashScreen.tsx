@@ -1,18 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './SplashScreen.css';
 
-const FIRST_LAUNCH_MESSAGE = 'Hi Hungry, I\'m DAD';
+const FIRST_LAUNCH_MESSAGE = 'Hi Hungry, I\'m DAD.';
 
 const MESSAGES = [
-  'DAD can build anything',
-  'DAD said it\'s my turn on the terminal!',
-  'Go ask DAD',
-  'DAD\'s home!',
-  'Because DAD said so.',
+  'DAD can build anything.',
   'Don\'t tell your mother.',
-  'Pull my finger.',
-  'Who touched the thermostat?',
-  'Back in my day, we deployed on Fridays.',
+  'Trust DAD, deploy on Fridays.',
+  'Don\'t trust a duck who says he\'s a doctor. He\'s a quack!',
+  'What\'s the scariest plant in china? The bam-BOO!',
+  'How do you think the unthinkable? With an itheberg.',
+  'What\'s blue and smells of red paint? blue paint.',
+  'What\'s brown and sticky? A stick.',
 ];
 
 type Phase = 'loading' | 'fade-in' | 'hold' | 'fade-out' | 'done';

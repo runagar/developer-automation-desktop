@@ -27,7 +27,7 @@ allowed-tools: shell
    1. This might require back-and-forth conversation and multiple passes
 7. When all ambiguties are resolved, write an implementation plan in the `## Implementation Plan` section. 
 8. Perform rubberduck analysis of the plan against the requirements, ambiguities and codebase.
-9.  Ask the user to approve the plan.
+9. Ask the user to approve the plan.
    1.  This might require back-and-forth conversation and multiple passes
 10. When the plan is approved, checkout main and pull from origin
 11. Do not create a new working branch, work directly on main
@@ -36,6 +36,6 @@ allowed-tools: shell
 14. Fix any bugs described by the user. Do not invoke the fix-bug skill.
 15. Once testing is complete, update ./.github/developer-automation-desktop.md
 16. Commit, push to remote. Never create or push tags
-17. NEVER push to remote an open a pull request if user has not confirmed that everything is working as detailed by step 9. and 10.
+17. NEVER push to remote if user has not confirmed that everything is working as detailed by step 9. and 10.
 
 
