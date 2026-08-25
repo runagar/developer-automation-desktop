@@ -1,0 +1,39 @@
+/* =========================================================
+   WORKSPACE DISCOVERY DIALOG
+
+   Reuses ManageWorkspacesDialog.css for layout, table and inputs
+   (same pattern as JiraSettingsDialog / NotesSettingsDialog reusing
+   CredentialsDialog.css). Only the genuinely new rules live here.
+   ========================================================= */
+
+.workspace-discovery__key-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.workspace-discovery__key-input--invalid {
+  border-color: var(--c-red);
+  color: var(--c-red);
+}
+
+.workspace-discovery__key-input--invalid:focus {
+  border-color: var(--c-red);
+  box-shadow: none;
+}
+
+.workspace-discovery__group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-discovery__group-row .manage-workspaces__input {
+  max-width: 240px;
+  flex: 0 1 auto;
+}
+
+.workspace-discovery__save-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}

@@ -24,6 +24,12 @@ const api: IpcApi = {
   moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('workspaces:move', key, toGroup, toIndex),
   reorderGroup: (name, toIndex) => ipcRenderer.invoke('workspaces:reorderGroup', name, toIndex),
 
+  // Workspace discovery
+  getPendingDiscovery: () => ipcRenderer.invoke('workspaces:pendingDiscovery'),
+  clearPendingDiscovery: () => ipcRenderer.invoke('workspaces:clearPendingDiscovery'),
+  discoverWorkspaces: () => ipcRenderer.invoke('workspaces:discover'),
+  saveDiscoveredWorkspaces: (entries, group) => ipcRenderer.invoke('workspaces:saveDiscovered', entries, group),
+
   // Settings
   getDefaultWorkingRoot: () => ipcRenderer.invoke('settings:getDefaultRoot'),
   setDefaultWorkingRoot: (root) => ipcRenderer.invoke('settings:setDefaultRoot', root),

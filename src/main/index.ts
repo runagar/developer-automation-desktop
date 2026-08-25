@@ -8,7 +8,9 @@ import { WorkspaceManager } from './workspaces';
 import { NotesManager } from './notes';
 import { registerIpcHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc';
 import { getMaximizeState, setMaximizeState } from './ipc/window';
-import { loadSettings } from './settings';
+import { loadSettings, isFirstLaunch, getDefaultWorkingRoot } from './settings';
+import { discoverWorkspaces } from './workspaceDiscovery';
+import { DiscoveredWorkspace } from './types';
 import { initAutoUpdater } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
@@ -17,6 +19,7 @@ let sessionManager: SessionManager;
 let shellTmuxManager: ShellTmuxManager;
 let workspaceManager: WorkspaceManager;
 let notesManager: NotesManager;
+let pendingDiscovery: Promise<DiscoveredWorkspace[]> | null = null;
 
 // ---------------------------------------------------------------------------
 // Window-state persistence
@@ -206,6 +209,16 @@ async function initialize(): Promise<void> {
   sessionManager = new SessionManager(dataDir);
   shellTmuxManager = new ShellTmuxManager();
   workspaceManager = new WorkspaceManager(workspacesPath, dataDir);
+
+  // First-launch workspace discovery. Read the flag here — before the renderer
+  // exists — because SplashScreen flips firstLaunchComplete as soon as the
+  // splash finishes. The scan promise is deliberately NOT awaited: an unbounded
+  // directory walk must never delay window creation.
+  if (isFirstLaunch(dataDir)) {
+    pendingDiscovery = discoverWorkspaces(getDefaultWorkingRoot(dataDir), workspaceManager.getEntries())
+      .catch(() => []); // never let an unawaited scan surface as an unhandled rejection
+  }
+
   await sessionManager.initialize();
 
   // Initialize notes manager (uses same DB as sessions)
@@ -214,7 +227,10 @@ async function initialize(): Promise<void> {
   notesManager = new NotesManager(notesDb, dataDir);
   notesManager.initialize();
 
-  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, notesManager, () => mainWindow, dataDir);
+  registerIpcHandlers(ipcMain, sessionManager, shellTmuxManager, workspaceManager, notesManager, () => mainWindow, dataDir, {
+    peek: () => pendingDiscovery ?? Promise.resolve([]),
+    clear: () => { pendingDiscovery = null; },
+  });
 }
 
 // ---------------------------------------------------------------------------

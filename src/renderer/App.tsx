@@ -14,6 +14,7 @@ import SplashScreen from './components/SplashScreen';
 import JiraSettingsDialog from './components/JiraSettingsDialog';
 import NotesSettingsDialog from './components/NotesSettingsDialog';
 import ManageWorkspacesDialog from './components/ManageWorkspacesDialog';
+import WorkspaceDiscoveryDialog from './components/WorkspaceDiscoveryDialog';
 import TitleBar from './components/TitleBar';
 import { useZoomKeyboard } from './components/ZoomControl';
 import { initCrtEffects } from './components/crtEffects';
@@ -26,6 +27,7 @@ import {
   useSessionStore,
 } from './stores/sessionStore';
 import './styles/app.css';
+import { DiscoveredWorkspace } from '../main/types';
 
 declare global {
   interface Window {
@@ -42,6 +44,10 @@ export default function App(): React.ReactElement {
   const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  const [discoveryEntries, setDiscoveryEntries] = useState<DiscoveredWorkspace[] | null>(null);
+  // True only for the first-launch instance, so we know whether the main-process
+  // cache still needs clearing.
+  const [discoveryIsPending, setDiscoveryIsPending] = useState(false);
 
   // Global zoom keyboard shortcuts (always active)
   useZoomKeyboard();
@@ -87,6 +93,40 @@ export default function App(): React.ReactElement {
       cancelled = true;
       cleanup();
     };
+  }, []);
+
+  // First-launch workspace discovery — the scan ran in the main process during
+  // startup; show it once the splash is out of the way.
+  useEffect(() => {
+    if (!splashDone) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const entries = await window.dad.getPendingDiscovery();
+        if (cancelled) return;
+        if (entries.length > 0) {
+          setDiscoveryEntries(entries);
+          setDiscoveryIsPending(true);
+        } else {
+          void window.dad.clearPendingDiscovery();
+        }
+      } catch {
+        // Discovery is best-effort — never block startup on it.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [splashDone]);
+
+  const closeDiscovery = useCallback(() => {
+    if (discoveryIsPending) {
+      void window.dad.clearPendingDiscovery();
+      setDiscoveryIsPending(false);
+    }
+    setDiscoveryEntries(null);
+  }, [discoveryIsPending]);
+
+  const handleOpenDiscovery = useCallback((entries: DiscoveredWorkspace[]) => {
+    setDiscoveryEntries(entries);
   }, []);
 
   // When activeSessionId changes, switch default panels
@@ -342,7 +382,18 @@ export default function App(): React.ReactElement {
           onRemoveGroup={handleRemoveGroup}
           onMove={handleMoveWorkspace}
           onReorderGroup={handleReorderGroup}
+          onOpenDiscovery={handleOpenDiscovery}
+          suspended={discoveryEntries !== null}
           onClose={() => setWorkspacesDialogOpen(false)}
+        />
+      )}
+      {/* Rendered last so it stacks above every other dialogue */}
+      {discoveryEntries && (
+        <WorkspaceDiscoveryDialog
+          entries={discoveryEntries}
+          existingKeys={workspaceGroups.flatMap((g) => g.workspaces.map((w) => w.key))}
+          onSaved={closeDiscovery}
+          onClose={closeDiscovery}
         />
       )}
     </div>

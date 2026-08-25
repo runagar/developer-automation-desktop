@@ -65,6 +65,12 @@ export interface IpcApi {
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   reorderGroup: (name: string, toIndex: number) => Promise<void>;
 
+  // Workspace discovery
+  getPendingDiscovery: () => Promise<DiscoveredWorkspace[]>;
+  clearPendingDiscovery: () => Promise<void>;
+  discoverWorkspaces: () => Promise<DiscoveredWorkspace[]>;
+  saveDiscoveredWorkspaces: (entries: DiscoveredWorkspace[], group: string) => Promise<{ saved: boolean; error?: string }>;
+
   // Settings
   getDefaultWorkingRoot: () => Promise<string>;
   setDefaultWorkingRoot: (root: string) => Promise<void>;
@@ -173,3 +179,13 @@ export interface WorkspaceGroup {
   group: string;
   workspaces: WorkspaceEntry[];
 }
+
+/** A directory found by workspace discovery that is not yet a saved workspace. */
+export interface DiscoveredWorkspace {
+  key: string;
+  repo: string;
+  workingDir: string;
+}
+
+/** Default group name offered for newly discovered workspaces (editable). */
+export const DEFAULT_DISCOVERY_GROUP = 'Default Group';

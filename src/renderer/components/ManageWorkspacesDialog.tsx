@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { WorkspaceEntry, WorkspaceGroup, Session } from '../../main/types';
+import { WorkspaceEntry, WorkspaceGroup, Session, DiscoveredWorkspace } from '../../main/types';
+import { normalizeKey, isValidKey, KEY_MAX_LENGTH, KEY_FORMAT_HINT } from '../../main/workspaceKeys';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import ConfirmDialog from './ConfirmDialog';
 import './ManageWorkspacesDialog.css';
@@ -12,6 +13,8 @@ interface Props {
   onRemoveGroup: (name: string) => Promise<void>;
   onMove: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   onReorderGroup: (name: string, toIndex: number) => Promise<void>;
+  onOpenDiscovery: (entries: DiscoveredWorkspace[]) => void;
+  suspended: boolean;
   onClose: () => void;
 }
 
@@ -23,6 +26,8 @@ export default function ManageWorkspacesDialog({
   onRemoveGroup,
   onMove,
   onReorderGroup,
+  onOpenDiscovery,
+  suspended,
   onClose,
 }: Props): React.ReactElement {
   const [pendingRemoveKey, setPendingRemoveKey] = useState<string | null>(null);
@@ -48,11 +53,29 @@ export default function ManageWorkspacesDialog({
   const [defaultRootDraft, setDefaultRootDraft] = useState<string | null>(null);
   const [defaultRootSaved, setDefaultRootSaved] = useState(false);
 
+  // Discovery
+  const [pendingRediscover, setPendingRediscover] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+
   useEffect(() => {
     void window.dad.getDefaultWorkingRoot().then((root) => {
       setDefaultRoot(root);
     });
   }, []);
+
+  const rootIsDirty = defaultRootDraft !== null && defaultRootDraft !== defaultRoot;
+
+  const runDiscovery = useCallback(async () => {
+    setIsDiscovering(true);
+    try {
+      const entries = await window.dad.discoverWorkspaces();
+      onOpenDiscovery(entries);
+    } catch {
+      // Discovery is best-effort; the dialogue simply doesn't open.
+    } finally {
+      setIsDiscovering(false);
+    }
+  }, [onOpenDiscovery]);
 
   const handleSaveDefaultRoot = useCallback(async () => {
     if (defaultRootDraft === null || defaultRootDraft === defaultRoot) return;
@@ -62,6 +85,8 @@ export default function ManageWorkspacesDialog({
     setDefaultRootSaved(true);
     setTimeout(() => setDefaultRootSaved(false), 2000);
     window.dispatchEvent(new Event('dad-settings-changed'));
+    // The root actually changed — offer to rediscover against it.
+    setPendingRediscover(true);
   }, [defaultRootDraft, defaultRoot]);
 
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
@@ -70,7 +95,7 @@ export default function ManageWorkspacesDialog({
     setAddError(null);
     setIsAdding(true);
     try {
-      const result = await addWorkspace(newKey, newRepo, newGroup, newWdr || undefined, createMissingDir);
+      const result = await addWorkspace(normalizeKey(newKey), newRepo.trim(), newGroup, newWdr || undefined, createMissingDir);
       if (result.created) {
         setShowAddForm(false);
         setNewKey('');
@@ -129,14 +154,20 @@ export default function ManageWorkspacesDialog({
     }
   }, [showAddForm, workspaceGroups, newGroup]);
 
-  // Close on Escape
+  // Close on Escape — suspended while a child dialogue owns the keyboard, and
+  // guarded against every nested confirmation so ESC there cancels only the
+  // confirmation rather than closing this dialogue underneath it.
+  const suspendedRef = useRef(suspended);
+  useEffect(() => { suspendedRef.current = suspended; }, [suspended]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !pendingRemoveKey) onClose();
+      if (suspendedRef.current) return;
+      if (e.key === 'Escape' && !pendingRemoveKey && !missingDirPath && !pendingRediscover) onClose();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose, pendingRemoveKey]);
+  }, [onClose, pendingRemoveKey, missingDirPath, pendingRediscover]);
 
   // Capture-phase Tab handler: blocks session cycling AND implements
   // focus traps for the add-workspace and add-group forms.
@@ -145,6 +176,8 @@ export default function ManageWorkspacesDialog({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
+      // Let the stacked discovery dialogue own Tab entirely.
+      if (suspendedRef.current) return;
       e.stopImmediatePropagation(); // always block session cycling
 
       const focused = document.activeElement;
@@ -189,10 +222,12 @@ export default function ManageWorkspacesDialog({
 
   // --- Add workspace ---
   const handleAddSubmit = async () => {
-    const trimmedKey = newKey.trim().toUpperCase();
+    const trimmedKey = normalizeKey(newKey);
     const trimmedRepo = newRepo.trim();
     const trimmedGroup = newGroup.trim();
-    if (!trimmedKey || !trimmedRepo) { setAddError('Key and Repo are required'); return; }
+    if (!isValidKey(trimmedKey) || !trimmedRepo) {
+      setAddError(`Repo is required and key must be ${KEY_FORMAT_HINT}`); return;
+    }
     if (!trimmedGroup) { setAddError('Please select a group'); return; }
     const allKeys = workspaceGroups.flatMap((g) => g.workspaces.map((w) => w.key));
     if (allKeys.includes(trimmedKey)) { setAddError(`Key "${trimmedKey}" already exists`); return; }
@@ -488,7 +523,8 @@ export default function ManageWorkspacesDialog({
                   className="manage-workspaces__input manage-workspaces__input--short"
                   placeholder="KEY"
                   value={newKey}
-                  onChange={(e) => { setNewKey(e.target.value); setAddError(null); }}
+                  maxLength={KEY_MAX_LENGTH}
+                  onChange={(e) => { setNewKey(normalizeKey(e.target.value)); setAddError(null); }}
                   disabled={isAdding}
                 />
                 <input
@@ -557,6 +593,19 @@ export default function ManageWorkspacesDialog({
                 )}
                 {defaultRootSaved && <span className="manage-workspaces__saved">✓ Saved</span>}
               </div>
+              <div className="manage-workspaces__discover-row">
+                <span title={rootIsDirty
+                  ? 'Save the working directory root first'
+                  : 'Scan the default working directory root for new workspaces'}>
+                  <button
+                    className="btn manage-workspaces__discover-btn"
+                    onClick={() => void runDiscovery()}
+                    disabled={rootIsDirty || isDiscovering}
+                  >
+                    {isDiscovering ? '…' : 'DISCOVER WORKSPACES'}
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -585,6 +634,22 @@ export default function ManageWorkspacesDialog({
             void handleAddWorkspace(true);
           }}
           onCancel={() => setMissingDirPath(null)}
+        />
+      )}
+
+      {pendingRediscover && (
+        <ConfirmDialog
+          message="Perform workspace discovery on the new default working directory root?"
+          detail={`Scans "${defaultRoot}" for directories that are not yet workspaces. Existing workspaces are never discarded.`}
+          confirmLabel="DISCOVER"
+          cancelLabel="NO"
+          onConfirm={() => {
+            // Clear first — otherwise this confirmation stays mounted underneath
+            // and reappears when the discovery dialogue closes.
+            setPendingRediscover(false);
+            void runDiscovery();
+          }}
+          onCancel={() => setPendingRediscover(false)}
         />
       )}
     </div>

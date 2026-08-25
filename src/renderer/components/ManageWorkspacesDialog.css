@@ -328,3 +328,11 @@
   letter-spacing: 0.05em;
 }
 
+.manage-workspaces__discover-row {
+  margin-top: 8px;
+}
+
+.manage-workspaces__discover-btn {
+  font-size: 0.65rem;
+}
+

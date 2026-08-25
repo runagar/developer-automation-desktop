@@ -3,6 +3,7 @@ import { SessionManager } from './sessions';
 import { ShellTmuxManager } from './shellTmux';
 import { WorkspaceManager } from './workspaces';
 import { NotesManager } from './notes';
+import { DiscoveredWorkspace } from './types';
 
 import { registerSessionHandlers } from './ipc/sessions';
 import { registerPtyHandlers } from './ipc/pty';
@@ -22,11 +23,15 @@ export function registerIpcHandlers(
   workspaceManager: WorkspaceManager,
   notesManager: NotesManager,
   getWindow: () => BrowserWindow | null,
-  dataDir: string
+  dataDir: string,
+  pendingDiscovery: {
+    peek: () => Promise<DiscoveredWorkspace[]>;
+    clear: () => void;
+  }
 ): void {
   registerSessionHandlers(ipcMain, sessionManager, shellTmuxManager, notesManager);
   registerPtyHandlers(ipcMain, sessionManager, shellTmuxManager);
-  registerWorkspaceHandlers(ipcMain, workspaceManager);
+  registerWorkspaceHandlers(ipcMain, workspaceManager, dataDir, pendingDiscovery);
   registerSettingsHandlers(ipcMain, notesManager, dataDir);
   registerJiraHandlers(ipcMain, sessionManager, dataDir);
   registerNotesHandlers(ipcMain, notesManager, getWindow);

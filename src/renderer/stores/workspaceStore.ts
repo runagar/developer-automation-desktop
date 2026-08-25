@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { WorkspaceGroup } from '../../main/types';
+import { DiscoveredWorkspace, WorkspaceGroup } from '../../main/types';
 
 interface WorkspaceStore {
   groups: WorkspaceGroup[];
@@ -11,6 +11,7 @@ interface WorkspaceStore {
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
   reorderGroup: (name: string, toIndex: number) => Promise<void>;
+  saveDiscovered: (entries: DiscoveredWorkspace[], group: string) => Promise<{ saved: boolean; error?: string }>;
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>((set) => {
@@ -53,6 +54,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => {
     reorderGroup: async (name, toIndex) => {
       await window.dad.reorderGroup(name, toIndex);
       await refresh();
+    },
+
+    saveDiscovered: async (entries, group) => {
+      const result = await window.dad.saveDiscoveredWorkspaces(entries, group);
+      if (result.saved) await refresh();
+      return result;
     },
   };
 });

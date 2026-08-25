@@ -157,6 +157,15 @@
 .btn:active {
   background: var(--c-dim);
 }
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--c-mid);
+}
+.btn:disabled:hover {
+  background: var(--c-panel);
+  box-shadow: none;
+}
 .btn--primary {
   border-color: var(--c-bright);
   font-weight: 700;

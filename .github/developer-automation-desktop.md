@@ -27,7 +27,7 @@ On startup, a full-viewport splash screen displays a DAD joke:
 - **Skippable:** any key or mouse press snaps the splash away instantly (no fade-out animation).
 - **Theme-aware:** an inline `<script>` in `index.html` reads the saved theme from `localStorage` and sets `data-theme` before first paint, preventing FOUC.
 - The splash renders after the native dependency check dialog (if shown).
-- `firstLaunchComplete` is set to `true` in `settings.json` only after the splash completes or is skipped.
+- `firstLaunchComplete` is set to `true` in `settings.json` only after the splash completes or is skipped. Because of this, anything that needs to know "is this the first launch?" must read the flag in the **main process during `initialize()`** — by the time the renderer is interactive the flag is already consumed. Workspace discovery does exactly this.
 
 **Files:** `SplashScreen.tsx` + `SplashScreen.css`, IPC channels `settings:isFirstLaunch` / `settings:markFirstLaunchComplete`.
 
@@ -331,11 +331,40 @@ Accessible from **Settings → Workspaces** in the header dropdown. Opens a dial
 - **Reorder workspaces** within and across groups by drag-and-dropping workspace rows.
 - **Reorder groups** by drag-and-dropping the group name cell.
 
-**Settings section:** Below the add buttons, a "SETTINGS" section contains the **Default Working Directory Root** input. Editable — saved on Enter or ✓ click. Unsaved edits are preserved within the dialog but discarded on close. The add-workspace form always uses the persisted root, not the unsaved draft.
+**Settings section:** Below the add buttons, a "SETTINGS" section contains the **Default Working Directory Root** input. Editable — saved on Enter or ✓ click. Unsaved edits are preserved within the dialog but discarded on close. The add-workspace form always uses the persisted root, not the unsaved draft. A **DISCOVER WORKSPACES** button sits directly below the input (see Workspace discovery).
 
-**Configuration:** Workspace groups are stored in `<dataDir>/workspaces.json` (migrated from `projects.json` on first launch). The default working directory root is stored in `<dataDir>/settings.json` under `workspaces.defaultWorkingDirectoryRoot` (auto-detected from `os.homedir() + '/projects'` on first run).
+**Workspace keys** must match the format enforced by `src/main/workspaceKeys.ts`: 1–8 characters, `A-Z`, `0-9`, `-` and `_`, with at least one alphanumeric. Inputs normalise as the user types (`normalizeKey`), and `WorkspaceManager.addWorkspace()` enforces `isValidKey()` so the rule holds even when called over IPC. Use the exported `KEY_FORMAT_HINT` in any new error message rather than restating the format.
+
+**Configuration:** Workspace groups are stored in `<dataDir>/workspaces.json` (migrated from `projects.json` on first launch). The default working directory root is stored in `<dataDir>/settings.json` under `workspaces.defaultWorkingDirectoryRoot` (auto-detected from `os.homedir() + '/projects'` on first run). `WorkspaceManager.writeGroups()` writes atomically (tmp file + rename), so a crash mid-write can never truncate the list.
 
 **Naming convention:** All code references use "workspace" terminology (not "project"). Types: `WorkspaceEntry`, `WorkspaceGroup`. IPC channels: `workspaces:*`. Store: `useWorkspaceStore`. Manager: `WorkspaceManager`.
+
+### Workspace discovery
+Scans the default working directory root one level deep and offers every directory that is not already a workspace. Implemented by `src/main/workspaceDiscovery.ts` (scan) and `WorkspaceDiscoveryDialog.tsx` (UI).
+
+**Three entry points, one dialog:**
+1. **First launch** — the scan runs in `initialize()` while `isFirstLaunch(dataDir)` is still true, because `SplashScreen` flips `firstLaunchComplete` as soon as the splash ends. The renderer therefore cannot evaluate first-launch itself; it fetches the cached result after `splashDone`. The dialog only opens if at least one new workspace was found.
+2. **Root changed** — saving a *different* Default Working Directory Root prompts "perform workspace discovery on the new root?".
+3. **DISCOVER WORKSPACES button** — always opens the dialog, even with zero results.
+
+**Rules that must be preserved:**
+- The first-launch scan promise is cached **unawaited** in `index.ts`. Never `await` it there — an unbounded directory walk would delay window and splash creation.
+- `workspaces:pendingDiscovery` **peeks without clearing**. The renderer calls `workspaces:clearPendingDiscovery` only after the user saves or confirms a discard, so a renderer reload cannot destroy first-launch discovery permanently.
+- **`saveDiscovered()` is all-or-nothing.** Every `await` happens *before* `readGroups()`, so read → validate → write is synchronous and a concurrent mutation can never be clobbered by a stale snapshot. Preserve this ordering when editing it.
+- Discovery only ever **appends**; existing workspaces are never discarded or rewritten.
+- Group names match **case-insensitively**, so saving into `Other` when `OTHER` exists reuses the existing group.
+- Discovered directories: non-hidden only, symlinks followed when they resolve to a directory, sorted alphabetically, and filtered against existing `workingDir` values (resolved absolute paths).
+- Keys are auto-abbreviated (`rs-consent-registry` → `RCR`) and de-duplicated with a numeric suffix (`RCR`, `RCR2`) against both the batch and the saved workspaces.
+
+**IPC channels:** `workspaces:pendingDiscovery` (peek the cached first-launch scan), `workspaces:clearPendingDiscovery`, `workspaces:discover` (scan on demand), `workspaces:saveDiscovered` — registered in `ipc/workspaces.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+
+**Dialog behaviour (differs deliberately from other dialogs):**
+- **Backdrop clicks are inert** and **ESC behaves exactly like the ✕ button** — both raise a discard confirmation. Every other dialog in the app closes on ESC and backdrop click.
+- While it is open it passes `suspended` to `ManageWorkspacesDialog`, which then ignores both its ESC and its capture-phase Tab handler. Without this the parent would close underneath, and its `stopImmediatePropagation()` would swallow Tab before the child could trap focus. **Any new stacked dialog needs the same treatment.**
+- The dialog measures its natural height once on mount and locks it inline, so removing rows doesn't resize the frame under the cursor. The CSS `max-height: 80vh` still clamps it.
+- It reuses `ManageWorkspacesDialog.css` (same pattern as `JiraSettingsDialog`/`NotesSettingsDialog` reusing `CredentialsDialog.css`); only genuinely new rules live in `WorkspaceDiscoveryDialog.css`.
+
+**Disabled buttons:** `.btn:disabled` in `pipboy.css` provides the greyed-out state app-wide — don't redefine it per component. A `title` on a disabled button does **not** produce a tooltip (disabled elements swallow mouse events); put the explanatory `title` on a wrapping `<span>` instead.
 
 ---
 
@@ -364,6 +393,8 @@ Main process
 ├── SessionManager       SQLite session store + session lifecycle + panel-instance PTY attachments
 ├── ShellTmuxManager     tmux-backed shell session management (attach/detach/destroy per panel instance)
 ├── WorkspaceManager     userData-backed workspace config manager
+├── workspaceDiscovery.ts  one-level directory scan for undiscovered workspaces
+├── workspaceKeys.ts     pure key abbreviation/normalisation/uniquing (no node imports, unit-tested)
 ├── NotesManager         SQLite + filesystem notes storage (panels, tabs, markdown files)
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
@@ -408,6 +439,7 @@ Renderer process
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
+├── WorkspaceDiscoveryDialog  first-launch / on-demand workspace discovery (inert backdrop, ESC = ✕)
 ├── TitleBar             frameless window controls + update indicator
 ├── UpdateIndicator      inline titlebar notification for available app updates
 ├── CredentialRow        shared credential field component (used by JiraSettingsDialog)
