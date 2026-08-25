@@ -10,11 +10,28 @@ An atompunk-themed Electron desktop environment for AI-assisted development. Man
 
 ## Install
 
+### 1. Install NVM
+
+It's recommended to use nvm for the install process, to avoid permission issues later.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+```
+
+Then reload your shell
+```bash
+exec $SHELL
+command -v nvm   # should print "nvm"
+nvm --version
+```
+
 ### 1. Install prerequisites
 
 ```bash
 sudo apt-get install tmux
+nvm install 22 && nvm use 22
 npm install -g @github/copilot
+copilot --version
 ```
 
 ### 2. Download & install DAD
