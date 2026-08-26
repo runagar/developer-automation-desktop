@@ -154,7 +154,7 @@ export interface IpcApi {
   clearCredential: (key: string) => Promise<void>;
 
   // Auto-updater
-  onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready'; version: string }) => void) => () => void;
+  onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => void) => () => void;
   updaterInstall: () => void;
 }
 

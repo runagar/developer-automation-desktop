@@ -18,6 +18,12 @@
   text-shadow: var(--glow-sm);
 }
 
+.update-indicator__text--warn {
+  color: var(--c-amber);
+  text-shadow: var(--glow-amber);
+  cursor: help;
+}
+
 .update-indicator__restart {
   font-size: 0.65rem;
   padding: 1px 6px;

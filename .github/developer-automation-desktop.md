@@ -641,7 +641,21 @@ The `.github/workflows/release.yml` workflow builds the `.deb` and publishes it 
 
 ### Auto-update
 
-On each launch (production only — skipped in dev mode), `electron-updater` checks GitHub Releases for a newer version. If found, it downloads silently in the background. Once downloaded, an `UpdateIndicator` appears in the TitleBar (left of window controls) showing "v{x.y.z} ready" with a **Restart** button. Clicking Restart calls `autoUpdater.quitAndInstall()`. The indicator can be dismissed; it reappears on next launch. If the user never clicks Restart, the update is applied automatically when the app quits (`autoInstallOnAppQuit`).
+On each launch (production only — skipped in dev mode), `electron-updater` checks GitHub Releases for a newer version. If found, it downloads silently in the background. Once downloaded, an `UpdateIndicator` appears in the TitleBar (left of window controls) showing "v{x.y.z} ready" with a **Restart** button. The indicator can be dismissed; it reappears on next launch. If the user never clicks Restart, the update is applied automatically when the app quits (`autoInstallOnAppQuit`).
+
+**Privilege escalation must not go through pkexec alone.** `electron-updater`'s `LinuxUpdater` picks the first of gksudo/kdesudo/pkexec that exists and only falls back to plain `sudo` if none are present. WSLg has pkexec installed (via policykit) but runs **no polkit authentication agent**, so pkexec always exits 127 (`No authentication agent found`) and the update fails. `updater.ts` therefore checks `sudo -n true` first and, when unattended sudo works, installs the `.deb` itself (`sudo -n dpkg -i`, falling back to `sudo -n apt-get install -f -y`) before calling `app.relaunch()`. Only when unattended sudo is unavailable does it delegate to `quitAndInstall()`, which still works on a desktop session with a polkit agent.
+
+Two invariants when touching this path:
+- After installing the package ourselves, set `autoUpdater.autoInstallOnAppQuit = false` before quitting. `BaseUpdater`'s quit handler re-checks the flag at quit time, and without this it runs the installer a second time.
+- Never treat `apt-get install -f -y` exiting 0 as proof of success — it exits 0 whenever nothing is broken, even if the new package was never unpacked. `installDeb()` confirms via `dpkg-query` that the installed version matches the `.deb`, otherwise the app relaunches into the old version and silently loses the update.
+
+**Update states** (`UpdaterStatus.state`): `downloading` → `ready` → `installing` → (relaunch) or `manual`. `installing` is sent *before* the synchronous `dpkg` call, because that call freezes the main process and a user who thinks the app has hung may kill it mid-install and leave dpkg needing `dpkg --configure -a`. `manual` carries a shell-quoted `sudo dpkg -i '<file>'` command that the indicator offers to copy — it is the fallback whenever no escalation method works, and exists so a failed install can never look like a button that does nothing.
+
+**IPC channels:** `updater:status` (main → renderer, event), `updater:install` (renderer → main, fire-and-forget).
+
+**Files:** `src/main/updater.ts`, `src/renderer/components/UpdateIndicator.tsx` + `.css`, wired into `TitleBar.tsx`.
+
+**Testing the updater** requires a packaged install — it is skipped in dev mode. Build a `.deb` at a version *below* the latest published release (`npm version <ver> --no-git-tag-version` then `npm run package`), install it, launch `/usr/bin/dad` with the dev env vars unset (`env -u ELECTRON_RENDERER_URL …`, otherwise the packaged app loads the Vite dev server and skips the updater entirely), then exercise the Restart button. Restore the `-dev` version afterwards.
 
 **IPC channels:** `updater:status` (main → renderer, event), `updater:install` (renderer → main, fire-and-forget).
 

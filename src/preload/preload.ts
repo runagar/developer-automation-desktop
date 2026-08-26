@@ -163,7 +163,7 @@ const api: IpcApi = {
 
   // Auto-updater
   onUpdaterStatus: (cb) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: { state: 'downloading' | 'ready'; version: string }) => cb(status);
+    const handler = (_event: Electron.IpcRendererEvent, status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => cb(status);
     ipcRenderer.on('updater:status', handler);
     return () => { ipcRenderer.removeListener('updater:status', handler); };
   },
