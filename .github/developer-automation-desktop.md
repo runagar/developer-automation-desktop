@@ -9,15 +9,30 @@ Developer Automation Desktop (DAD) is a multi-tool desktop environment for devel
 ### Tool tab system
 The app supports **tool tabs** — each tab hosts its own tool with its own panel layout. The tab bar sits between the title bar and the workspace area.
 
-- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). Currently only `agent-smith` exists; the union type `ToolTabId` grows as tools are added.
-- Each tab defines which `PanelType`s it can host (`ToolTabDef.panelTypes`).
-- **Only one tab is active** at a time. Clicking a tab switches the workspace to that tab's layout.
+- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). `agent-smith` and `rest-room` exist; the union type `ToolTabId` grows as tools are added.
+- Each `ToolTabDef` is the tab's complete definition: `id`, `label`, the `PanelType`s it may host (`panelTypes`), and the layout it boots with (`defaultInstances`). Adding a tab is a one-object change.
+- `panelTypes` is **enforced**, not advisory: `spawnPanel` and `spawnGlobalPanel` reject a type the active tab does not allow, `validateState` drops disallowed types on load, and the Panel menu is generated from it.
+- **Only one tab is active** at a time. Clicking a tab switches which workspace is visible.
+- **A tab mounts the first time it is activated and is never unmounted after.** Inactive-but-mounted tabs are hidden with `.workspace--hidden { display: none }`, so their panels keep their PTYs and xterm buffers across tab switches. `App.tsx` tracks this in a `mountedTabs` set that is only ever added to. Mounting lazily also guarantees a panel's first size measurement happens on a laid-out container — `fitAddon.fit()` is a silent no-op on a `display: none` element and would otherwise leave a terminal at a stale 80×24.
 - Tabs cannot be closed, hidden, or reordered.
-- Each tab has its **own layout state** persisted independently to `localStorage` (`dad-dashboard-<tabId>`). The in-memory `tabStates` map holds all tab states; the active tab's state is exposed as `instances` / `locked` in the layout store.
-- The **Panel menu** sits in its own bar below the tab bar and is contextual — it only shows panel types allowed by the active tab.
+- Each tab has its **own layout state** persisted independently to `localStorage` (`dad-dashboard-<tabId>`). The layout store holds every tab's state in `tabs: Record<ToolTabId, DashboardState>` at all times, independent of what is mounted. Consumers read it through selectors (`useTabInstances`, `useTabLocked`, `useActiveInstances`, `useActiveLocked`) — there are no top-level `instances` / `locked` fields.
+- **The layout blob holds panel geometry and identity only.** It is gated by `validateState`, so a malformed or oversized payload there discards the whole tab's layout. Features that need to persist panel *content* must use their own storage key or `settings.json`.
+- Session lifecycle actions (`destroyLinkedPanels`, `switchDefaultPanels`) iterate **every** tab, so archiving a session cannot orphan panels in a tab that is not currently active. Interaction-driven actions (drag, resize, close, maximize) stay scoped to the tab they originate from, because only the visible tab is interactive.
+- The **Panel menu** sits in its own bar below the tab bar and is contextual — it is generated from the active tab's `panelTypes`, giving a visibility toggle per singleton plus the Notes submenu when `notes` is allowed.
 - The **Settings dropdown** sits at the right end of the tab bar (global, not per-tab).
 
-**UI:** `ToolTabBar.tsx` renders the tab row. Active tab text is bright (`--c-bright`); inactive tabs are muted (`--c-dark`). The tab bar has a `2px solid var(--c-bright)` bottom border; the active tab's bottom border matches the background colour to "cut into" the line (classic tab pattern).
+**UI:** `ToolTabBar.tsx` renders the tab row. Active tab text is `--c-bright`; inactive tabs are `--c-mid` and brighten to `--c-bright` on hover. The tab bar has a `2px solid var(--c-bright)` bottom border; the active tab's bottom border matches the background colour to "cut into" the line (classic tab pattern).
+
+### Rest Room tab
+The REST tooling tab. It is session-unbound — it has no Sessions panel and no notion of an active session. It hosts three singleton panels, laid out left-to-right in pipeline order, plus Notes:
+
+| Panel | Type | Default placement | Status |
+|---|---|---|---|
+| API Picker | `api-picker` | `x0 y0 w6 h24` | Placeholder — implemented in R2 |
+| REST Crafter | `rest-crafter` | `x6 y0 w10 h24` | Placeholder — implemented in R3 |
+| REST Response | `rest-response` | `x16 y0 w8 h24` | Placeholder — implemented in R4 |
+
+All three are singletons: always present in the tab's default layout, never destroyed. The ✕ button hides them and the Panel menu toggles them back — exactly the Sessions panel model, now generalised over `SINGLETON_TYPES` rather than hardcoded to the string `'sessions'`.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:
@@ -60,14 +75,19 @@ The main workspace is a **24×24 virtual grid** of draggable, resizable panels. 
 - **Global**: Not bound to any session. Created via the Panel menu → Notes submenu. Only panel types in `GLOBAL_CAPABLE_TYPES` (currently: `notes`) support this mode. Global panels have `isGlobal: true` on their `PanelInstance` and display a globe icon in the header instead of a session name.
 
 **Panel instance data model** (`PanelInstance`):
-- `id` — type-prefixed nanoid (e.g. `terminal-a8f3k2`) or `"sessions"` for the singleton.
-- `type` — `'sessions' | 'terminal' | 'jira' | 'shell' | 'notes'`
+- `id` — type-prefixed nanoid (e.g. `terminal-a8f3k2`), or the bare type name for a singleton (`"sessions"`, `"api-picker"`). Identifies a **view** and is unique across all tabs.
+- `contentId` — identifies the **domain object the view displays** (e.g. a `notes_panels` row id). Optional; only set for panels opened from a saved-object list. Separating it from `id` is what lets the same global note be open in two tabs at once.
+- `type` — `'sessions' | 'terminal' | 'jira' | 'shell' | 'notes' | 'api-picker' | 'rest-crafter' | 'rest-response'`
 - `placement` — `{ x, y, w, h, visible, z }`
 - `mode` — `'singleton' | 'default' | 'linked'`
 - `linkedSessionId` — set only when mode is `linked`
 - `currentSessionId` — what the panel is currently displaying
 - `isGlobal` — `true` for global panels (no session binding); only applicable to `GLOBAL_CAPABLE_TYPES`
 - `name` — user-facing name for global notes panels; defaults to `"Untitled"`, persisted in both localStorage and SQLite
+
+> **`id` vs `contentId`.** Never assume a layout instance id is a database id. `notes_panels.id` is a `contentId`, not an `id` — every notes IPC call (`notesClosePanel`, `notesRenamePanel`, `notesDestroyPanel`, `notesRestorePanel`, and the `{ kind: 'global', id }` scope) takes the `contentId`. Layouts written before this field existed are migrated in `validateState`, which backfills `contentId = id` for global notes panels only, and **never overwrites a `contentId` that is already present** — doing so would silently desync two views of the same note.
+
+**Layout state validation** (`validateState(value, tabId)`) is tab-aware and **repairing** rather than all-or-nothing. It drops instances whose type the target tab does not allow, re-inserts (via `findSpawnPlacement`) any singleton the tab's default layout requires but the persisted state lacks, and preserves/backfills `contentId`. It returns `null` only for a payload that is not the instances schema at all. It must never discard a whole tab's layout because one panel is missing.
 
 **Default panel promotion:** When the Default panel of a type is closed, the first remaining instance of that type (in reading order) is promoted to Default. It loses its session link but keeps its current content.
 
@@ -236,7 +256,15 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 
 **Scoping:**
 - **Session-bound notes** — created via double-click or session context menu. Scope key: `session:<sessionId>`. Notes are destroyed when the session is destroyed.
-- **Global notes** — created via Panel menu → Notes ▸ New. Scope key: `global:<panelId>`. Persists independently of sessions. The Panel menu → Notes submenu lists all global panels (open and closed) under "SAVED NOTES"; clicking an open panel focuses it, clicking a closed panel restores it.
+- **Global notes** — created via Panel menu → Notes ▸ New. Scope key: `global:<contentId>`, where `contentId` is the `notes_panels` row id. Persists independently of sessions. The Panel menu → Notes submenu lists all global panels (open and closed) under "SAVED NOTES". Clicking a saved note resolves to one of three outcomes:
+
+  | Open in current tab | Open in another tab | Action |
+  |---|---|---|
+  | yes | — | bring the existing view to front |
+  | no | yes | spawn a **second view** in the current tab, sharing the `contentId` — no DB call, the note is already open |
+  | no | no | `notesRestorePanel(contentId)`, then spawn a view |
+
+  Because both views resolve to the same scope key, the existing `notesStore.contentVersion` mirroring keeps them live-synced with no extra work. Renaming one view fans out to every view sharing that `contentId`, across all tabs.
 
 **Tabbed interface:**
 - Each notes scope contains multiple **tabs** (markdown files). A new scope auto-creates its first tab.
@@ -264,7 +292,8 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 - On session destroy, all session-bound notes (DB rows + files + directory) are removed.
 
 **Panel lifecycle:**
-- Closing a global notes panel (✕) marks it as closed in the DB (`notes_panels.closed_at`) and removes the panel instance from the layout. The data is preserved and can be restored.
+- Closing a global notes panel (✕) removes that view from the layout, and marks the note closed in the DB (`notes_panels.closed_at`) **only when it is the last view of that note** — another tab may still be showing it. This check lives in `App.tsx`'s `handleCloseInstance`, not in the generic `Workspace` grid component. The data is preserved and can be restored.
+- Deleting a saved note from the Panel menu calls `notesDestroyPanel(contentId)` and then `destroyByContentId(contentId)`, closing every view in every tab.
 - Permanently destroying a closed global panel deletes all tabs, files, and the directory.
 - Session-bound notes panels follow normal panel destroy behaviour (data lives as long as the session).
 
@@ -415,17 +444,18 @@ Renderer process
 │   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
-│   └── layoutStore.ts   per-tab PanelInstance[] management, spawn/destroy/promote/switchDefault
+│   └── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
 ├── hooks/
-│   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys
+│   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
 ├── dashboard/           grid layout system (framework-agnostic)
-│   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTab types, spawn placement algorithm
+│   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTabDef (panelTypes + defaultInstances), spawn placement algorithm
+│   ├── layout.test.ts   unit tests for tab definitions, defaultState and validateState
 │   └── usePanelFocus.ts intra-panel Tab wrapping (supplemented by Workspace capture handler)
 ├── ToolTabBar           tool tab row: tab switching + SettingsMenu (global)
 ├── SplashScreen         startup splash overlay with DAD jokes + first-launch detection
-├── Workspace            24×24 grid container: drag/resize, Ctrl+Tab (instance cycling), Tab wrapping, focus tracking
+├── Workspace            24×24 grid container (one per mounted tab): drag/resize, Ctrl+Tab (instance cycling), Tab wrapping, focus tracking
 ├── WorkspacePanel       panel chrome: drag header, resize handles, close, default badge (◆), error boundary
-├── PanelMenu            panel bar dropdown: Sessions toggle + Notes submenu + lock
+├── PanelMenu            panel bar dropdown: singleton toggles for the active tab + Notes submenu + lock
 ├── SessionList          sessions panel body: new/archive/restore/destroy
 │   ├── Active sessions  main list with archive button (✕), double-click, context menu
 │   └── Archived section collapsible list with restore (↺), destroy (✕), destroy-all
@@ -434,10 +464,14 @@ Renderer process
 ├── ShellPanelInstance   per-instance shell: shell tmux attach/detach lifecycle, data routing
 ├── JiraPanelInstance    per-instance Jira: issue display for currentSessionId
 ├── NotesPanelInstance   per-instance Notes: scope resolution (global vs session-bound)
+├── ApiPickerPanelInstance   session-unbound wrapper for the API Picker (placeholder until R2)
+├── RestCrafterPanelInstance session-unbound wrapper for the REST Crafter (placeholder until R3)
+├── RestResponsePanelInstance session-unbound wrapper for the REST Response panel (placeholder until R4)
 ├── TerminalPane         xterm.js instance (uses useXterm hook)
 ├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
 ├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
+├── ApiPickerPane / RestCrafterPane / RestResponsePane   REST Room placeholder bodies (no CSS of their own yet)
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
@@ -487,8 +521,8 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - Theme (`dad-theme`), zoom level (`dad-zoom`), CRT toggle states, and dashboard layout (per-tab) are persisted to `localStorage`
 
 **Colour usage rules:**
-- `--c-dim` is for borders and decorative elements only. **Never use `--c-dim` for text colour** — use `--c-mid` as the minimum readable text colour.
-- `--c-mid` — secondary/subdued text (labels, placeholders, inactive tabs, metadata).
+- `--c-dim` and `--c-dark` are for borders and decorative elements only. **Never use either for text colour** — no text label, however secondary, may be dimmer than `--c-mid`. `--c-mid` is the minimum readable text colour.
+- `--c-mid` — secondary/subdued text (labels, placeholders, inactive tabs, metadata). Interactive text at `--c-mid` brightens to `--c-bright` on hover.
 - `--c-bright` — primary text, active elements, headings.
 - Terminal autocomplete suggestions use ANSI `brightBlack` (mapped to `--c-mid`-equivalent values in `xterm-theme.ts`).
 

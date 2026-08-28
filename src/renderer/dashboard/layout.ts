@@ -8,7 +8,9 @@ import { nanoid } from 'nanoid';
 // Panel types & modes
 // ---------------------------------------------------------------------------
 
-export type PanelType = 'sessions' | 'terminal' | 'jira' | 'shell' | 'notes';
+export type PanelType =
+  | 'sessions' | 'terminal' | 'jira' | 'shell' | 'notes'
+  | 'api-picker' | 'rest-crafter' | 'rest-response';
 
 export type PanelMode = 'singleton' | 'default' | 'linked';
 
@@ -18,10 +20,15 @@ export const PANEL_LABELS: Record<PanelType, string> = {
   jira: 'Jira',
   shell: 'Shell',
   notes: 'Notes',
+  'api-picker': 'API Picker',
+  'rest-crafter': 'REST Crafter',
+  'rest-response': 'REST Response',
 };
 
 /** Types that only allow a single instance (toggle show/hide, never destroyed). */
-export const SINGLETON_TYPES: Set<PanelType> = new Set(['sessions']);
+export const SINGLETON_TYPES: Set<PanelType> = new Set([
+  'sessions', 'api-picker', 'rest-crafter', 'rest-response',
+]);
 
 /** Types that can be spawned as global (session-unbound) panels. */
 export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
@@ -30,17 +37,16 @@ export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
 // Tool tabs
 // ---------------------------------------------------------------------------
 
-export type ToolTabId = 'agent-smith'; // union grows as tools are added
+export type ToolTabId = 'agent-smith' | 'rest-room'; // union grows as tools are added
 
 export interface ToolTabDef {
   id: ToolTabId;
   label: string;
+  /** The only panel types this tab may contain. Enforced on spawn and on load. */
   panelTypes: PanelType[];
+  /** The layout this tab boots with, and the source for repairing a missing singleton. */
+  defaultInstances: PanelInstance[];
 }
-
-export const TOOL_TABS: ToolTabDef[] = [
-  { id: 'agent-smith', label: 'AGENT SMITH', panelTypes: ['sessions', 'terminal', 'jira', 'shell', 'notes'] },
-];
 
 export const DEFAULT_TAB: ToolTabId = 'agent-smith';
 
@@ -63,6 +69,12 @@ export interface Placement {
 
 export interface PanelInstance {
   id: string;                // type-prefixed nanoid (e.g. "terminal-a8f3k2"), or "sessions" for the singleton
+  /**
+   * The domain object this panel is a view of (e.g. a notes_panels row id).
+   * `id` identifies the *view*; `contentId` identifies the *thing being viewed*,
+   * so the same object can be open in more than one tab at once.
+   */
+  contentId?: string;
   type: PanelType;
   placement: Placement;
   mode: PanelMode;
@@ -146,7 +158,7 @@ export function generatePanelId(type: PanelType): string {
 // Default layout (24×24)
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_INSTANCES: PanelInstance[] = [
+export const AGENT_SMITH_INSTANCES: PanelInstance[] = [
   {
     id: 'sessions',
     type: 'sessions',
@@ -173,6 +185,50 @@ export const DEFAULT_INSTANCES: PanelInstance[] = [
   },
 ];
 
+export const REST_ROOM_INSTANCES: PanelInstance[] = [
+  {
+    id: 'api-picker',
+    type: 'api-picker',
+    placement: { x: 0, y: 0, w: 6, h: 24, visible: true, z: 1 },
+    mode: 'singleton',
+  },
+  {
+    id: 'rest-crafter',
+    type: 'rest-crafter',
+    placement: { x: 6, y: 0, w: 10, h: 24, visible: true, z: 1 },
+    mode: 'singleton',
+  },
+  {
+    id: 'rest-response',
+    type: 'rest-response',
+    placement: { x: 16, y: 0, w: 8, h: 24, visible: true, z: 1 },
+    mode: 'singleton',
+  },
+];
+
+export const TOOL_TABS: ToolTabDef[] = [
+  {
+    id: 'agent-smith',
+    label: 'AGENT SMITH',
+    panelTypes: ['sessions', 'terminal', 'jira', 'shell', 'notes'],
+    defaultInstances: AGENT_SMITH_INSTANCES,
+  },
+  {
+    id: 'rest-room',
+    label: 'REST ROOM',
+    panelTypes: ['api-picker', 'rest-crafter', 'rest-response', 'notes'],
+    defaultInstances: REST_ROOM_INSTANCES,
+  },
+];
+
+export function tabDef(tabId: ToolTabId): ToolTabDef {
+  return TOOL_TABS.find((t) => t.id === tabId) ?? TOOL_TABS[0];
+}
+
+export function isTypeAllowed(tabId: ToolTabId, type: PanelType): boolean {
+  return tabDef(tabId).panelTypes.includes(type);
+}
+
 function cloneInstances(instances: PanelInstance[]): PanelInstance[] {
   return instances.map((inst) => ({
     ...inst,
@@ -180,21 +236,22 @@ function cloneInstances(instances: PanelInstance[]): PanelInstance[] {
   }));
 }
 
-export function defaultState(): DashboardState {
-  return { instances: cloneInstances(DEFAULT_INSTANCES), locked: false };
+export function defaultState(tabId: ToolTabId): DashboardState {
+  return { instances: cloneInstances(tabDef(tabId).defaultInstances), locked: false };
 }
 
 // ---------------------------------------------------------------------------
 // State validation & persistence migration
 // ---------------------------------------------------------------------------
 
-export function validateState(value: unknown): DashboardState | null {
+export function validateState(value: unknown, tabId: ToolTabId): DashboardState | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
 
   // Old schema had `layout` (Record<PanelId, Placement>); new schema has `instances` (array).
   if (!Array.isArray(v.instances)) return null;
 
+  const def = tabDef(tabId);
   const instances: PanelInstance[] = [];
   for (const raw of v.instances) {
     if (!raw || typeof raw !== 'object') return null;
@@ -209,14 +266,27 @@ export function validateState(value: unknown): DashboardState | null {
     ) {
       return null;
     }
+
+    // Drop types this tab is not allowed to contain — handles a panel type being
+    // moved between tabs in a future release without discarding the whole layout.
+    if (!def.panelTypes.includes(r.type as PanelType)) continue;
+
+    const isGlobal = r.isGlobal === true ? true : undefined;
     instances.push({
       id: r.id as string,
+      // Preserve an explicit contentId; only fall back to the id for layouts that
+      // predate this field, where a global notes panel's instance id *was* its
+      // notes_panels row id. Overwriting a stored contentId here would silently
+      // desync two views of the same note.
+      contentId: typeof r.contentId === 'string'
+        ? r.contentId
+        : (r.type === 'notes' && isGlobal ? (r.id as string) : undefined),
       type: r.type as PanelType,
       placement: clampPlacement({ x: p.x, y: p.y, w: p.w, h: p.h, visible: p.visible, z: p.z }),
       mode: r.mode as PanelMode,
       linkedSessionId: typeof r.linkedSessionId === 'string' ? r.linkedSessionId : undefined,
       currentSessionId: typeof r.currentSessionId === 'string' ? r.currentSessionId : undefined,
-      isGlobal: r.isGlobal === true ? true : undefined,
+      isGlobal,
       name: typeof r.name === 'string' ? r.name : undefined,
       preMaximizePlacement: r.preMaximizePlacement && typeof r.preMaximizePlacement === 'object'
         ? clampPlacement(r.preMaximizePlacement as Placement)
@@ -224,8 +294,15 @@ export function validateState(value: unknown): DashboardState | null {
     });
   }
 
-  // Must have at least the sessions singleton
-  if (!instances.some((inst) => inst.type === 'sessions')) return null;
+  // Repair rather than discard: re-insert any singleton the tab requires but the
+  // persisted state lacks. Placement comes from findSpawnPlacement, not from the
+  // default, because the user may have grown a neighbour into that space.
+  for (const required of def.defaultInstances) {
+    if (!SINGLETON_TYPES.has(required.type)) continue;
+    if (instances.some((inst) => inst.type === required.type)) continue;
+    const { placement } = findSpawnPlacement(instances, required.type);
+    instances.push({ ...required, placement });
+  }
 
   return {
     instances,

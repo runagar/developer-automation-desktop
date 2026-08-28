@@ -17,6 +17,9 @@ export default function NotesPanelInstance({ instance, isFocused }: Props): Reac
   );
   const isGlobal = instance.isGlobal ?? false;
   const panelName = instance.name || 'Untitled';
+  // The notes_panels row this view displays. Distinct from instance.id, so the
+  // same note can be open in more than one tab at once.
+  const notesPanelId = instance.contentId ?? instance.id;
 
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(panelName);
@@ -44,14 +47,15 @@ export default function NotesPanelInstance({ instance, isFocused }: Props): Reac
     const trimmed = renameValue.trim() || 'Untitled';
     setRenaming(false);
     if (trimmed !== panelName) {
+      // renamePanel fans out to every view sharing this contentId.
       useLayoutStore.getState().renamePanel(instance.id, trimmed);
-      void window.dad.notesRenamePanel(instance.id, trimmed);
+      void window.dad.notesRenamePanel(notesPanelId, trimmed);
     }
-  }, [renameValue, panelName, instance.id]);
+  }, [renameValue, panelName, instance.id, notesPanelId]);
 
   // Determine scope key
   const scopeKey = isGlobal
-    ? `global:${instance.id}`
+    ? `global:${notesPanelId}`
     : session ? `session:${session.id}` : '';
 
   // Custom header for notes (handles global/session variants and rename)

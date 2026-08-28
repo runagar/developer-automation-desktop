@@ -11,6 +11,10 @@
   overflow: hidden;
 }
 
+.workspace--hidden {
+  display: none;
+}
+
 .workspace__all-hidden {
   position: absolute;
   inset: 0;
@@ -19,7 +23,7 @@
   justify-content: center;
   font-size: 0.7rem;
   letter-spacing: 0.15em;
-  color: var(--c-dark);
+  color: var(--c-mid);
   pointer-events: none;
 }
 

@@ -192,6 +192,10 @@ export function useXterm(options: UseXtermOptions): UseXtermReturn {
     const term = termRef.current;
     const fit = fitAddonRef.current;
     if (!term || !fit) return null;
+    // An unlaid-out container (e.g. inside a hidden tab) makes fit() a silent
+    // no-op, after which term.cols/rows are the stale defaults. Report "cannot
+    // measure" instead of handing back a wrong size.
+    if (containerRef.current?.offsetParent === null) return null;
     fit.fit();
     return { cols: term.cols, rows: term.rows };
   }, []);

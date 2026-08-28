@@ -57,7 +57,7 @@
 .session-list__new .dropdown__empty {
   padding: 8px 10px;
   font-size: 0.7rem;
-  color: var(--c-dark);
+  color: var(--c-mid);
 }
 .session-list__new .dropdown__item {
   display: flex;

@@ -46,12 +46,12 @@
 }
 
 .tool-tab-bar__tab--inactive {
-  color: var(--c-dark);
+  color: var(--c-mid);
   border: 2px solid transparent;
   border-bottom: 2px solid var(--c-bright);
 }
 .tool-tab-bar__tab--inactive:hover {
-  color: var(--c-mid);
+  color: var(--c-bright);
 }
 
 .tool-tab-bar__right {

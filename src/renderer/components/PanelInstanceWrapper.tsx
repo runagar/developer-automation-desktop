@@ -5,8 +5,11 @@ import { Session } from '../../main/types';
 
 interface PanelInstanceWrapperProps {
   instance: PanelInstance;
-  /** Optional custom header content (replaces default header entirely if provided) */
-  renderHeader?: (session: Session) => React.ReactNode;
+  /**
+   * Optional custom header content (replaces default header entirely if provided).
+   * Called with `null` for session-less panels when `allowNoSession` is set.
+   */
+  renderHeader?: (session: Session | null) => React.ReactNode;
   /** Content to render after the standard header items (e.g. resume button) */
   headerExtra?: (session: Session) => React.ReactNode;
   /** The pane body rendered when a session is active */
@@ -58,11 +61,12 @@ function PanelInstanceWrapperInner({
     );
   }
 
-  // For allowNoSession panels (global notes), session may be null
+  // For allowNoSession panels (global notes, REST panels), session may be null
   if (!session && allowNoSession) {
     return (
       <div className="workspace-fill">
         <div className="workspace-slot">
+          {renderHeader?.(null)}
           {children(null as any)}
         </div>
       </div>

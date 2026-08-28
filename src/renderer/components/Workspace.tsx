@@ -1,16 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import WorkspacePanel, { PanelHandle, ResizeHandle } from './WorkspacePanel';
-import { useLayoutStore } from '../stores/layoutStore';
+import { useLayoutStore, useTabInstances, useTabLocked } from '../stores/layoutStore';
 import {
   PanelInstance, PANEL_LABELS, panelOrder, Placement, GRID, clampPlacement, toPct,
-  computeMaxExpansion, maxZ, findSpawnPlacement,
+  computeMaxExpansion, maxZ, findSpawnPlacement, ToolTabId,
 } from '../dashboard/layout';
+import { cn } from '../utils/cn';
 import './Workspace.css';
 
 interface Props {
+  /** The tool tab this workspace renders. */
+  tabId: ToolTabId;
+  /** Inactive workspaces stay mounted but hidden, so their panels never tear down. */
+  isActiveTab: boolean;
   renderBody: (instance: PanelInstance, isFocused: boolean) => React.ReactNode;
   renderTitle?: (instance: PanelInstance) => React.ReactNode;
   focusEntry: (instance: PanelInstance) => (() => void) | undefined;
+  onCloseInstance: (instance: PanelInstance) => void;
 }
 
 // Dead zone threshold in pixels before drag activates
@@ -76,12 +82,13 @@ function computeSnap(drag: DragState): Placement {
   return clampPlacement({ ...original, x, y, w, h });
 }
 
-export default function Workspace({ renderBody, renderTitle, focusEntry }: Props): React.ReactElement {
-  const instances = useLayoutStore((s) => s.instances);
-  const locked = useLayoutStore((s) => s.locked);
+export default function Workspace({
+  tabId, isActiveTab, renderBody, renderTitle, focusEntry, onCloseInstance,
+}: Props): React.ReactElement {
+  const instances = useTabInstances(tabId);
+  const locked = useTabLocked(tabId);
   const setPlacement = useLayoutStore((s) => s.setPlacement);
   const bringToFront = useLayoutStore((s) => s.bringToFront);
-  const destroyPanel = useLayoutStore((s) => s.destroyPanel);
   const maximizePanel = useLayoutStore((s) => s.maximizePanel);
   const rootRef = useRef<HTMLDivElement>(null);
   const [focusedInstanceId, setFocusedInstanceId] = useState<string | null>(null);
@@ -101,7 +108,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
   // Animated maximize/restore — shared by header double-click and sub-header double-click
   const animateMaximize = useCallback((id: string) => {
-    const currentInstances = useLayoutStore.getState().instances;
+    const currentInstances = useLayoutStore.getState().tabs[tabId].instances;
     const inst = currentInstances.find((i) => i.id === id);
     if (!inst) return;
 
@@ -173,7 +180,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
       targetPx,
       animating: false,
     });
-  }, []);
+  }, [tabId]);
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     const drag = dragRef.current;
@@ -385,7 +392,10 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
     const onFocusOut = (): void => {
       requestAnimationFrame(() => {
         const active = document.activeElement as HTMLElement | null;
-        const el = active?.closest('[data-panel-id]');
+        // Scope to this workspace: focus landing in another (hidden) tab's panel
+        // must still clear this one's highlight.
+        if (!active || !root.contains(active)) { setFocusedInstanceId(null); return; }
+        const el = active.closest('[data-panel-id]');
         const id = el?.getAttribute('data-panel-id') ?? null;
         if (!id) setFocusedInstanceId(null);
       });
@@ -405,6 +415,10 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
   focusedRef.current = focusedInstanceId;
   const instancesRef = useRef(instances);
   instancesRef.current = instances;
+  // Every mounted workspace registers this window-level handler, so the hidden
+  // ones must bail out. Read through a ref to avoid re-registering per render.
+  const isActiveTabRef = useRef(isActiveTab);
+  isActiveTabRef.current = isActiveTab;
 
   useEffect(() => {
     const FOCUSABLE = [
@@ -418,6 +432,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
 
     const handler = (e: KeyboardEvent): void => {
       if (e.key !== 'Tab') return;
+      if (!isActiveTabRef.current) return;
 
       if (e.ctrlKey) {
         const order = panelOrder(instancesRef.current);
@@ -575,7 +590,10 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
   };
 
   return (
-    <div className="workspace" ref={rootRef}>
+    <div
+      className={cn('workspace', isActiveTab ? 'workspace--active' : 'workspace--hidden')}
+      ref={rootRef}
+    >
       {renderShadow()}
 
       {instances.map((inst) => {
@@ -603,12 +621,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
             onDragStart={handleDragStart(inst.id, inst.placement)}
             onResizeStart={handleResizeStart(inst.id, inst.placement)}
             onActivate={() => bringToFront(inst.id)}
-            onClose={() => {
-              if (inst.type === 'notes' && inst.isGlobal) {
-                void window.dad.notesClosePanel(inst.id);
-              }
-              destroyPanel(inst.id);
-            }}
+            onClose={() => onCloseInstance(inst)}
             onMaximize={() => animateMaximize(inst.id)}
           >
             {renderBody(inst, focusedInstanceId === inst.id)}
@@ -616,7 +629,7 @@ export default function Workspace({ renderBody, renderTitle, focusEntry }: Props
         );
       })}
 
-      {visibleInstances.length === 0 && (
+      {isActiveTab && visibleInstances.length === 0 && (
         <div className="workspace__all-hidden">
           ALL PANELS HIDDEN — REOPEN FROM THE PANEL MENU OR DOUBLE-CLICK A SESSION
         </div>

@@ -80,7 +80,7 @@
   border: 1px solid var(--c-dim);
 }
 .state-indicator--cold .state-indicator__label {
-  color: var(--c-dim);
+  color: var(--c-mid);
 }
 
 @keyframes pulse-primary {

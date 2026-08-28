@@ -38,7 +38,7 @@
   height: 100%;
   width: 100%;
   gap: 8px;
-  color: var(--c-dark);
+  color: var(--c-mid);
 }
 .app-empty__text {
   font-size: 1.2rem;

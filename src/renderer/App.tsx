@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe } from 'lucide-react';
-import { PanelInstance, PanelType, PANEL_LABELS } from './dashboard/layout';
+import { PanelInstance, PanelType, PANEL_LABELS, TOOL_TABS, ToolTabId } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
 import TerminalPanelInstance from './components/TerminalPanelInstance';
 import ShellPanelInstance from './components/ShellPanelInstance';
 import JiraPanelInstance from './components/JiraPanelInstance';
 import NotesPanelInstance from './components/NotesPanelInstance';
+import ApiPickerPanelInstance from './components/ApiPickerPanelInstance';
+import RestCrafterPanelInstance from './components/RestCrafterPanelInstance';
+import RestResponsePanelInstance from './components/RestResponsePanelInstance';
 import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
@@ -40,6 +43,14 @@ export default function App(): React.ReactElement {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId);
   const workspaceGroups = useWorkspaceStore((s) => s.groups);
+  const activeTab = useLayoutStore((s) => s.activeTab);
+  // A tab mounts the first time it is activated and is never unmounted after,
+  // so its panels keep their PTYs and xterm buffers across tab switches. Only
+  // ever added to — removing an entry would tear the tab's panels down.
+  const [mountedTabs, setMountedTabs] = useState<Set<ToolTabId>>(() => new Set([activeTab]));
+  useEffect(() => {
+    setMountedTabs((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
   const [workspacesDialogOpen, setWorkspacesDialogOpen] = useState(false);
   const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
@@ -78,8 +89,9 @@ export default function App(): React.ReactElement {
       await initSessionStore();
       if (cancelled) return;
       initJiraStore(useSessionStore.getState().sessions, (sessionId) => {
-        // Find the default jira panel instance for this session
-        const instances = useLayoutStore.getState().instances;
+        // Jira lives in Agent Smith only — look it up there explicitly rather
+        // than in whichever tab happens to be active.
+        const instances = useLayoutStore.getState().tabs['agent-smith'].instances;
         const defaultJira = instances.find(
           (p: PanelInstance) => p.type === 'jira' && p.mode === 'default'
         );
@@ -239,9 +251,27 @@ export default function App(): React.ReactElement {
   const focusPanelById = useCallback((panelId: string) => {
     useLayoutStore.getState().bringToFront(panelId);
     requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-panel-id="${panelId}"]`) as HTMLElement | null;
+      // Scope to the active tab: hidden tabs stay in the DOM.
+      const el = document.querySelector(
+        `.workspace--active [data-panel-id="${panelId}"]`
+      ) as HTMLElement | null;
       el?.focus();
     });
+  }, []);
+
+  /**
+   * Closing a notes view only marks the note closed in the DB when it is the
+   * last view of that note — other tabs may still be showing it.
+   */
+  const handleCloseInstance = useCallback((instance: PanelInstance) => {
+    const store = useLayoutStore.getState();
+    if (instance.type === 'notes' && instance.isGlobal) {
+      const contentId = instance.contentId ?? instance.id;
+      if (store.findInstancesByContentId(contentId).length <= 1) {
+        void window.dad.notesClosePanel(contentId);
+      }
+    }
+    store.destroyPanel(instance.id);
   }, []);
 
   const handleDoubleClickSession = useCallback((sessionId: string) => {
@@ -316,6 +346,12 @@ export default function App(): React.ReactElement {
         );
       case 'notes':
         return <NotesPanelInstance instance={instance} isFocused={isFocused} />;
+      case 'api-picker':
+        return <ApiPickerPanelInstance instance={instance} />;
+      case 'rest-crafter':
+        return <RestCrafterPanelInstance instance={instance} />;
+      case 'rest-response':
+        return <RestResponsePanelInstance instance={instance} />;
       default:
         return null;
     }
@@ -369,7 +405,17 @@ export default function App(): React.ReactElement {
         <PanelMenu />
       </div>
       <div className="app-body">
-        <Workspace renderBody={renderBody} renderTitle={renderTitle} focusEntry={focusEntry} />
+        {TOOL_TABS.filter((tab) => mountedTabs.has(tab.id)).map((tab) => (
+          <Workspace
+            key={tab.id}
+            tabId={tab.id}
+            isActiveTab={tab.id === activeTab}
+            renderBody={renderBody}
+            renderTitle={renderTitle}
+            focusEntry={focusEntry}
+            onCloseInstance={handleCloseInstance}
+          />
+        ))}
       </div>
       {jiraDialogOpen && <JiraSettingsDialog onClose={() => setJiraDialogOpen(false)} />}
       {notesDialogOpen && <NotesSettingsDialog onClose={() => setNotesDialogOpen(false)} />}
