@@ -14,6 +14,7 @@ import { registerNotesHandlers } from './ipc/notes';
 import { registerWindowHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc/window';
 import { registerCredentialHandlers } from './ipc/credentials';
 import { registerAuthHandlers } from './ipc/auth';
+import { registerRestHandlers } from './ipc/rest';
 
 export { getRegisteredStatePoller, stopRegisteredStatePoller };
 
@@ -39,4 +40,5 @@ export function registerIpcHandlers(
   registerWindowHandlers(ipcMain, sessionManager, getWindow);
   registerCredentialHandlers(ipcMain, dataDir);
   registerAuthHandlers(ipcMain, getWindow, dataDir);
+  registerRestHandlers(ipcMain, dataDir);
 }

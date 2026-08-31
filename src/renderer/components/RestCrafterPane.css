@@ -1,0 +1,377 @@
+/* =========================================================
+   REST CRAFTER PANE — compose and execute a REST call
+   ========================================================= */
+
+.rest-crafter-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* --- URL bar --- */
+
+.rest-crafter-pane__url-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-shrink: 0;
+}
+
+.rest-crafter-pane__env {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.rest-crafter-pane__env-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 56px;
+  padding: 4px 6px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  color: var(--c-bright);
+  background: none;
+  border: 1px solid var(--c-mid);
+  cursor: pointer;
+}
+
+.rest-crafter-pane__env-button:hover {
+  border-color: var(--c-bright);
+}
+
+.rest-crafter-pane__env-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 220px;
+  background: var(--c-panel);
+  border: 1px solid var(--c-mid);
+}
+
+.rest-crafter-pane__env-item {
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__env-item:hover {
+  color: var(--c-bright);
+  background: var(--c-panel-hover);
+}
+
+.rest-crafter-pane__env-item--active {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__url {
+  display: block;
+  /* Vertically centres the single line inside the stretched flex item. */
+  align-content: center;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  border: 1px solid var(--c-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* Read-only but selectable, so the crafted URL can still be copied. */
+  user-select: text;
+  cursor: text;
+}
+
+/* Both parts stay inline so a copy of the URL contains no line break. */
+.rest-crafter-pane__url-base {
+  color: var(--c-mid);
+}
+
+.rest-crafter-pane__url-path {
+  color: var(--c-bright);
+  font-weight: 700;
+}
+
+.rest-crafter-pane__send {
+  flex-shrink: 0;
+  min-width: 76px;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+/* --- error strip --- */
+
+.rest-crafter-pane__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 8px 6px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  color: var(--c-red);
+  border: 1px solid var(--c-red);
+}
+
+/* --- tab bar --- */
+
+.rest-crafter-pane__tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--c-dim);
+  flex-shrink: 0;
+}
+
+.rest-crafter-pane__tab {
+  padding: 5px 12px;
+  font-family: var(--font);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__tab:hover {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__tab--active {
+  color: var(--c-bright);
+  border-bottom-color: var(--c-bright);
+}
+
+/* --- tab content --- */
+
+.rest-crafter-pane__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.rest-crafter-pane__table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--c-dim);
+}
+
+.rest-crafter-pane__row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--c-dim);
+  min-height: 24px;
+}
+
+.rest-crafter-pane__row:last-of-type {
+  border-bottom: none;
+}
+
+.rest-crafter-pane__reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  padding: 0;
+  margin-left: 4px;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__reset:hover {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__marker {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  /* Fixed so [PATH] and [QUERY] leave their labels at the same offset. */
+  width: 54px;
+  padding: 0 6px;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--c-mid);
+}
+
+.rest-crafter-pane__marker--path {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__label,
+.rest-crafter-pane__label-input {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 150px;
+  padding: 3px 8px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  color: var(--c-bright);
+  border-right: 1px solid var(--c-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rest-crafter-pane__label-input {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--c-dim);
+  outline: none;
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__label-input::placeholder {
+  color: var(--c-mid);
+}
+
+/* --- value field (editable, with optional documented values) --- */
+
+.rest-crafter-pane__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.rest-crafter-pane__input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  outline: none;
+}
+
+.rest-crafter-pane__input::placeholder {
+  color: var(--c-mid);
+  font-weight: 400;
+}
+
+.rest-crafter-pane__field-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__field-toggle:hover {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__options {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--c-panel);
+  border: 1px solid var(--c-mid);
+}
+
+.rest-crafter-pane__option {
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__option:hover {
+  color: var(--c-bright);
+  background: var(--c-panel-hover);
+}
+
+.rest-crafter-pane__remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  border-left: 1px solid var(--c-dim);
+  cursor: pointer;
+}
+
+.rest-crafter-pane__remove:hover {
+  color: var(--c-red);
+}
+
+/* --- footer actions --- */
+
+.rest-crafter-pane__add {
+  display: block;
+  margin-top: 6px;
+  padding: 2px 4px;
+  font-family: var(--font);
+  font-size: 0.66rem;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-crafter-pane__add:hover {
+  color: var(--c-bright);
+}
+
+.rest-crafter-pane__note {
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-mid);
+}
+
+/* --- body editor --- */
+
+.rest-crafter-pane__editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

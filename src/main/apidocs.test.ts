@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   joinPath, mediaTypeVersion, mergeParameters, parseApiDocsConfig, parseOperations,
   sortServiceNames, splitPathKey, typeSegment, UNTAGGED,
+  specKind, contractPrefix, resolveLocalRef, normalizeParameters,
+  operationProduces, operationConsumes, operationBodySchema,
 } from './apidocs';
 
 describe('splitPathKey', () => {
@@ -295,5 +297,276 @@ describe('parseOperations tag grouping', () => {
   it('tolerates a contract with no tags array', () => {
     const rows = parseOperations({ paths: { '/x': { get: { tags: ['Solo'] } } } });
     expect(rows[0].tag).toBe('Solo');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAPI 3.x support (R3, ambiguity 21)
+// ---------------------------------------------------------------------------
+
+describe('specKind', () => {
+  it('recognises an OpenAPI 3 contract by its openapi field', () => {
+    expect(specKind({ openapi: '3.1.0' })).toBe('openapi3');
+    expect(specKind({ openapi: '3.0.3' })).toBe('openapi3');
+  });
+
+  it('treats anything else, including a malformed contract, as Swagger 2.0', () => {
+    expect(specKind({ swagger: '2.0' })).toBe('swagger2');
+    expect(specKind({})).toBe('swagger2');
+    expect(specKind(null)).toBe('swagger2');
+  });
+});
+
+describe('contractPrefix', () => {
+  it('uses basePath for Swagger 2.0', () => {
+    expect(contractPrefix({ swagger: '2.0', basePath: '/consent' })).toBe('/consent');
+  });
+
+  it('returns empty when Swagger 2.0 declares no basePath', () => {
+    expect(contractPrefix({ swagger: '2.0' })).toBe('');
+  });
+
+  it('takes the path of an OpenAPI 3 server URL', () => {
+    expect(contractPrefix({
+      openapi: '3.1.0',
+      servers: [{ url: 'https://mortgage.services.nykredit.it/currency-exchange-rates' }],
+    })).toBe('/currency-exchange-rates');
+  });
+
+  it('strips a trailing slash from the server path', () => {
+    expect(contractPrefix({
+      openapi: '3.0.3',
+      servers: [{ url: 'https://gateway.api.nykredit.it/ecc/' }],
+    })).toBe('/ecc');
+  });
+
+  it('returns empty for servers that carry no path at all', () => {
+    expect(contractPrefix({
+      openapi: '3.0.3',
+      servers: [{ url: 'http://localhost:9080' }, { url: 'https://it-org-apm.example.net' }],
+    })).toBe('');
+  });
+
+  it('handles a relative server entry', () => {
+    expect(contractPrefix({ openapi: '3.1.0', servers: [{ url: '/' }] })).toBe('');
+  });
+
+  it('skips a bare host and takes the first server that does carry a prefix', () => {
+    // The real defect this guards: reading servers[0] blindly would drop the
+    // prefix for any service that happens to list localhost first.
+    expect(contractPrefix({
+      openapi: '3.1.0',
+      servers: [{ url: 'http://localhost:9080' }, { url: 'https://gw.example.net/ecc' }],
+    })).toBe('/ecc');
+  });
+
+  it('survives a malformed server entry', () => {
+    expect(contractPrefix({
+      openapi: '3.1.0',
+      servers: [{ url: 123 }, null, { url: 'https://gw.example.net/ok' }],
+    })).toBe('/ok');
+  });
+});
+
+describe('resolveLocalRef', () => {
+  const contract = {
+    definitions: { Thing: { type: 'object' } },
+    components: { schemas: { Other: { type: 'string' } }, parameters: { XLog: { name: 'X-Log-Token', in: 'header' } } },
+  };
+
+  it('follows a Swagger 2.0 definitions pointer', () => {
+    expect(resolveLocalRef(contract, '#/definitions/Thing')).toEqual({ type: 'object' });
+  });
+
+  it('follows an OpenAPI 3 components pointer', () => {
+    expect(resolveLocalRef(contract, '#/components/schemas/Other')).toEqual({ type: 'string' });
+  });
+
+  it('returns null for an external or unresolvable ref', () => {
+    expect(resolveLocalRef(contract, 'http://elsewhere/x.json#/A')).toBeNull();
+    expect(resolveLocalRef(contract, '#/definitions/Missing')).toBeNull();
+    expect(resolveLocalRef(contract, 42)).toBeNull();
+  });
+});
+
+describe('normalizeParameters', () => {
+  const contract = {
+    openapi: '3.1.0',
+    components: { parameters: { XLogToken: { name: 'X-Log-Token', in: 'header' } } },
+  };
+
+  it('expands a $ref parameter entry', () => {
+    expect(normalizeParameters(contract, [{ $ref: '#/components/parameters/XLogToken' }]))
+      .toEqual([{ name: 'X-Log-Token', in: 'header' }]);
+  });
+
+  it('drops entries that cannot be resolved into a usable parameter', () => {
+    expect(normalizeParameters(contract, [
+      { $ref: '#/components/parameters/Nope' },
+      { description: 'no name or in' },
+      null,
+    ])).toEqual([]);
+  });
+
+  it('deduplicates once a $ref is expanded, which merging alone could not', () => {
+    // mergeParameters keys on name+in, neither of which a raw $ref has.
+    const pathLevel = normalizeParameters(contract, [{ $ref: '#/components/parameters/XLogToken' }]);
+    const opLevel = normalizeParameters(contract, [
+      { name: 'X-Log-Token', in: 'header', required: true },
+    ]);
+    const merged = mergeParameters(pathLevel, opLevel);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].required).toBe(true);
+  });
+});
+
+describe('operationProduces', () => {
+  it('prefers the operation over the contract root for Swagger 2.0', () => {
+    const contract = { swagger: '2.0', produces: ['application/xml'] };
+    expect(operationProduces(contract, { produces: ['application/json;v=4'] }))
+      .toEqual(['application/json;v=4']);
+  });
+
+  it('inherits the contract root when a Swagger 2.0 operation declares none', () => {
+    const contract = { swagger: '2.0', produces: ['application/xml'] };
+    expect(operationProduces(contract, {})).toEqual(['application/xml']);
+  });
+
+  it('derives OpenAPI 3 media types from 2xx response content, keeping ;v=N', () => {
+    const contract = { openapi: '3.1.0' };
+    const op = {
+      responses: {
+        200: { content: { 'application/json;v=1': {} } },
+        400: { content: { 'application/problem+json': {} } },
+      },
+    };
+    expect(operationProduces(contract, op)).toEqual(['application/json;v=1']);
+  });
+
+  it('deduplicates across several success codes', () => {
+    const contract = { openapi: '3.0.3' };
+    const op = {
+      responses: {
+        201: { content: { 'application/json': {} } },
+        200: { content: { 'application/json': {}, 'application/hal+json': {} } },
+      },
+    };
+    expect(operationProduces(contract, op)).toEqual(['application/json', 'application/hal+json']);
+  });
+});
+
+describe('operationConsumes', () => {
+  it('reads the OpenAPI 3 requestBody content map', () => {
+    const contract = { openapi: '3.1.0' };
+    const op = { requestBody: { content: { 'application/json': { schema: {} } } } };
+    expect(operationConsumes(contract, op)).toEqual(['application/json']);
+  });
+
+  it('puts JSON media types first', () => {
+    const contract = { openapi: '3.1.0' };
+    const op = {
+      requestBody: { content: { 'text/plain': {}, 'application/json': {} } },
+    };
+    expect(operationConsumes(contract, op)).toEqual(['application/json', 'text/plain']);
+  });
+
+  it('returns empty for an operation with no body', () => {
+    expect(operationConsumes({ openapi: '3.1.0' }, {})).toEqual([]);
+  });
+});
+
+describe('operationBodySchema', () => {
+  it('reads the Swagger 2.0 body parameter schema', () => {
+    const params = [{ name: 'body', in: 'body', schema: { $ref: '#/definitions/Req' } }];
+    expect(operationBodySchema({ swagger: '2.0' }, {}, params))
+      .toEqual({ $ref: '#/definitions/Req' });
+  });
+
+  it('reads the OpenAPI 3 requestBody schema', () => {
+    const op = {
+      requestBody: {
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/Req' } } },
+      },
+    };
+    expect(operationBodySchema({ openapi: '3.1.0' }, op, []))
+      .toEqual({ $ref: '#/components/schemas/Req' });
+  });
+
+  it('returns null when there is no body', () => {
+    expect(operationBodySchema({ openapi: '3.1.0' }, {}, [])).toBeNull();
+    expect(operationBodySchema({ swagger: '2.0' }, {}, [])).toBeNull();
+  });
+});
+
+describe('parseOperations on an OpenAPI 3 contract', () => {
+  const contract = {
+    openapi: '3.1.0',
+    servers: [{ url: 'https://mortgage.services.nykredit.it/currency-exchange-rates' }],
+    components: {
+      parameters: { XLogToken: { name: 'X-Log-Token', in: 'header' } },
+      schemas: { Rate: { type: 'object', properties: { code: { type: 'string' } } } },
+    },
+    paths: {
+      '/currency-exchange-rates#v=1': {
+        get: {
+          tags: ['Rates'],
+          summary: 'List rates',
+          parameters: [{ $ref: '#/components/parameters/XLogToken' }],
+          responses: { 200: { content: { 'application/json;v=1': {} } } },
+        },
+        post: {
+          tags: ['Rates'],
+          requestBody: {
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Rate' } } },
+          },
+          responses: { 201: { content: { 'application/json;v=1': {} } } },
+        },
+      },
+    },
+  };
+
+  it('still splits the #v=N fragment', () => {
+    const rows = parseOperations(contract);
+    expect(rows.every((r) => r.path === '/currency-exchange-rates')).toBe(true);
+    expect(rows[0].variants[0].acceptVersion).toBe('1');
+  });
+
+  it('expands $ref parameters into the variant', () => {
+    const get = parseOperations(contract).find((r) => r.method === 'GET')!;
+    expect(get.variants[0].parameters).toEqual([{ name: 'X-Log-Token', in: 'header' }]);
+  });
+
+  it('derives produces from the response content', () => {
+    const get = parseOperations(contract).find((r) => r.method === 'GET')!;
+    expect(get.variants[0].produces).toEqual(['application/json;v=1']);
+  });
+
+  it('carries the request body schema on the variant', () => {
+    const post = parseOperations(contract).find((r) => r.method === 'POST')!;
+    expect(post.variants[0].bodySchema).toEqual({ $ref: '#/components/schemas/Rate' });
+    expect(post.variants[0].consumes).toEqual(['application/json']);
+  });
+});
+
+describe('parseOperations still handles Swagger 2.0 bodies', () => {
+  it('puts the body parameter schema on the variant', () => {
+    const contract = {
+      swagger: '2.0',
+      basePath: '/consent',
+      paths: {
+        '/consents#v=4': {
+          post: {
+            produces: ['application/json;v=4'],
+            parameters: [
+              { name: 'body', in: 'body', schema: { $ref: '#/definitions/Req' } },
+              { name: 'Accept', in: 'header', required: true, type: 'string' },
+            ],
+          },
+        },
+      },
+    };
+    const row = parseOperations(contract)[0];
+    expect(row.variants[0].bodySchema).toEqual({ $ref: '#/definitions/Req' });
+    expect(row.variants[0].parameters.map((p) => p.name)).toEqual(['body', 'Accept']);
   });
 });

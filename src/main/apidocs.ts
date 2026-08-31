@@ -1,6 +1,7 @@
 import {
   TokenTarget, withToken, AuthConfigurationError, AuthUnavailableError,
 } from './nykAuth';
+import { skeletonJson } from './restSchema';
 
 // ---------------------------------------------------------------------------
 // Runtime configuration
@@ -125,6 +126,11 @@ export interface OperationVariant {
   produces: string[];
   consumes: string[];
   parameters: SwaggerParameter[];
+  /**
+   * The raw request body schema, kept here so `buildSelection` need not
+   * re-derive it from a `body` parameter that OpenAPI 3 does not have.
+   */
+  bodySchema: unknown | null;
   /** The original `paths` key, retained for exact re-lookup. */
   pathKey: string;
 }
@@ -153,9 +159,15 @@ export interface RestSelection {
   fullPath: string;
   acceptVersion: string | null;
   acceptHeader: string | null;
+  /** Every media type the operation can return — the Accept dropdown. */
+  produces: string[];
   consumesVersion: string | null;
   consumesHeader: string | null;
+  /** Every media type the operation accepts — the Content-Type dropdown. */
+  consumes: string[];
   requestBodySchema: unknown | null;
+  /** The request body with every `$ref` expanded, pretty-printed. */
+  bodySkeleton: string;
   parameters: SwaggerParameter[];
   deprecated: boolean;
   summary: string;
@@ -345,12 +357,169 @@ export async function getContract(
   return contract;
 }
 
-/** Serves `definitions` by contract identity, refetching if the cache evicted it. */
+/**
+ * Serves the schema map by contract identity, refetching if the cache evicted it.
+ *
+ * Swagger 2.0 keeps schemas under `definitions`, OpenAPI 3 under
+ * `components.schemas`.
+ */
 export async function getDefinitions(
   dataDir: string, service: string, type: ContractType, version: string
 ): Promise<Record<string, unknown>> {
   const contract = await getContract(dataDir, service, type, version);
-  return contract?.definitions ?? {};
+  return contract?.definitions ?? contract?.components?.schemas ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// Spec-version normalisation
+//
+// Roughly a third of the catalogue is OpenAPI 3.x rather than Swagger 2.0. The
+// two disagree about where the path prefix, the request body, the media types
+// and the shared parameters live, so everything that reads those goes through
+// the helpers below.
+// ---------------------------------------------------------------------------
+
+export type SpecKind = 'swagger2' | 'openapi3';
+
+export function specKind(contract: any): SpecKind {
+  return typeof contract?.openapi === 'string' ? 'openapi3' : 'swagger2';
+}
+
+/**
+ * The path prefix every operation sits under.
+ *
+ * OpenAPI 3 replaces `basePath` with `servers`, which is a list of whole
+ * deployment URLs and only sometimes carries a prefix — `it-org` starts with
+ * `http://localhost:9080` and `tapas-service` with `/`, while the prefix for
+ * `currency-exchange-rates` is on its first entry. Taking `servers[0]` blindly
+ * would therefore drop the prefix for whichever service happens to list a
+ * bare host first, so the first *meaningful* pathname wins instead.
+ */
+export function contractPrefix(contract: any): string {
+  if (specKind(contract) === 'swagger2') return typeof contract?.basePath === 'string' ? contract.basePath : '';
+
+  const servers = Array.isArray(contract?.servers) ? contract.servers : [];
+  for (const server of servers) {
+    const url = server?.url;
+    if (typeof url !== 'string' || url.length === 0) continue;
+    let pathname: string;
+    try {
+      // `servers` entries may be relative (`/`), which `new URL` rejects
+      // without a base.
+      pathname = new URL(url, 'https://placeholder.invalid').pathname;
+    } catch {
+      continue;
+    }
+    const trimmed = pathname.replace(/\/+$/, '');
+    if (trimmed.length > 0) return trimmed;
+  }
+  return '';
+}
+
+/**
+ * Resolve a local `$ref` against the contract.
+ *
+ * Returns null for external refs and unresolvable pointers so callers degrade
+ * to "no extra information" rather than throwing on a malformed contract.
+ */
+export function resolveLocalRef(contract: any, ref: unknown): any {
+  if (typeof ref !== 'string' || !ref.startsWith('#/')) return null;
+  let node: any = contract;
+  for (const rawSegment of ref.slice(2).split('/')) {
+    if (node === null || typeof node !== 'object') return null;
+    // JSON Pointer escaping: ~1 is "/", ~0 is "~".
+    const segment = rawSegment.replace(/~1/g, '/').replace(/~0/g, '~');
+    node = node[segment];
+  }
+  return node ?? null;
+}
+
+/**
+ * Expand `$ref` parameter entries and drop anything still unusable.
+ *
+ * Must run before `mergeParameters`, which de-duplicates on name + `in` —
+ * neither of which a `$ref` entry has, so merging first would let a path-level
+ * and an operation-level reference to the same parameter both survive.
+ */
+export function normalizeParameters(contract: any, params: unknown): SwaggerParameter[] {
+  if (!Array.isArray(params)) return [];
+  const out: SwaggerParameter[] = [];
+  for (const entry of params) {
+    if (!entry || typeof entry !== 'object') continue;
+    const resolved = typeof (entry as any).$ref === 'string'
+      ? resolveLocalRef(contract, (entry as any).$ref)
+      : entry;
+    if (!resolved || typeof resolved !== 'object') continue;
+    if (typeof resolved.name !== 'string' || typeof resolved.in !== 'string') continue;
+    out.push(resolved as SwaggerParameter);
+  }
+  return out;
+}
+
+const JSON_MEDIA_RE = /^application\/(?:[\w.+-]+\+)?json\b/i;
+
+function sortJsonFirst(mediaTypes: string[]): string[] {
+  const json = mediaTypes.filter((m) => JSON_MEDIA_RE.test(m));
+  return [...json, ...mediaTypes.filter((m) => !json.includes(m))];
+}
+
+/**
+ * The media types an operation can return — the `Accept` candidates.
+ *
+ * OpenAPI 3 has no `produces`; the equivalent is the content map of the
+ * successful responses, which does carry the `;v=N` parameter DAD needs.
+ */
+export function operationProduces(contract: any, op: any): string[] {
+  if (specKind(contract) === 'swagger2') {
+    if (Array.isArray(op?.produces)) return op.produces;
+    return Array.isArray(contract?.produces) ? contract.produces : [];
+  }
+
+  const responses = op?.responses ?? {};
+  const successCodes = Object.keys(responses)
+    .filter((code) => /^2\d\d$/.test(code))
+    .sort();
+  const seen: string[] = [];
+  for (const code of successCodes) {
+    const content = responses[code]?.content;
+    if (!content || typeof content !== 'object') continue;
+    for (const mediaType of Object.keys(content)) {
+      if (!seen.includes(mediaType)) seen.push(mediaType);
+    }
+  }
+  return seen;
+}
+
+/** The media types an operation accepts — the `Content-Type` candidates. */
+export function operationConsumes(contract: any, op: any): string[] {
+  if (specKind(contract) === 'swagger2') {
+    if (Array.isArray(op?.consumes)) return op.consumes;
+    return Array.isArray(contract?.consumes) ? contract.consumes : [];
+  }
+
+  const content = op?.requestBody?.content;
+  if (!content || typeof content !== 'object') return [];
+  return sortJsonFirst(Object.keys(content));
+}
+
+/**
+ * The request body schema, still holding its raw `$ref`.
+ *
+ * Swagger 2.0 models the body as a parameter; OpenAPI 3 gives it its own
+ * `requestBody` keyed by media type.
+ */
+export function operationBodySchema(
+  contract: any, op: any, params: SwaggerParameter[]
+): unknown | null {
+  if (specKind(contract) === 'swagger2') {
+    return params.find((p) => p.in === 'body')?.schema ?? null;
+  }
+
+  const content = op?.requestBody?.content;
+  if (!content || typeof content !== 'object') return null;
+  const preferred = sortJsonFirst(Object.keys(content))[0];
+  if (!preferred) return null;
+  return content[preferred]?.schema ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,8 +565,6 @@ function versionRank(v: string | null): number {
  */
 export function parseOperations(contract: any): OperationRow[] {
   const paths = contract?.paths ?? {};
-  const rootProduces: string[] = Array.isArray(contract?.produces) ? contract.produces : [];
-  const rootConsumes: string[] = Array.isArray(contract?.consumes) ? contract.consumes : [];
   const grouped = new Map<string, OperationRow>();
 
   for (const pathKey of Object.keys(paths)) {
@@ -405,11 +572,15 @@ export function parseOperations(contract: any): OperationRow[] {
     if (!pathItem || typeof pathItem !== 'object') continue;
 
     const { path, acceptVersion } = splitPathKey(pathKey);
-    const pathParams: SwaggerParameter[] = Array.isArray(pathItem.parameters) ? pathItem.parameters : [];
+    const pathParams = normalizeParameters(contract, pathItem.parameters);
 
     for (const method of HTTP_METHODS) {
       const op = pathItem[method];
       if (!op || typeof op !== 'object') continue;
+
+      const parameters = mergeParameters(
+        pathParams, normalizeParameters(contract, op.parameters)
+      );
 
       const variant: OperationVariant = {
         acceptVersion,
@@ -417,9 +588,10 @@ export function parseOperations(contract: any): OperationRow[] {
         summary: typeof op.summary === 'string' ? op.summary : '',
         tags: Array.isArray(op.tags) ? op.tags.filter((t: unknown) => typeof t === 'string') : [],
         operationId: typeof op.operationId === 'string' ? op.operationId : null,
-        produces: Array.isArray(op.produces) ? op.produces : rootProduces,
-        consumes: Array.isArray(op.consumes) ? op.consumes : rootConsumes,
-        parameters: mergeParameters(pathParams, Array.isArray(op.parameters) ? op.parameters : []),
+        produces: operationProduces(contract, op),
+        consumes: operationConsumes(contract, op),
+        parameters,
+        bodySchema: operationBodySchema(contract, op, parameters),
         pathKey,
       };
 
@@ -504,7 +676,6 @@ export async function buildSelection(
   const variant = row.variants.find((v) => v.acceptVersion === acceptVersion) ?? row.variants[0];
   const acceptHeader = variant.produces[0] ?? null;
   const consumesHeader = variant.consumes[0] ?? null;
-  const bodyParam = variant.parameters.find((p) => p.in === 'body');
 
   return {
     serviceName: service,
@@ -513,15 +684,21 @@ export async function buildSelection(
     contractVersion: version,
     method: row.method,
     path: row.path,
-    fullPath: joinPath(contract?.basePath, row.path),
+    fullPath: joinPath(contractPrefix(contract), row.path),
     acceptVersion: variant.acceptVersion,
     acceptHeader,
+    produces: variant.produces,
     consumesVersion: mediaTypeVersion(consumesHeader),
     consumesHeader,
-    // Handed over unresolved: turning a $ref into a request skeleton is R3's
-    // job, and `definitions` is served separately on demand.
-    requestBodySchema: bodyParam?.schema ?? null,
-    parameters: variant.parameters,
+    consumes: variant.consumes,
+    // Kept raw so the R2 handover contract still holds; `bodySkeleton` below is
+    // the resolved form the crafter actually edits.
+    requestBodySchema: variant.bodySchema,
+    bodySkeleton: skeletonJson(
+      variant.bodySchema, (ref) => resolveLocalRef(contract, ref)
+    ),
+    // The body belongs to the Body tab, not the Parameters tab.
+    parameters: variant.parameters.filter((p) => p.in !== 'body'),
     deprecated: variant.deprecated,
     summary: variant.summary,
   };

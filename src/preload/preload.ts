@@ -184,6 +184,11 @@ const api: IpcApi = {
     ipcRenderer.invoke('apidocs:definitions', service, type, version),
   apidocsRefresh: () => ipcRenderer.invoke('apidocs:refresh'),
 
+  // REST Crafter (R3)
+  restEnvironments: () => ipcRenderer.invoke('rest:environments'),
+  restToken: (environmentKey) => ipcRenderer.invoke('rest:token', environmentKey),
+  restSend: (request) => ipcRenderer.invoke('rest:send', request),
+
   // Auto-updater
   onUpdaterStatus: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => cb(status);

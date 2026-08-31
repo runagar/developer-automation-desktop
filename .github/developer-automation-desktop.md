@@ -29,8 +29,8 @@ The REST tooling tab. It is session-unbound — it has no Sessions panel and no 
 | Panel | Type | Default placement | Status |
 |---|---|---|---|
 | API Picker | `api-picker` | `x0 y0 w6 h24` | Implemented (R2) |
-| REST Crafter | `rest-crafter` | `x6 y0 w10 h24` | Placeholder — implemented in R3 |
-| REST Response | `rest-response` | `x16 y0 w8 h24` | Placeholder — implemented in R4 |
+| REST Crafter | `rest-crafter` | `x6 y0 w10 h24` | Implemented (R3) |
+| REST Response | `rest-response` | `x16 y0 w8 h24` | Minimal raw view (R3); formatted in R4 |
 
 All three are singletons: always present in the tab's default layout, never destroyed. The ✕ button hides them and the Panel menu toggles them back — exactly the Sessions panel model, now generalised over `SINGLETON_TYPES` rather than hardcoded to the string `'sessions'`.
 
@@ -44,19 +44,48 @@ The first functional Rest Room panel (R2). It browses the internal API-docs cata
 - **Caching** is in-memory in the main process only — service list for the app's lifetime, contracts in a bounded 20-entry map. Nothing is written to disk. The panel's ⟳ button clears the caches, reloads the current level and re-resolves the selection.
 - **HAL links** (`_links.documentation.href`) are preferred over constructed URLs, but only after `safeHref` confirms same host, **same scheme** and a path under the API base — a downgraded link would leak the bearer token in cleartext.
 
-**Contract parsing (`parseOperations`).** Contracts are **Swagger 2.0**, and accept-versions are encoded as a terminal `#v=N` fragment on the `paths` key (`/consents/{consentId}#v=4`), so one endpoint appears as several keys. The parser:
+**Contract parsing (`parseOperations`).** Contracts are **Swagger 2.0 or OpenAPI 3.x** — roughly a third of the catalogue is OpenAPI 3 — and accept-versions are encoded as a terminal `#v=N` fragment on the `paths` key (`/consents/{consentId}#v=4`) in **both**, so one endpoint appears as several keys. Everything the two specs disagree about goes through a normalising helper (`specKind`, `contractPrefix`, `resolveLocalRef`, `normalizeParameters`, `operationProduces`, `operationConsumes`, `operationBodySchema`); the rest of the parser is spec-agnostic:
 - strips only the anchored `/#v=(\d+)$/`, leaving any other `#` in a path intact;
 - iterates a whitelist of HTTP methods, so `parameters` and `$ref` on a path item are not mistaken for operations;
 - **merges path-level `parameters`** with the operation's (operation wins on `name`+`in`) — omitting them would drop required parameters from what R3 receives;
-- **inherits root-level `produces`/`consumes`** when the operation declares none;
+- **inherits root-level `produces`/`consumes`** when a Swagger 2.0 operation declares none. OpenAPI 3 has neither: the `produces` equivalent is the union of `responses.<2xx>.content` keys (which do carry `;v=N`), and `consumes` is `requestBody.content`;
+- **expands `$ref` parameters before merging.** OpenAPI 3 contracts reference `components/parameters`, and a raw `$ref` entry has neither `name` nor `in`, so merging first would let a path-level and an operation-level reference to the same parameter both survive;
 - groups by `METHOD` + real path, sorts variants newest-version-first, and marks a row deprecated **iff its newest variant is**, while each variant keeps its own flag so the version picker can strike through an older deprecated version of a live operation;
 - assigns each row its first Swagger `tag` (or `UNTAGGED`) and orders rows by the contract's **declared** tag order, undeclared tags after, `UNTAGGED` last.
 
 **UI.** Three-level drill-down with a breadcrumb, sized for a 6-column panel. Services list is filtered **live** as the user types (no Enter, no search button — the full list is fetched once); Escape in the search box clears it. Matching is all-terms-AND, order-independent, case-insensitive, against the service name only. Only the `default` category is shown — a service published solely under `partner`/`domain` is invisible. Sorting uses `Intl.Collator(numeric: true, sensitivity: 'base')`, since the API's own order is not numeric-aware. Versions appear in three collapsible sections (**Releases open; Pre-releases and Branches collapsed**) — releases and pre-releases share version names, so a selection is only unique as *(service, category, type, name)*. Operations are grouped under collapsible tag headers, all open by default, with a collapse/expand-all toggle beside the operation count. Clicking an operation **or any of its version chips** selects immediately and publishes to the store.
 
+**Path prefix.** Swagger 2.0 uses `basePath`; OpenAPI 3 replaces it with `servers`, which is a list of whole deployment URLs and only sometimes carries a prefix. `contractPrefix` therefore takes **the first `servers[].url` whose pathname is neither empty nor `/`** — reading `servers[0]` blindly would drop the prefix for any service that happens to list `http://localhost:9080` first. Some OpenAPI 3 services are OpenShift/PaaS deployments not reachable through any gateway in the environment table at all; DAD composes a plausible URL and the call simply fails, which is visible before sending.
+
 **Selection.** `restStore` holds navigation and the current selection. Only the **seven-field identity** (`service`, `category`, `type`, `version`, `method`, `path`, `acceptVersion`) is persisted, under `localStorage` key `dad-rest-selection` — never the parsed operation, which would go silently stale when a contract is republished. On startup the contract is re-fetched and the operation re-resolved, with a **three-way** outcome: resolved; cleared if the contract loaded but no longer contains it; or held as `pendingSelection` if the fetch failed (latched, no credentials, off VPN) so a valid selection is never discarded by a transient failure.
 
-**What R3 receives** (`RestSelection`): provenance, `method`, `path`, `fullPath` (base path joined, not concatenated), accept/consumes headers and versions, merged `parameters`, and `requestBodySchema` **unresolved** as its raw `$ref`. Resolving a `$ref` into a request skeleton is R3's job; `definitions` is served separately by `apidocs:definitions`, which **refetches by contract identity on a cache miss** so the payload stays valid after eviction or a restart.
+**What the Crafter receives** (`RestSelection`): provenance, `method`, `path`, `fullPath` (prefix joined, not concatenated), accept/consumes headers plus the full `produces`/`consumes` lists that drive the dropdowns, merged `parameters` **with the Swagger 2.0 `in: 'body'` entry removed** (the body has its own tab), `requestBodySchema` still unresolved as its raw `$ref`, and `bodySkeleton` — the same schema fully expanded and pretty-printed. `definitions` is served separately by `apidocs:definitions`, which **refetches by contract identity on a cache miss** so the payload stays valid after eviction or a restart, and returns `components.schemas` for OpenAPI 3 contracts.
+
+### REST Crafter panel
+The second functional Rest Room panel (R3). It takes the operation published by the API Picker and composes an executable request: environment, URL, headers, parameters and body.
+
+**Body skeleton (`src/main/restSchema.ts`).** Expands a body schema into something editable: all properties (not only `required`), leaves filled `example` → `default` → first `enum` → type placeholder, one sample element per array, `allOf` merged left to right, `oneOf`/`anyOf` taking the first branch. Self-referencing schemas are cut where a `$ref` is already on the expansion stack, backed by a hard depth cap of 12. An operation that **declares no body yields an empty string, not `{}`** — `{}` is itself a body and gets rejected by endpoints documenting none — while a body that is declared but unresolvable still yields `{}` so there is something to type into.
+
+**Environments (`src/main/environments.ts`).** All 24 environments from `helper-scripts/nrp/get_token.sh`, ordered `p0, m0, es1, et1–et4, t0–t15, local`, defaulting to `p0`. `get_base_url.sh` only defines 10 base URLs; the rest are derived from the pattern (`t0` is the one environment whose *security host* breaks it). Every environment uses the **restless** client id `f3bf1c76-…`, which is not api-docs' — client ids are resource-scoped, and a token minted for the wrong one is refused with `403`, never `401`. `local` has no OAuth at all: it sends a fixed Base64 credential, as `Bearer` rather than `Basic`, matching the reference implementation. **There is no production guard** — write operations against `p0` are deliberately unguarded, because authorisation is enforced server-side by the token.
+
+Because `getToken` caches on `securityHost|clientId` and every environment has a distinct security host, "a token per environment, acquired on first use" falls out of the existing cache with no extra machinery.
+
+**Execution (`src/main/rest.ts`).** Deliberately does **not** use `withToken`: that helper throws on every non-2xx and converts `403` into a configuration error, which is right for api-docs and wrong here — a `401`, `403` or `500` from a target API is a legitimate result the user needs to read, so every status is returned verbatim. A `401` is retried exactly once, and only when DAD minted the token itself (`autoAuth`) and the environment uses OAuth. 60 s timeout, `redirect: 'manual'` (a 302 is a result worth seeing), normal TLS verification, no proxy handling. Response bodies are capped at 5 MB with a `truncated` flag. Transport failures are **returned** as `{ ok: false, error }` rather than thrown, so the Response panel has one delivery path. `buildUrl` reuses `joinPath` from `apidocs.ts` so the executed URL is byte-identical to the displayed one. A body is attached for every method **except GET and HEAD**, which `fetch` refuses outright.
+
+**Request composition (`src/renderer/stores/restCraft.ts`).** Pure, unit-tested helpers shared by the URL bar and the send path, so what is shown is what is sent. `headerValues`/`paramValues` hold **only what the user typed**; the rendered value is `userValue ?? contractDefault ?? ''` and the `...` placeholder is an HTML `placeholder`, never a value, so it can never be transmitted. Header rows are ordered Authorization, Accept, Content-Type, contract headers (required first), then custom. `Accept` appears **once** even though contracts also declare it as an explicit header parameter, and is pre-filled from the operation's media type. The wireframe's "Consumes" row is really **`Content-Type`**: shown only for operations that take a body, falling back to `application/json` when the contract declares no `consumes`. Rows with an `enum` (or several `produces`) render as a **combobox — an editable input plus a value list, never a bare `<select>`**, because `Accept` must stay overwritable and any header must be clearable to nothing so it is not sent.
+
+**URL.** Read-only but selectable. The environment base URL renders `--c-mid` and everything from `fullPath` onwards `--c-bright`, as a single inline flow so copying it yields no line break. Path parameters are substituted live and percent-encoded; unfilled ones stay literal `{name}`. Filled query parameters append a live query string. **Unfilled path parameters block the send**; missing query parameters never do, since testing an endpoint without one is legitimate.
+
+**Selection changes.** The environment and the bearer token always survive. Typed values survive where the new operation still has a row of the same key, so re-picking an operation at another accept-version keeps its path parameters and drops query parameters that version lacks; `Accept` is **always** re-taken from the new operation. Custom headers and parameters survive only while the **resource** (service + method + path) is unchanged. A hand-edited body survives only when the new `bodySkeleton` is textually identical to the one it was edited against — which is why the draft persists a `bodySkeletonBaseline`, without which a restart would silently overwrite the body it exists to preserve.
+
+**Tokens in the renderer.** R2's rule was that tokens never leave the main process; R3 deliberately relaxes it so the Authorization header can be shown and edited (`rest:token`). The token is still **never written to disk** — it is excluded from the request draft. Editing the field sets `authManual`, which stops an environment change overwriting it; the ↺ button inside the field clears that flag and re-fetches.
+
+**Account safety.** Only one token acquisition is in flight at a time (`tokenRequestInFlight` in `restStore`), and a resolution whose environment is no longer selected is discarded. `getToken`'s latch is keyed by **credentials, not target**, and is checked *before* acquiring, so one rejection already blocks every other environment; the guard exists only to stop simultaneous acquisitions to different security hosts in the same tick. Tokens are acquired on an explicit environment change, on reset, or when the panel is first opened — **never at app startup**, since the Rest Room tab only mounts when the user activates it.
+
+**Draft persistence.** `localStorage` key `dad-rest-draft` holds the environment, header and parameter values, custom rows, body text and skeleton baseline — **never the Authorization value**. Written debounced (300 ms), capped at 256 KB, and validated field-by-field on load; a malformed blob is discarded rather than half-applied. It has its own key because the per-tab layout blob is geometry only.
+
+### REST Response panel
+A deliberately minimal raw view (R3): status and status text, method, URL, elapsed time, and the body in a `<pre>` with **no** prettifying. Transport failures render in the same place, and truncation is announced. All formatting, highlighting and history belong to R4.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:
@@ -387,7 +416,7 @@ The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is e
 **IPC channels:** `credentials:status`, `credentials:save`, `credentials:clear`.
 
 ### Nykredit authentication (LOGIN)
-`src/main/nykAuth.ts` is the shared OAuth2 module for every Nykredit resource; api-docs (R2) is its first consumer and R3 will add environments rather than a second implementation. It is deliberately generic: `TokenTarget` is `{ securityHost, clientId, redirectUri }`.
+`src/main/nykAuth.ts` is the shared OAuth2 module for every Nykredit resource; api-docs (R2) and the REST Crafter's 24 environments (R3) both consume it rather than growing a second implementation. It is deliberately generic: `TokenTarget` is `{ securityHost, clientId, redirectUri }`.
 
 **Flow.** `POST https://<securityHost>/security/oauth2/authn` with `response_type=token`, `auth_type=auth.nyk_username` (hardcoded — api-docs' `config.json` advertises `auth.pre_auth`, the interactive SSO path DAD does not use), the resource's client id, and the user's username/password. No embedded browser, no interactive SSO.
 
@@ -409,7 +438,7 @@ The latch lives in `<dataDir>/auth-state.json` at mode `0600` — *not* `setting
 
 **Startup** (`auth:startup`) is fired async after `renderer:ready` and never awaited, so an unreachable host cannot stall the first paint. Activating the Rest Room retries **only** when the state is `unavailable` with `reason: 'network'` — never on `login-failed`, and never on a `configuration` 403.
 
-**IPC channels:** `auth:status`, `auth:login`, `auth:retry`, `auth:startup`, `auth:logout`, `auth:state-changed` (push); `apidocs:services`, `apidocs:versions`, `apidocs:operations`, `apidocs:selection`, `apidocs:definitions`, `apidocs:refresh`.
+**IPC channels:** `auth:status`, `auth:login`, `auth:retry`, `auth:startup`, `auth:logout`, `auth:state-changed` (push); `apidocs:services`, `apidocs:versions`, `apidocs:operations`, `apidocs:selection`, `apidocs:definitions`, `apidocs:refresh` — registered in `ipc/auth.ts`. The REST Crafter adds `rest:environments`, `rest:token`, `rest:send` in `ipc/rest.ts`; all are bound in `preload.ts` and typed in `IpcApi` (`types.ts`).
 
 ### Workspace management
 Accessible from **Settings → Workspaces** in the header dropdown. Opens a dialog listing all workspaces organised into groups. From this dialog users can:
@@ -488,7 +517,10 @@ Main process
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
 ├── nykAuth.ts           shared Nykredit OAuth2: token acquisition, single-flight cache, rejection latch
-├── apidocs.ts           API-docs client: runtime config, service/version/contract fetch, Swagger 2.0 parsing
+├── apidocs.ts           API-docs client: runtime config, service/version/contract fetch, Swagger 2.0 + OpenAPI 3.x parsing
+├── restSchema.ts        expands a body schema into an editable JSON skeleton ($ref, allOf/oneOf, cycle + depth guard)
+├── environments.ts      the 24 REST target environments, restless client id, local Base64 credential
+├── rest.ts              crafted-request execution: token per environment, 401 retry-once, 5 MB body cap
 ├── updater.ts           auto-update via electron-updater (checks GitHub Releases, IPC for renderer notification)
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
@@ -504,7 +536,8 @@ Renderer process
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
-│   └── restStore.ts     API Picker navigation, search, tag/version collapse, selection + pending restore
+│   ├── restStore.ts     API Picker navigation + REST Crafter state, selection carry-over, request draft
+│   └── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
 ├── hooks/
 │   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
 ├── dashboard/           grid layout system (framework-agnostic)
@@ -527,14 +560,15 @@ Renderer process
 ├── JiraPanelInstance    per-instance Jira: issue display for currentSessionId
 ├── NotesPanelInstance   per-instance Notes: scope resolution (global vs session-bound)
 ├── ApiPickerPanelInstance   session-unbound wrapper for the API Picker; header shows the current selection
-├── RestCrafterPanelInstance session-unbound wrapper for the REST Crafter (placeholder until R3)
-├── RestResponsePanelInstance session-unbound wrapper for the REST Response panel (placeholder until R4)
+├── RestCrafterPanelInstance session-unbound wrapper for the REST Crafter, header shows environment + operation
+├── RestResponsePanelInstance session-unbound wrapper for the REST Response panel, header shows the status
 ├── TerminalPane         xterm.js instance (uses useXterm hook)
 ├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
 ├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
 ├── ApiPickerPane        service/version/operation drill-down with live search (R2)
-├── RestCrafterPane / RestResponsePane   REST Room placeholder bodies (no CSS of their own yet)
+├── RestCrafterPane      URL bar, environment selector, HEADERS/PARAMETERS/BODY tabs, CodeMirror JSON body
+├── RestResponsePane     raw status + body view (formatting belongs to R4)
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions

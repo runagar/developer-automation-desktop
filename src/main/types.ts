@@ -172,6 +172,11 @@ export interface IpcApi {
   apidocsDefinitions: (service: string, type: ApiDocsContractType, version: string) => Promise<Record<string, unknown>>;
   apidocsRefresh: () => Promise<void>;
 
+  // REST Crafter (R3)
+  restEnvironments: () => Promise<RestEnvironmentInfo[]>;
+  restToken: (environmentKey: string) => Promise<string>;
+  restSend: (request: RestRequestSpec) => Promise<RestResultInfo>;
+
   // Auto-updater
   onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => void) => () => void;
   updaterInstall: () => void;
@@ -223,6 +228,7 @@ export interface ApiDocsOperationVariant {
   produces: string[];
   consumes: string[];
   parameters: ApiDocsParameter[];
+  bodySchema: unknown | null;
   pathKey: string;
 }
 
@@ -247,16 +253,61 @@ export interface ApiDocsRestSelection {
   fullPath: string;
   acceptVersion: string | null;
   acceptHeader: string | null;
+  /** Every media type the operation can return — the Accept dropdown. */
+  produces: string[];
   consumesVersion: string | null;
   consumesHeader: string | null;
+  /** Every media type the operation accepts — the Content-Type dropdown. */
+  consumes: string[];
   requestBodySchema: unknown | null;
+  /** The request body with every `$ref` expanded, pretty-printed. */
+  bodySkeleton: string;
+  /** Path, query and header parameters — the body is never included here. */
   parameters: ApiDocsParameter[];
   deprecated: boolean;
   summary: string;
 }
 
-export interface CredentialStatusInfo {
+/** One target environment for a crafted request (R3). */
+export interface RestEnvironmentInfo {
   key: string;
+  label: string;
+  baseUrl: string;
+  securityHost: string | null;
+  auth: 'oauth' | 'local-basic';
+}
+
+export interface RestHeaderSpec {
+  name: string;
+  value: string;
+}
+
+export interface RestRequestSpec {
+  environmentKey: string;
+  method: string;
+  /** Already substituted and query-appended by the renderer. */
+  path: string;
+  headers: RestHeaderSpec[];
+  body: string;
+  /** False once the user has hand-edited Authorization. */
+  autoAuth: boolean;
+}
+
+export interface RestResultInfo {
+  /** False only for a transport failure, where `error` is set. */
+  ok: boolean;
+  status: number;
+  statusText: string;
+  headers: Array<[string, string]>;
+  body: string;
+  truncated: boolean;
+  durationMs: number;
+  url: string;
+  method: string;
+  error: string | null;
+}
+
+export interface CredentialStatusInfo {  key: string;
   label: string;
   group: string;
   sensitive: boolean;

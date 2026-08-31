@@ -1,0 +1,90 @@
+/* =========================================================
+   REST RESPONSE PANE — raw result of the last crafted call
+   Deliberately minimal; formatting is R4's job.
+   ========================================================= */
+
+.rest-response-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rest-response-pane__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--c-dim);
+  font-family: var(--font);
+  font-size: 0.66rem;
+  flex-shrink: 0;
+}
+
+.rest-response-pane__status {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.rest-response-pane__status--good {
+  color: var(--c-bright);
+}
+
+.rest-response-pane__status--bad {
+  color: var(--c-red);
+}
+
+.rest-response-pane__method {
+  color: var(--c-mid);
+  flex-shrink: 0;
+}
+
+.rest-response-pane__url {
+  color: var(--c-mid);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rest-response-pane__time {
+  color: var(--c-mid);
+  flex-shrink: 0;
+}
+
+.rest-response-pane__error {
+  margin: 8px;
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-red);
+  border: 1px solid var(--c-red);
+}
+
+.rest-response-pane__notice {
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.64rem;
+  color: var(--c-mid);
+  border-bottom: 1px solid var(--c-dim);
+  flex-shrink: 0;
+}
+
+.rest-response-pane__body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--c-bright);
+  /* Raw and unformatted, but still wrapped so a long line stays readable. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
