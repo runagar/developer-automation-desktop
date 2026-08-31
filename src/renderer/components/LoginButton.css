@@ -1,0 +1,34 @@
+/* =========================================================
+   LOGIN BUTTON — Nykredit auth control in the tool tab bar
+   ========================================================= */
+
+.login-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-button__indicator {
+  font-family: var(--font);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.login-button__indicator--ok {
+  color: var(--c-mid);
+}
+
+.login-button__indicator--success {
+  color: var(--c-bright);
+  text-shadow: var(--glow-sm);
+}
+
+.login-button__indicator--failed {
+  color: var(--c-red);
+}
+
+.login-button__indicator--unavailable {
+  color: var(--c-amber);
+}

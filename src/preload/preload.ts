@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
-import { IpcApi, Session, SessionState, WorkspaceEntry, JiraIssue } from '../main/types';
+import { IpcApi, Session, SessionState, WorkspaceEntry, JiraIssue, AuthStatusInfo } from '../main/types';
 
 const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
@@ -160,6 +160,29 @@ const api: IpcApi = {
   getCredentialStatus: () => ipcRenderer.invoke('credentials:status'),
   saveCredentials: (updates) => ipcRenderer.invoke('credentials:save', updates),
   clearCredential: (key) => ipcRenderer.invoke('credentials:clear', key),
+
+  // Nykredit authentication (R2)
+  authStatus: () => ipcRenderer.invoke('auth:status'),
+  authLogin: (username, password) => ipcRenderer.invoke('auth:login', username, password),
+  authRetry: () => ipcRenderer.invoke('auth:retry'),
+  authStartup: () => ipcRenderer.invoke('auth:startup'),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  onAuthStateChanged: (cb) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: AuthStatusInfo) => cb(status);
+    ipcRenderer.on('auth:state-changed', handler);
+    return () => { ipcRenderer.removeListener('auth:state-changed', handler); };
+  },
+
+  // API-docs (R2)
+  apidocsServices: () => ipcRenderer.invoke('apidocs:services'),
+  apidocsVersions: (service) => ipcRenderer.invoke('apidocs:versions', service),
+  apidocsOperations: (service, type, version) =>
+    ipcRenderer.invoke('apidocs:operations', service, type, version),
+  apidocsSelection: (service, type, version, method, path, acceptVersion) =>
+    ipcRenderer.invoke('apidocs:selection', service, type, version, method, path, acceptVersion),
+  apidocsDefinitions: (service, type, version) =>
+    ipcRenderer.invoke('apidocs:definitions', service, type, version),
+  apidocsRefresh: () => ipcRenderer.invoke('apidocs:refresh'),
 
   // Auto-updater
   onUpdaterStatus: (cb) => {

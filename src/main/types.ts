@@ -153,9 +153,106 @@ export interface IpcApi {
   saveCredentials: (updates: Array<{ key: string; value: string }>) => Promise<Array<{ key: string; valid: boolean; error?: string }>>;
   clearCredential: (key: string) => Promise<void>;
 
+  // Nykredit authentication (R2)
+  authStatus: () => Promise<AuthStatusInfo>;
+  authLogin: (username: string, password: string) => Promise<AuthStatusInfo>;
+  authRetry: () => Promise<AuthStatusInfo>;
+  authStartup: () => Promise<AuthStatusInfo>;
+  authLogout: () => Promise<AuthStatusInfo>;
+  onAuthStateChanged: (cb: (status: AuthStatusInfo) => void) => () => void;
+
+  // API-docs (R2)
+  apidocsServices: () => Promise<string[]>;
+  apidocsVersions: (service: string) => Promise<ApiDocsServiceVersions>;
+  apidocsOperations: (service: string, type: ApiDocsContractType, version: string) => Promise<ApiDocsOperationRow[]>;
+  apidocsSelection: (
+    service: string, type: ApiDocsContractType, version: string,
+    method: string, path: string, acceptVersion: string | null
+  ) => Promise<ApiDocsRestSelection | null>;
+  apidocsDefinitions: (service: string, type: ApiDocsContractType, version: string) => Promise<Record<string, unknown>>;
+  apidocsRefresh: () => Promise<void>;
+
   // Auto-updater
   onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => void) => () => void;
   updaterInstall: () => void;
+}
+
+export type AuthStateValue = 'no-credentials' | 'logged-in' | 'login-failed' | 'unavailable';
+export type AuthReasonValue = 'rejected' | 'network' | 'configuration' | null;
+
+export interface AuthStatusInfo {
+  state: AuthStateValue;
+  reason: AuthReasonValue;
+  message: string;
+  username: string;
+  /** Where the password comes from — the password itself never reaches the renderer. */
+  passwordSource: 'env' | 'file' | 'none';
+}
+
+export type ApiDocsContractType = 'RELEASE' | 'PRERELEASE' | 'BRANCH';
+
+export interface ApiDocsContractVersion {
+  name: string;
+  type: ApiDocsContractType;
+  modifiedTs: string;
+  href: string | null;
+}
+
+export interface ApiDocsServiceVersions {
+  releases: ApiDocsContractVersion[];
+  prereleases: ApiDocsContractVersion[];
+  branches: ApiDocsContractVersion[];
+}
+
+export interface ApiDocsParameter {
+  name: string;
+  in: string;
+  required?: boolean;
+  type?: string;
+  description?: string;
+  schema?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ApiDocsOperationVariant {
+  acceptVersion: string | null;
+  deprecated: boolean;
+  summary: string;
+  tags: string[];
+  operationId: string | null;
+  produces: string[];
+  consumes: string[];
+  parameters: ApiDocsParameter[];
+  pathKey: string;
+}
+
+export interface ApiDocsOperationRow {
+  method: string;
+  path: string;
+  summary: string;
+  deprecated: boolean;
+  /** Swagger tag the operation is grouped under; `UNTAGGED` when it declares none. */
+  tag: string;
+  variants: ApiDocsOperationVariant[];
+}
+
+/** What the API Picker hands to the REST Crafter (R3). */
+export interface ApiDocsRestSelection {
+  serviceName: string;
+  category: string;
+  contractType: ApiDocsContractType;
+  contractVersion: string;
+  method: string;
+  path: string;
+  fullPath: string;
+  acceptVersion: string | null;
+  acceptHeader: string | null;
+  consumesVersion: string | null;
+  consumesHeader: string | null;
+  requestBodySchema: unknown | null;
+  parameters: ApiDocsParameter[];
+  deprecated: boolean;
+  summary: string;
 }
 
 export interface CredentialStatusInfo {

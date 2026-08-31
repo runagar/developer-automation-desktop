@@ -1,0 +1,22 @@
+/* =========================================================
+   LOGIN DIALOG — reuses credentials-dialog CSS for layout.
+   Only the genuinely new rules live here.
+   ========================================================= */
+
+.login-dialog {
+  max-width: 420px;
+}
+
+.login-dialog__error {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-red);
+  color: var(--c-red);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.login-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -51,6 +51,25 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
   }, [activeTab]);
+
+  // Requirement 6.5: re-acquire a token on startup. Fired async and never
+  // awaited, so an unreachable security host cannot stall the first paint.
+  useEffect(() => {
+    void window.dad.authStartup().catch(() => { /* indicator shows the state */ });
+  }, []);
+
+  // Retry when the user opens the Rest Room, in case DAD started before the VPN
+  // came up. Only a network failure is retryable: rejected credentials must not
+  // be retried automatically, and a wrong-client 403 can never be fixed by one.
+  useEffect(() => {
+    if (activeTab !== 'rest-room') return;
+    void window.dad.authStatus().then((status) => {
+      if (status.state === 'unavailable' && status.reason === 'network') {
+        return window.dad.authRetry();
+      }
+      return status;
+    }).catch(() => { /* indicator shows the state */ });
+  }, [activeTab]);
   const [workspacesDialogOpen, setWorkspacesDialogOpen] = useState(false);
   const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);

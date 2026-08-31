@@ -28,11 +28,35 @@ The REST tooling tab. It is session-unbound — it has no Sessions panel and no 
 
 | Panel | Type | Default placement | Status |
 |---|---|---|---|
-| API Picker | `api-picker` | `x0 y0 w6 h24` | Placeholder — implemented in R2 |
+| API Picker | `api-picker` | `x0 y0 w6 h24` | Implemented (R2) |
 | REST Crafter | `rest-crafter` | `x6 y0 w10 h24` | Placeholder — implemented in R3 |
 | REST Response | `rest-response` | `x16 y0 w8 h24` | Placeholder — implemented in R4 |
 
 All three are singletons: always present in the tab's default layout, never destroyed. The ✕ button hides them and the Panel menu toggles them back — exactly the Sessions panel model, now generalised over `SINGLETON_TYPES` rather than hardcoded to the string `'sessions'`.
+
+### API Picker panel
+The first functional Rest Room panel (R2). It browses the internal API-docs catalogue, drills down service → contract version → operation, and publishes the chosen operation for the REST Crafter (R3) to build a request from.
+
+**Backend.** API-docs is a plain REST API, not a scrapeable SPA. `src/main/apidocs.ts` owns all of it; the renderer never issues a request and never sees a token.
+
+- **Runtime config** — `https://apidocs.nykredit.it/config.json` is public and supplies the API base, OAuth client id, security host and redirect URI. It is fetched once, cached in memory, and falls back to hardcoded values if unreachable, so a platform move needs no DAD release.
+- **`Accept` headers are not interchangeable.** `/services` and `/authorizations` are HAL and answer **406** to `application/json`; contracts must be requested with `application/json`, which makes the server transcode YAML to JSON (so DAD needs **no YAML parser**). Service detail additionally carries the official client's `;t=<epoch-ms>` cache-buster.
+- **Caching** is in-memory in the main process only — service list for the app's lifetime, contracts in a bounded 20-entry map. Nothing is written to disk. The panel's ⟳ button clears the caches, reloads the current level and re-resolves the selection.
+- **HAL links** (`_links.documentation.href`) are preferred over constructed URLs, but only after `safeHref` confirms same host, **same scheme** and a path under the API base — a downgraded link would leak the bearer token in cleartext.
+
+**Contract parsing (`parseOperations`).** Contracts are **Swagger 2.0**, and accept-versions are encoded as a terminal `#v=N` fragment on the `paths` key (`/consents/{consentId}#v=4`), so one endpoint appears as several keys. The parser:
+- strips only the anchored `/#v=(\d+)$/`, leaving any other `#` in a path intact;
+- iterates a whitelist of HTTP methods, so `parameters` and `$ref` on a path item are not mistaken for operations;
+- **merges path-level `parameters`** with the operation's (operation wins on `name`+`in`) — omitting them would drop required parameters from what R3 receives;
+- **inherits root-level `produces`/`consumes`** when the operation declares none;
+- groups by `METHOD` + real path, sorts variants newest-version-first, and marks a row deprecated **iff its newest variant is**, while each variant keeps its own flag so the version picker can strike through an older deprecated version of a live operation;
+- assigns each row its first Swagger `tag` (or `UNTAGGED`) and orders rows by the contract's **declared** tag order, undeclared tags after, `UNTAGGED` last.
+
+**UI.** Three-level drill-down with a breadcrumb, sized for a 6-column panel. Services list is filtered **live** as the user types (no Enter, no search button — the full list is fetched once); Escape in the search box clears it. Matching is all-terms-AND, order-independent, case-insensitive, against the service name only. Only the `default` category is shown — a service published solely under `partner`/`domain` is invisible. Sorting uses `Intl.Collator(numeric: true, sensitivity: 'base')`, since the API's own order is not numeric-aware. Versions appear in three collapsible sections (**Releases open; Pre-releases and Branches collapsed**) — releases and pre-releases share version names, so a selection is only unique as *(service, category, type, name)*. Operations are grouped under collapsible tag headers, all open by default, with a collapse/expand-all toggle beside the operation count. Clicking an operation **or any of its version chips** selects immediately and publishes to the store.
+
+**Selection.** `restStore` holds navigation and the current selection. Only the **seven-field identity** (`service`, `category`, `type`, `version`, `method`, `path`, `acceptVersion`) is persisted, under `localStorage` key `dad-rest-selection` — never the parsed operation, which would go silently stale when a contract is republished. On startup the contract is re-fetched and the operation re-resolved, with a **three-way** outcome: resolved; cleared if the contract loaded but no longer contains it; or held as `pendingSelection` if the fetch failed (latched, no credentials, off VPN) so a valid selection is never discarded by a transient failure.
+
+**What R3 receives** (`RestSelection`): provenance, `method`, `path`, `fullPath` (base path joined, not concatenated), accept/consumes headers and versions, merged `parameters`, and `requestBodySchema` **unresolved** as its raw `$ref`. Resolving a `$ref` into a request skeleton is R3's job; `definitions` is served separately by `apidocs:definitions`, which **refetches by contract identity on a cache miss** so the payload stays valid after eviction or a restart.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:
@@ -345,6 +369,10 @@ The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is e
 |---|---|---|---|
 | `ATLASSIAN_PAT` | Atlassian | Yes | Yes |
 | `ATLASSIAN_BASE_URL` | Atlassian | No | Yes |
+| `NYK_USERNAME` | Nykredit | No | Yes |
+| `NYK_PASSWORD` | Nykredit | Yes | Yes |
+
+**The `Nykredit` group is excluded from `credentials:status`.** That channel returns resolved *values*, which is fine for a scoped, revocable Jira PAT but not for the user's actual domain password. `RENDERER_HIDDEN_GROUPS` in `src/main/ipc/credentials.ts` filters the group out, so the password never crosses the IPC boundary; the login dialog works from `auth:status`, which exposes only the username and the password's source. A display-side filter is not sufficient — the value would already have been transferred.
 
 **Environment variable precedence:** If a credential is set as a system environment variable, the field is shown as read-only (greyed out) with a "Set via environment variable" note.
 
@@ -352,7 +380,36 @@ The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is e
 
 **Persistence:** Credentials are stored in `<dataDir>/credentials.env` (plain text, chmod 600). `clearCredentialCache()` in `jira.ts` is called after any save/clear.
 
+**Value encoding.** A Jira PAT is alphanumeric; a domain password is not. Values are quoted **only when they would not survive a bare round-trip** (leading/trailing whitespace, a newline, a `"` or a `\`), so files written by earlier versions still parse unchanged. `decodeEnvValue` unescapes in a **single left-to-right pass** — chained `replace` calls are wrong, because unescaping `\n` before `\\` turns the encoded form of a literal backslash-then-`n` (as in `c:\new`) into a real newline. That corruption is not cosmetic: the mangled password fails every automatic attempt and latches, while manual login appears to succeed and re-saves it, producing a permanent failure loop.
+
+**File mode.** `writeFileSync`'s `mode` option only applies when *creating* a file, so every write is followed by an explicit `fs.chmodSync(path, 0o600)` — otherwise an existing permissive file keeps its permissions forever.
+
 **IPC channels:** `credentials:status`, `credentials:save`, `credentials:clear`.
+
+### Nykredit authentication (LOGIN)
+`src/main/nykAuth.ts` is the shared OAuth2 module for every Nykredit resource; api-docs (R2) is its first consumer and R3 will add environments rather than a second implementation. It is deliberately generic: `TokenTarget` is `{ securityHost, clientId, redirectUri }`.
+
+**Flow.** `POST https://<securityHost>/security/oauth2/authn` with `response_type=token`, `auth_type=auth.nyk_username` (hardcoded — api-docs' `config.json` advertises `auth.pre_auth`, the interactive SSO path DAD does not use), the resource's client id, and the user's username/password. No embedded browser, no interactive SSO.
+
+**Both success and failure are HTTP 302 — never branch on the status code.** The outcome is only in the redirect fragment: `#access_token=<48 chars>` versus `#error=access_denied`. `redirect: 'manual'` is used so the `location` header is readable, with a body-scrape fallback.
+
+**`403` ≠ `401`.** `401` means no valid token and is retried exactly once after re-acquisition. `403` means the token is valid but was minted for the wrong `client_id` — retrying can never fix it, so it surfaces as `AuthConfigurationError` and is never retried.
+
+**Account-lockout protection.** A domain password expires on rotation, and repeated failed authentications can lock the user's Windows account. Two mechanisms prevent an automatic burst:
+- **Single-flight.** One in-flight acquisition per `securityHost|clientId`; concurrent callers await the same promise. Without it the startup attempt and the picker's first fetch could each authenticate in the same tick, neither seeing the other's rejection. Automatic paths (`auth:startup`, `auth:retry`) therefore go through `getToken`; only a **manual** login calls `acquireToken` directly.
+- **Rejection latch.** Credentials refused by the server are recorded, and `getToken` then refuses them **without a network call** until a successful manual login clears the set.
+
+The latch lives in `<dataDir>/auth-state.json` at mode `0600` — *not* `settings.json`, which is world-readable. It stores `HMAC-SHA256(installKey, username + '\n' + password)` with a random per-installation key, so the file is not an offline-bruteforceable password verifier. It is a **set**, not a single value: latching credentials A and then failing with B must not make A automatically retryable again. Credentials that merely differ from every stored identifier are *unmatched*, not latched — which is what lets a user who corrects a wrong `NYK_PASSWORD` **environment variable** recover, since env-sourced fields are read-only in the UI.
+
+**Login UI.** `LoginButton.tsx` sits left of the Settings dropdown in the tool tab bar and owns the auth subscription. It **subscribes to `auth:state-changed` before calling `auth:status`** — `renderer:ready` fires before React mounts listeners, so the startup attempt's push would otherwise be dropped. The indicator has **three** states, because a rejected password and an unreachable server need different fixes: `LOGGED IN` (`--c-mid`), `LOGIN FAILED` (`--c-red`, latches), `UNAVAILABLE` (`--c-amber`, does not latch), plus a transient `LOGIN SUCCESSFUL` for 5 s.
+
+`LoginDialog.tsx` is separate from Settings → Jira by design — those credentials are Jira's alone, these are the user's organisation account — though both persist through the same `credentials.env`. It implements its own capture-phase focus trap (INITIALS → PASSWORD → LOGIN, wrapping), because `Workspace`'s window-level Tab handler calls `preventDefault()` whenever focus is outside a `[data-panel-id]`, which includes every dialog. `ManageWorkspacesDialog` uses the same workaround. Password reveal uses Lucide `Eye`/`EyeOff`.
+
+**Verification is two-step** (`auth:login`): acquire the token, then call `GET /authorizations` (365 B, ~100 ms). Acquisition alone would report success for a token api-docs will reject with `403`. Credentials are saved **only after** both steps pass, and a password sourced from the environment is never written to disk.
+
+**Startup** (`auth:startup`) is fired async after `renderer:ready` and never awaited, so an unreachable host cannot stall the first paint. Activating the Rest Room retries **only** when the state is `unavailable` with `reason: 'network'` — never on `login-failed`, and never on a `configuration` 403.
+
+**IPC channels:** `auth:status`, `auth:login`, `auth:retry`, `auth:startup`, `auth:logout`, `auth:state-changed` (push); `apidocs:services`, `apidocs:versions`, `apidocs:operations`, `apidocs:selection`, `apidocs:definitions`, `apidocs:refresh`.
 
 ### Workspace management
 Accessible from **Settings → Workspaces** in the header dropdown. Opens a dialog listing all workspaces organised into groups. From this dialog users can:
@@ -430,6 +487,8 @@ Main process
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
+├── nykAuth.ts           shared Nykredit OAuth2: token acquisition, single-flight cache, rejection latch
+├── apidocs.ts           API-docs client: runtime config, service/version/contract fetch, Swagger 2.0 parsing
 ├── updater.ts           auto-update via electron-updater (checks GitHub Releases, IPC for renderer notification)
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
@@ -444,14 +503,17 @@ Renderer process
 │   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
-│   └── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
+│   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
+│   └── restStore.ts     API Picker navigation, search, tag/version collapse, selection + pending restore
 ├── hooks/
 │   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
 ├── dashboard/           grid layout system (framework-agnostic)
 │   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTabDef (panelTypes + defaultInstances), spawn placement algorithm
 │   ├── layout.test.ts   unit tests for tab definitions, defaultState and validateState
 │   └── usePanelFocus.ts intra-panel Tab wrapping (supplemented by Workspace capture handler)
-├── ToolTabBar           tool tab row: tab switching + SettingsMenu (global)
+├── ToolTabBar           tool tab row: tab switching + LoginButton + SettingsMenu (global)
+├── LoginButton          Nykredit auth control: tri-state indicator + login dialog trigger
+├── LoginDialog          initials/password entry with its own Tab focus trap
 ├── SplashScreen         startup splash overlay with DAD jokes + first-launch detection
 ├── Workspace            24×24 grid container (one per mounted tab): drag/resize, Ctrl+Tab (instance cycling), Tab wrapping, focus tracking
 ├── WorkspacePanel       panel chrome: drag header, resize handles, close, default badge (◆), error boundary
@@ -464,14 +526,15 @@ Renderer process
 ├── ShellPanelInstance   per-instance shell: shell tmux attach/detach lifecycle, data routing
 ├── JiraPanelInstance    per-instance Jira: issue display for currentSessionId
 ├── NotesPanelInstance   per-instance Notes: scope resolution (global vs session-bound)
-├── ApiPickerPanelInstance   session-unbound wrapper for the API Picker (placeholder until R2)
+├── ApiPickerPanelInstance   session-unbound wrapper for the API Picker; header shows the current selection
 ├── RestCrafterPanelInstance session-unbound wrapper for the REST Crafter (placeholder until R3)
 ├── RestResponsePanelInstance session-unbound wrapper for the REST Response panel (placeholder until R4)
 ├── TerminalPane         xterm.js instance (uses useXterm hook)
 ├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
 ├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
-├── ApiPickerPane / RestCrafterPane / RestResponsePane   REST Room placeholder bodies (no CSS of their own yet)
+├── ApiPickerPane        service/version/operation drill-down with live search (R2)
+├── RestCrafterPane / RestResponsePane   REST Room placeholder bodies (no CSS of their own yet)
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
@@ -597,6 +660,12 @@ Session data is stored at:
 $XDG_CONFIG_HOME/dad/sessions.db
 ```
 On WSLg this resolves to `~/.config/dad/dad/sessions.db`. The directory is created automatically on first launch.
+
+Two credential-related files live alongside it, both at mode `0600`:
+```
+<dataDir>/credentials.env    manifest-driven credential values
+<dataDir>/auth-state.json    random install key + HMACs of rejected credentials (never the credentials themselves)
+```
 
 Notes markdown files are stored under the configured notes root (`settings.json` → `notes.rootPath`, default `$XDG_CONFIG_HOME/dad/notes`):
 ```

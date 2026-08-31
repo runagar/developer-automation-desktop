@@ -17,6 +17,8 @@ export interface CredentialField {
 export const CREDENTIAL_FIELDS: CredentialField[] = [
   { key: 'ATLASSIAN_PAT', label: 'Access Token', group: 'Atlassian', sensitive: true, required: true },
   { key: 'ATLASSIAN_BASE_URL', label: 'Base URL', group: 'Atlassian', sensitive: false, required: true, placeholder: 'https://jira.example.com/' },
+  { key: 'NYK_USERNAME', label: 'Initials', group: 'Nykredit', sensitive: false, required: true, placeholder: 'abcd' },
+  { key: 'NYK_PASSWORD', label: 'Password', group: 'Nykredit', sensitive: true, required: true },
 ];
 
 export interface CredentialStatus {
@@ -42,9 +44,53 @@ export function parseEnvFile(filePath: string): Record<string, string> {
     const trimmed = line.trim();
     if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
     const eqIdx = trimmed.indexOf('=');
-    env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    env[trimmed.slice(0, eqIdx).trim()] = decodeEnvValue(trimmed.slice(eqIdx + 1).trim());
   }
   return env;
+}
+
+/**
+ * Decode a stored value.
+ *
+ * Quoted values are unescaped; bare values are returned as-is so files written
+ * by earlier versions keep parsing exactly as they did before.
+ *
+ * Escapes are consumed in a single left-to-right pass. Chained `replace` calls
+ * would be wrong: unescaping `\n` before `\\` turns the encoded form of a
+ * literal backslash-then-n (`\\n`, as in `c:\new`) into a real newline.
+ */
+export function decodeEnvValue(raw: string): string {
+  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
+
+  const inner = raw.slice(1, -1);
+  let out = '';
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] !== '\\' || i === inner.length - 1) {
+      out += inner[i];
+      continue;
+    }
+    const next = inner[++i];
+    if (next === 'n') out += '\n';
+    else if (next === '"') out += '"';
+    else if (next === '\\') out += '\\';
+    else out += `\\${next}`;
+  }
+  return out;
+}
+
+/**
+ * Encode a value for storage, quoting only when it would not survive a
+ * round-trip bare — a password may contain leading/trailing whitespace or a
+ * newline, either of which the line-based parser would otherwise corrupt.
+ */
+export function encodeEnvValue(value: string): string {
+  const needsQuoting = value !== value.trim() || /[\n\r"\\]/.test(value);
+  if (!needsQuoting) return value;
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, '\\n');
+  return `"${escaped}"`;
 }
 
 function credentialsPath(dataDir: string): string {
@@ -86,14 +132,22 @@ export function resolveCredential(dataDir: string, key: string): string {
 // Write / clear
 // ---------------------------------------------------------------------------
 
+function writeEnvFile(filePath: string, env: Record<string, string>): void {
+  const content = Object.entries(env)
+    .map(([k, v]) => `${k}=${encodeEnvValue(v)}`)
+    .join('\n') + '\n';
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+  // writeFileSync's mode only applies when creating the file — an existing one
+  // keeps whatever permissions it already had.
+  fs.chmodSync(filePath, 0o600);
+}
+
 export function saveCredential(dataDir: string, key: string, value: string): void {
   const filePath = credentialsPath(dataDir);
   const env = parseEnvFile(filePath);
   env[key] = value;
-
-  const content = Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+  writeEnvFile(filePath, env);
 }
 
 export function clearCredential(dataDir: string, key: string): void {
@@ -102,9 +156,7 @@ export function clearCredential(dataDir: string, key: string): void {
 
   const env = parseEnvFile(filePath);
   delete env[key];
-
-  const content = Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
-  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+  writeEnvFile(filePath, env);
 }
 
 // ---------------------------------------------------------------------------

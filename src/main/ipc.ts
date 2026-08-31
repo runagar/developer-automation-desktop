@@ -13,6 +13,7 @@ import { registerJiraHandlers } from './ipc/jira';
 import { registerNotesHandlers } from './ipc/notes';
 import { registerWindowHandlers, getRegisteredStatePoller, stopRegisteredStatePoller } from './ipc/window';
 import { registerCredentialHandlers } from './ipc/credentials';
+import { registerAuthHandlers } from './ipc/auth';
 
 export { getRegisteredStatePoller, stopRegisteredStatePoller };
 
@@ -37,4 +38,5 @@ export function registerIpcHandlers(
   registerNotesHandlers(ipcMain, notesManager, getWindow);
   registerWindowHandlers(ipcMain, sessionManager, getWindow);
   registerCredentialHandlers(ipcMain, dataDir);
+  registerAuthHandlers(ipcMain, getWindow, dataDir);
 }

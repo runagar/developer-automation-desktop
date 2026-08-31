@@ -2,6 +2,7 @@ import React from 'react';
 import { TOOL_TABS, ToolTabId } from '../dashboard/layout';
 import { useLayoutStore } from '../stores/layoutStore';
 import SettingsMenu from './SettingsMenu';
+import LoginButton from './LoginButton';
 import './ToolTabBar.css';
 
 interface Props {
@@ -32,6 +33,7 @@ export default function ToolTabBar({ onOpenWorkspaces, onOpenJira, onOpenNotes }
         })}
       </div>
       <div className="tool-tab-bar__right">
+        <LoginButton />
         <SettingsMenu
           onOpenWorkspaces={onOpenWorkspaces}
           onOpenJira={onOpenJira}
