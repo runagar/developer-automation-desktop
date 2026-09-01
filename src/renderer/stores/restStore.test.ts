@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ApiDocsRestSelection } from '../../main/types';
+import { ApiDocsRestSelection, RestResultInfo } from '../../main/types';
 import {
-  applySelection, filterServices, matchesSearch, parseDraft, rowKeyOf, serializeDraft,
+  LINK_ACCEPT, applySelection, customParamsFromUrl, filterServices, matchesSearch, parseDraft,
+  pathOfUrl, rowKeyOf, selectionFromUrl, serializeDraft, useRestStore,
 } from './restStore';
 
 describe('matchesSearch', () => {
@@ -288,5 +289,231 @@ describe('serializeDraft', () => {
       paramValues: {}, customParams: [], bodyText: 'x'.repeat(300 * 1024),
       bodyEdited: true, bodySkeletonBaseline: '',
     })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Response history (R4)
+// ---------------------------------------------------------------------------
+
+function resultOf(overrides: Partial<RestResultInfo> = {}): RestResultInfo {
+  return {
+    ok: true, status: 200, statusText: 'OK', headers: [], body: '{}',
+    truncated: false, durationMs: 12, url: 'https://x.example.net/a', method: 'GET',
+    error: null, ...overrides,
+  };
+}
+
+function freshStore() {
+  const store = useRestStore.getState();
+  useRestStore.setState({ responses: [], activeResponseId: null });
+  return store;
+}
+
+function addTab(title: string): string {
+  return useRestStore.getState().addResponseTab({
+    title, url: `https://x.example.net${title}`, method: 'GET',
+    loading: false, result: resultOf(), origin: 'crafter',
+  });
+}
+
+describe('response tabs', () => {
+  it('appends to the right and activates the new tab', () => {
+    freshStore();
+    const first = addTab('/a');
+    const second = addTab('/b');
+    const { responses, activeResponseId } = useRestStore.getState();
+    expect(responses.map((r) => r.id)).toEqual([first, second]);
+    expect(activeResponseId).toBe(second);
+  });
+
+  it('keeps a tab per send, so repeated sends are comparable', () => {
+    freshStore();
+    addTab('/same');
+    addTab('/same');
+    expect(useRestStore.getState().responses).toHaveLength(2);
+  });
+
+  it('activates the right-hand neighbour when the active tab is closed', () => {
+    freshStore();
+    const a = addTab('/a');
+    const b = addTab('/b');
+    const c = addTab('/c');
+    useRestStore.getState().setActiveResponse(b);
+    useRestStore.getState().closeResponseTab(b);
+    expect(useRestStore.getState().activeResponseId).toBe(c);
+    expect(useRestStore.getState().responses.map((r) => r.id)).toEqual([a, c]);
+  });
+
+  it('falls back to the left when the last tab is closed', () => {
+    freshStore();
+    const a = addTab('/a');
+    const b = addTab('/b');
+    useRestStore.getState().closeResponseTab(b);
+    expect(useRestStore.getState().activeResponseId).toBe(a);
+  });
+
+  it('leaves no active tab once the final one is closed', () => {
+    freshStore();
+    const only = addTab('/a');
+    useRestStore.getState().closeResponseTab(only);
+    expect(useRestStore.getState().responses).toEqual([]);
+    expect(useRestStore.getState().activeResponseId).toBeNull();
+  });
+
+  it('does not change the active tab when a background tab is closed', () => {
+    freshStore();
+    const a = addTab('/a');
+    const b = addTab('/b');
+    useRestStore.getState().closeResponseTab(a);
+    expect(useRestStore.getState().activeResponseId).toBe(b);
+  });
+
+  it('ignores a close for an unknown id', () => {
+    freshStore();
+    addTab('/a');
+    useRestStore.getState().closeResponseTab('nope');
+    expect(useRestStore.getState().responses).toHaveLength(1);
+  });
+
+  it('settles the right tab when several are open', () => {
+    freshStore();
+    const pending = useRestStore.getState().addResponseTab({
+      title: '/slow', url: 'https://x.example.net/slow', method: 'GET',
+      loading: true, result: null, origin: 'link',
+    });
+    const other = addTab('/other');
+    useRestStore.getState().settleResponseTab(pending, resultOf({ status: 201 }));
+    const byId = Object.fromEntries(useRestStore.getState().responses.map((r) => [r.id, r]));
+    expect(byId[pending].loading).toBe(false);
+    expect(byId[pending].result?.status).toBe(201);
+    expect(byId[other].result?.status).toBe(200);
+  });
+
+  it('adopts the executed url when a tab settles', () => {
+    freshStore();
+    const id = useRestStore.getState().addResponseTab({
+      title: '/x', url: 'https://x.example.net/x', method: 'GET',
+      loading: true, result: null, origin: 'link',
+    });
+    useRestStore.getState().settleResponseTab(id, resultOf({ url: 'https://real.example.net/x' }));
+    expect(useRestStore.getState().responses[0].url).toBe('https://real.example.net/x');
+  });
+});
+
+describe('pathOfUrl', () => {
+  it('reduces a URL to its path and query for the tab title', () => {
+    expect(pathOfUrl('https://mortgage.services.nykredit.it/consent/consents/97ca?x=1'))
+      .toBe('/consent/consents/97ca?x=1');
+  });
+
+  it('returns the input unchanged when it is not a URL', () => {
+    expect(pathOfUrl('not a url')).toBe('not a url');
+  });
+});
+
+describe('selectionFromUrl', () => {
+  it('takes the path and names the service from its first segment', () => {
+    const sel = selectionFromUrl('https://mortgage.services.nykredit.it/effective-mortgage-loan/loans/4c87');
+    expect(sel.fullPath).toBe('/effective-mortgage-loan/loans/4c87');
+    expect(sel.serviceName).toBe('effective-mortgage-loan');
+    expect(sel.method).toBe('GET');
+  });
+
+  it('excludes the query string from the path, which becomes parameters instead', () => {
+    const sel = selectionFromUrl('https://x.example.net/a/b?limit=10');
+    expect(sel.fullPath).toBe('/a/b');
+  });
+
+  it('defaults the accept-version to the one the link was tried with', () => {
+    const sel = selectionFromUrl('https://x.example.net/a');
+    expect(sel.acceptHeader).toBe(LINK_ACCEPT);
+    expect(sel.acceptVersion).toBe('1');
+  });
+
+  it('declares no parameters and no body, since there is no contract', () => {
+    const sel = selectionFromUrl('https://x.example.net/a');
+    expect(sel.parameters).toEqual([]);
+    expect(sel.requestBodySchema).toBeNull();
+    expect(sel.bodySkeleton).toBe('');
+  });
+
+  it('falls back to the host when the path has no segments', () => {
+    expect(selectionFromUrl('https://x.example.net/').serviceName).toBe('x.example.net');
+  });
+
+  it('survives a malformed url', () => {
+    expect(() => selectionFromUrl('not a url')).not.toThrow();
+  });
+});
+
+describe('customParamsFromUrl', () => {
+  it('turns each query parameter into a named row', () => {
+    expect(customParamsFromUrl('https://x.example.net/a?limit=10&expand=all'))
+      .toEqual([
+        { id: 'link-0', name: 'limit', value: '10' },
+        { id: 'link-1', name: 'expand', value: 'all' },
+      ]);
+  });
+
+  it('decodes percent-encoded values', () => {
+    expect(customParamsFromUrl('https://x.example.net/a?q=a%20b')[0].value).toBe('a b');
+  });
+
+  it('returns nothing for a url without a query', () => {
+    expect(customParamsFromUrl('https://x.example.net/a')).toEqual([]);
+    expect(customParamsFromUrl('not a url')).toEqual([]);
+  });
+});
+
+describe('copyLinkToCrafter', () => {
+  function linkTab(url: string): string {
+    useRestStore.setState({ responses: [], activeResponseId: null });
+    return useRestStore.getState().addResponseTab({
+      title: pathOfUrl(url), url, method: 'GET',
+      loading: false, result: resultOf({ url }), origin: 'link',
+    });
+  }
+
+  it('loads the link path and query into the crafter', () => {
+    const id = linkTab('https://t4.nykreditnet.net/consent/consents?limit=5');
+    useRestStore.getState().copyLinkToCrafter(id);
+    const s = useRestStore.getState();
+    expect(s.selection?.fullPath).toBe('/consent/consents');
+    expect(s.customParams).toEqual([{ id: 'link-0', name: 'limit', value: '5' }]);
+    expect(s.paramValues['custom:link-0']).toBe('5');
+  });
+
+  it('switches to the environment that serves the link', () => {
+    useRestStore.setState({
+      environmentKey: 'p0',
+      environments: [
+        { key: 'p0', label: 'p0', baseUrl: 'https://mortgage.services.nykredit.it', securityHost: 'h', auth: 'oauth' },
+        { key: 't4', label: 't4', baseUrl: 'https://t4.nykreditnet.net', securityHost: 'h', auth: 'oauth' },
+      ],
+    });
+    const id = linkTab('https://t4.nykreditnet.net/consent/consents');
+    useRestStore.getState().copyLinkToCrafter(id);
+    expect(useRestStore.getState().environmentKey).toBe('t4');
+    expect(useRestStore.getState().crafterError).toBeNull();
+  });
+
+  it('warns rather than silently retargeting when the host is unknown', () => {
+    useRestStore.setState({
+      environmentKey: 'p0',
+      environments: [
+        { key: 'p0', label: 'p0', baseUrl: 'https://mortgage.services.nykredit.it', securityHost: 'h', auth: 'oauth' },
+      ],
+    });
+    const id = linkTab('https://documents.services.totalkredit.dk/d/1');
+    useRestStore.getState().copyLinkToCrafter(id);
+    const s = useRestStore.getState();
+    expect(s.environmentKey).toBe('p0');
+    expect(s.crafterError).toMatch(/outside the selected environment/);
+  });
+
+  it('ignores an unknown tab id', () => {
+    useRestStore.setState({ responses: [], activeResponseId: null });
+    expect(() => useRestStore.getState().copyLinkToCrafter('nope')).not.toThrow();
   });
 });

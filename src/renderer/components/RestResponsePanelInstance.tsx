@@ -10,8 +10,15 @@ interface Props {
 
 /** Session-unbound panel wrapper for the REST Response panel (R4). */
 export default function RestResponsePanelInstance({ instance }: Props): React.ReactElement {
-  // Granular selector — the header only needs the status line.
-  const response = useRestStore((s) => s.response);
+  // Narrow selectors — the header needs the active tab's status only, not the
+  // whole history, so appending or settling a tab does not re-render it.
+  const status = useRestStore((s) => {
+    const active = s.responses.find((r) => r.id === s.activeResponseId);
+    if (!active) return null;
+    if (active.loading) return '…';
+    if (!active.result) return null;
+    return active.result.ok ? String(active.result.status) : 'FAILED';
+  });
 
   return (
     <PanelInstanceWrapper
@@ -20,11 +27,7 @@ export default function RestResponsePanelInstance({ instance }: Props): React.Re
       renderHeader={() => (
         <div className="terminal-pane__header">
           <span className="terminal-pane__name">{PANEL_LABELS['rest-response']}</span>
-          {response && (
-            <span className="terminal-pane__project">
-              [ {response.ok ? response.status : 'FAILED'} ]
-            </span>
-          )}
+          {status && <span className="terminal-pane__project">[ {status} ]</span>}
         </div>
       )}
     >

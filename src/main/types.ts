@@ -287,6 +287,8 @@ export interface RestRequestSpec {
   method: string;
   /** Already substituted and query-appended by the renderer. */
   path: string;
+  /** A followed link: used verbatim instead of environment base URL + path. */
+  absoluteUrl?: string;
   headers: RestHeaderSpec[];
   body: string;
   /** False once the user has hand-edited Authorization. */

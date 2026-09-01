@@ -1,32 +1,105 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ChevronsDownUp, ChevronsUpDown, ChevronDown, ChevronRight, Copy, X } from 'lucide-react';
+import { cn } from '../utils/cn';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
-import { useRestStore } from '../stores/restStore';
+import { ResponseTab, useRestStore } from '../stores/restStore';
+import { allExpandableIds, buildRows, classifyBody } from '../stores/responseTree';
+import ResponseTree from './ResponseTree';
 import './RestResponsePane.css';
 
 /**
- * Minimal response view.
- *
- * R3 only has to make the executed call observable; all formatting — pretty
- * printing, highlighting, history — belongs to R4, so the body is shown raw
- * and unmodified here.
+ * Expanding more rows than this in one click would build tens of thousands of
+ * DOM nodes and hang the renderer.
  */
+const MAX_EXPAND_ALL_ROWS = 10_000;
+
+function statusLabel(tab: ResponseTab): string {
+  if (tab.loading) return '…';
+  if (!tab.result) return '';
+  if (!tab.result.ok) return 'FAILED';
+  return `${tab.result.status} ${tab.result.statusText}`.trim();
+}
+
+/** REST Response body — one tab per executed call. */
 export default function RestResponsePane(): React.ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   usePanelFocus(rootRef);
 
-  const response = useRestStore((s) => s.response);
-  const sending = useRestStore((s) => s.sending);
+  const responses = useRestStore((s) => s.responses);
+  const activeResponseId = useRestStore((s) => s.activeResponseId);
+  const setActiveResponse = useRestStore((s) => s.setActiveResponse);
+  const closeResponseTab = useRestStore((s) => s.closeResponseTab);
+  const followLink = useRestStore((s) => s.followLink);
+  const copyLinkToCrafter = useRestStore((s) => s.copyLinkToCrafter);
 
-  if (sending && !response) {
-    return (
-      <div className="app-empty" ref={rootRef}>
-        <div className="app-empty__text">REST RESPONSE</div>
-        <div className="app-empty__sub">WAITING FOR A RESPONSE…</div>
-      </div>
-    );
-  }
+  // Expansion lives here rather than in ResponseTree: the expand-all control
+  // sits in this header, and a parent cannot set a child's state.
+  const [expandedByTab, setExpandedByTab] = useState<Record<string, Set<string>>>({});
+  const [headersOpen, setHeadersOpen] = useState(false);
+  const [expandNotice, setExpandNotice] = useState<string | null>(null);
 
-  if (!response) {
+  const active = responses.find((r) => r.id === activeResponseId) ?? null;
+  const expanded = (activeResponseId && expandedByTab[activeResponseId]) || new Set<string>();
+
+  const view = useMemo(() => {
+    if (!active?.result || !active.result.ok) return null;
+    return classifyBody(active.result.body, active.result.headers, active.result.truncated);
+  }, [active]);
+
+  const rows = useMemo(
+    () => (view?.kind === 'tree' ? buildRows(view.data, expanded) : []),
+    [view, expanded]
+  );
+
+  const toggle = useCallback((id: string) => {
+    if (!activeResponseId) return;
+    setExpandedByTab((prev) => {
+      const current = prev[activeResponseId] ?? new Set<string>();
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, [activeResponseId]: next };
+    });
+  }, [activeResponseId]);
+
+  const anyExpanded = expanded.size > 0;
+
+  const toggleAll = useCallback(() => {
+    if (!activeResponseId || view?.kind !== 'tree') return;
+    setExpandNotice(null);
+    if (anyExpanded) {
+      setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set() }));
+      return;
+    }
+    const all = allExpandableIds(view.data);
+    const fullSize = buildRows(view.data, new Set(all)).length;
+    if (fullSize > MAX_EXPAND_ALL_ROWS) {
+      setExpandNotice(
+        `Expanding everything would show ${fullSize.toLocaleString()} rows — too many to render. `
+        + 'Expand sections individually instead.'
+      );
+      return;
+    }
+    setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set(all) }));
+  }, [activeResponseId, view, anyExpanded]);
+
+  const handleClose = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    closeResponseTab(id);
+    // Drop the closed tab's expansion state, or an unbounded history leaves an
+    // unbounded map of orphaned sets behind it.
+    setExpandedByTab((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _gone, ...rest } = prev;
+      return rest;
+    });
+  }, [closeResponseTab]);
+
+  const copyBody = useCallback(() => {
+    if (active?.result) window.dad.clipboardWrite(active.result.body);
+  }, [active]);
+
+  if (responses.length === 0) {
     return (
       <div className="app-empty" ref={rootRef}>
         <div className="app-empty__text">REST RESPONSE</div>
@@ -35,33 +108,144 @@ export default function RestResponsePane(): React.ReactElement {
     );
   }
 
-  const failed = !response.ok;
-  const statusClass = failed || response.status >= 400
-    ? 'rest-response-pane__status--bad'
-    : 'rest-response-pane__status--good';
+  const result = active?.result ?? null;
+  const failed = result !== null && !result.ok;
 
   return (
     <div className="rest-response-pane" ref={rootRef}>
-      <div className="rest-response-pane__bar">
-        <span className={`rest-response-pane__status ${statusClass}`}>
-          {failed ? 'FAILED' : `${response.status} ${response.statusText}`.trim()}
-        </span>
-        <span className="rest-response-pane__method">{response.method}</span>
-        <span className="rest-response-pane__url" title={response.url}>{response.url}</span>
-        <span className="rest-response-pane__time">{response.durationMs} ms</span>
+      <div className="tab-bar">
+        {responses.map((tab) => (
+          <div
+            key={tab.id}
+            className={cn('tab', tab.id === activeResponseId && 'tab--active')}
+            onClick={() => setActiveResponse(tab.id)}
+            title={tab.url}
+          >
+            <span className="tab__name">{tab.title}</span>
+            <button
+              className="tab__close"
+              onClick={(e) => handleClose(e, tab.id)}
+              title="Close response"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ))}
       </div>
 
-      {failed && <div className="rest-response-pane__error">{response.error}</div>}
-
-      {response.truncated && (
-        <div className="rest-response-pane__notice">
-          Response truncated — only the first 5 MB is shown.
+      {active && (
+        <div className="rest-response-pane__bar">
+          <span
+            className={cn(
+              'rest-response-pane__status',
+              failed || (result && result.status >= 400)
+                ? 'rest-response-pane__status--bad'
+                : 'rest-response-pane__status--good',
+            )}
+          >
+            {statusLabel(active)}
+          </span>
+          <span className="rest-response-pane__method">{active.method}</span>
+          <span className="rest-response-pane__url" title={active.url}>{active.url}</span>
+          {result && <span className="rest-response-pane__time">{result.durationMs} ms</span>}
+          {view?.kind === 'tree' && (
+            <button
+              className="btn btn--micro rest-response-pane__action"
+              onClick={toggleAll}
+              title={anyExpanded ? 'Collapse all' : 'Expand all'}
+            >
+              {anyExpanded ? <ChevronsDownUp size={12} /> : <ChevronsUpDown size={12} />}
+            </button>
+          )}
+          {result && (
+            <button
+              className="btn btn--micro rest-response-pane__action"
+              onClick={copyBody}
+              title="Copy the response body"
+            >
+              <Copy size={12} />
+            </button>
+          )}
         </div>
       )}
 
-      {!failed && (
-        <pre className="rest-response-pane__body">{response.body}</pre>
+      {/*
+        * Offered whatever the status was: a link is tried at v=1, and the
+        * service may want a different accept-version. Handing the request to
+        * the Crafter lets the user set it themselves.
+        */}
+      {active && active.origin === 'link' && !active.loading && (
+        <div className="rest-response-pane__handoff">
+          <button
+            className="btn btn--micro"
+            onClick={() => copyLinkToCrafter(active.id)}
+            title="Load this link into the REST Crafter, where you can set the accept-version"
+          >
+            COPY TO CRAFTER
+          </button>
+        </div>
       )}
+
+      {active?.loading && (
+        <div className="rest-response-pane__notice">Waiting for a response…</div>
+      )}
+
+      {failed && <div className="rest-response-pane__error">{result?.error}</div>}
+
+      {result && result.headers.length > 0 && (
+        <div className="rest-response-pane__headers">
+          <button
+            className="rest-response-pane__headers-toggle"
+            onClick={() => setHeadersOpen((v) => !v)}
+          >
+            {headersOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            <span>RESPONSE HEADERS</span>
+            <span className="rest-response-pane__count">{result.headers.length}</span>
+          </button>
+          {headersOpen && (
+            <div className="rest-response-pane__headers-body">
+              {result.headers.map(([name, value], i) => (
+                <div className="rest-response-pane__header-row" key={`${name}-${i}`}>
+                  <span className="rest-response-pane__key">{name}:</span>
+                  <span className="rest-response-pane__value">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {result?.truncated && (
+        <div className="rest-response-pane__notice">
+          Response truncated — only the first 5 MB was received.
+        </div>
+      )}
+
+      {expandNotice && <div className="rest-response-pane__notice">{expandNotice}</div>}
+
+      {view?.kind === 'raw' && view.notice && (
+        <div className="rest-response-pane__notice">{view.notice}</div>
+      )}
+
+      <div className="rest-response-pane__body">
+        {view?.kind === 'tree' && (
+          <ResponseTree
+            rows={rows}
+            expanded={expanded}
+            onToggle={toggle}
+            onFollowLink={(url) => { void followLink(url); }}
+          />
+        )}
+        {view?.kind === 'raw' && <pre className="rest-response-pane__raw">{result?.body}</pre>}
+        {view?.kind === 'binary' && (
+          <div className="rest-response-pane__placeholder">
+            {view.contentType} — {view.bytes.toLocaleString()} bytes, not displayed.
+          </div>
+        )}
+        {view?.kind === 'empty' && (
+          <div className="rest-response-pane__placeholder">No content.</div>
+        )}
+      </div>
     </div>
   );
 }

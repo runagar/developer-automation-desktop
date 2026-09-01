@@ -21,6 +21,8 @@ export interface RestRequest {
   method: string;
   /** Already substituted and query-appended by the renderer. */
   path: string;
+  /** A followed link (R4): used verbatim instead of environment base URL + path. */
+  absoluteUrl?: string;
   headers: RestHeader[];
   body: string;
   /** False once the user has hand-edited Authorization — suppresses the retry. */
@@ -105,6 +107,38 @@ function headerEntries(headers: Headers): Array<[string, string]> {
 /** `fetch` rejects a body on these outright, so it is simply not attached. */
 const BODYLESS_METHODS = ['GET', 'HEAD'];
 
+/** Loopback cannot be intercepted off-machine, so plaintext there is not a leak. */
+function isLoopback(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
+}
+
+/**
+ * Whether the bearer token may be attached to this URL.
+ *
+ * A followed link is any absolute URL found in a response body, and the token
+ * is minted from the user's real domain credentials. Sending it over plaintext
+ * `http:` would put it on the wire in the clear — the same leak R2's
+ * `safeHref` exists to prevent. The host is deliberately *not* checked: a
+ * foreign host still gets the token by decision, but never unencrypted.
+ */
+export function mayAttachToken(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || isLoopback(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** True when a followed link leaves the selected environment's host. */
+export function isForeignHost(url: string, baseUrl: string): boolean {
+  try {
+    return new URL(url).host !== new URL(baseUrl).host;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Execute a crafted request.
  *
@@ -116,13 +150,23 @@ const BODYLESS_METHODS = ['GET', 'HEAD'];
 export async function executeRequest(dataDir: string, req: RestRequest): Promise<RestResult> {
   const env = findEnvironment(req.environmentKey)
     ?? findEnvironment(DEFAULT_ENVIRONMENT_KEY)!;
-  const url = buildUrl(env.baseUrl, req.path);
+  const url = req.absoluteUrl ?? buildUrl(env.baseUrl, req.path);
   const method = req.method.toUpperCase();
   const started = Date.now();
 
+  const withToken = mayAttachToken(url);
+  // Re-minting cannot fix an audience mismatch, and invalidating would discard
+  // the token the Crafter is still using. So a link that leaves the selected
+  // environment never triggers a re-authentication.
+  const autoAuth = req.autoAuth
+    && !(req.absoluteUrl !== undefined && isForeignHost(url, env.baseUrl));
+
   const send = (headers: RestHeader[]): Promise<Response> => {
     const map: Record<string, string> = {};
-    for (const header of usableHeaders(headers)) map[header.name.trim()] = header.value;
+    for (const header of usableHeaders(headers)) {
+      if (!withToken && isAuthorization(header.name)) continue;
+      map[header.name.trim()] = header.value;
+    }
     return fetch(url, {
       method,
       headers: map,
@@ -143,7 +187,7 @@ export async function executeRequest(dataDir: string, req: RestRequest): Promise
     // worth retrying when DAD minted the token itself. A second 401 is
     // returned as the real answer, and a 403 (valid token, wrong client) never
     // retries because retrying cannot fix it.
-    if (response.status === 401 && req.autoAuth && env.auth === 'oauth') {
+    if (response.status === 401 && autoAuth && env.auth === 'oauth') {
       const used = bearerOf(headers);
       if (used) invalidateToken(environmentTarget(env), used);
       const fresh = await tokenForEnvironment(dataDir, env).catch(() => null);

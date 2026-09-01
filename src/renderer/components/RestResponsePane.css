@@ -1,6 +1,7 @@
 /* =========================================================
-   REST RESPONSE PANE — raw result of the last crafted call
-   Deliberately minimal; formatting is R4's job.
+   REST RESPONSE PANE — one tab per executed call
+   The tab strip itself is the shared .tab-bar / .tab in
+   pipboy.css; everything here is specific to this panel.
    ========================================================= */
 
 .rest-response-pane {
@@ -10,6 +11,8 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* --- status line --- */
 
 .rest-response-pane__bar {
   display: flex;
@@ -55,14 +58,23 @@
   flex-shrink: 0;
 }
 
-.rest-response-pane__error {
-  margin: 8px;
-  padding: 6px 8px;
-  font-family: var(--font);
-  font-size: 0.68rem;
-  color: var(--c-red);
-  border: 1px solid var(--c-red);
+.rest-response-pane__action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
 }
+
+/* --- link hand-off --- */
+
+.rest-response-pane__handoff {
+  display: flex;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--c-dim);
+  flex-shrink: 0;
+}
+
+/* --- notices and errors --- */
 
 .rest-response-pane__notice {
   padding: 4px 8px;
@@ -73,18 +85,163 @@
   flex-shrink: 0;
 }
 
+.rest-response-pane__error {
+  margin: 8px;
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-red);
+  border: 1px solid var(--c-red);
+  flex-shrink: 0;
+}
+
+/* --- collapsible response headers --- */
+
+.rest-response-pane__headers {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--c-dim);
+}
+
+.rest-response-pane__headers-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.rest-response-pane__headers-toggle:hover {
+  color: var(--c-bright);
+}
+
+.rest-response-pane__headers-body {
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 0 8px 4px;
+}
+
+.rest-response-pane__header-row {
+  display: flex;
+  gap: 6px;
+  font-family: var(--font);
+  font-size: 0.64rem;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* --- body --- */
+
 .rest-response-pane__body {
   flex: 1;
   min-height: 0;
+  /* Requirement 2.5 — the body scrolls, the tab bar and status line do not. */
+  overflow: auto;
+}
+
+.rest-response-pane__raw {
   margin: 0;
   padding: 8px;
-  overflow: auto;
   font-family: var(--font);
   font-size: 0.7rem;
   line-height: 1.4;
   color: var(--c-bright);
-  /* Raw and unformatted, but still wrapped so a long line stays readable. */
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
+}
+
+.rest-response-pane__placeholder {
+  padding: 12px 8px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-mid);
+}
+
+/* --- tree --- */
+
+.rest-response-pane__tree {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font);
+  font-size: 0.68rem;
+}
+
+.rest-response-pane__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  padding-right: 8px;
+  user-select: text;
+}
+
+/*
+ * Striped by *visible* row index, so the alternation always reads correctly
+ * as nodes are expanded and collapsed. --c-active rather than --c-panel: the
+ * panel body is --c-bg (#000000) and --c-panel differs from it by 10-17/255,
+ * which is invisible.
+ */
+.rest-response-pane__row--alt {
+  background: var(--c-active);
+}
+
+.rest-response-pane__row--expandable {
+  cursor: pointer;
+}
+
+.rest-response-pane__row--expandable:hover {
+  background: var(--c-panel-hover);
+}
+
+.rest-response-pane__marker {
+  flex-shrink: 0;
+  width: 8px;
+  color: var(--c-bright);
+  font-weight: 700;
+}
+
+.rest-response-pane__key {
+  flex-shrink: 0;
+  color: var(--c-bright);
+  font-weight: 700;
+}
+
+.rest-response-pane__value {
+  color: var(--c-mid);
+  /* Long values wrap rather than truncate — the row grows to fit. */
+  word-break: break-word;
+  min-width: 0;
+}
+
+.rest-response-pane__count {
+  color: var(--c-mid);
+  flex-shrink: 0;
+}
+
+.rest-response-pane__link {
+  padding: 0;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  text-align: left;
+  color: var(--c-bright);
+  /* Underlined because colour alone cannot mark a link in a two-colour theme. */
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* Never truncated: the destination must be readable before it is clicked. */
+  word-break: break-all;
+  min-width: 0;
+}
+
+.rest-response-pane__link:hover {
+  background: var(--c-active);
 }

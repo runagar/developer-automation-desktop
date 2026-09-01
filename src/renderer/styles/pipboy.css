@@ -214,3 +214,72 @@
   justify-content: center;
   z-index: 10000;
 }
+
+/* =========================================================
+   SHARED TAB BAR
+   Used by the Notes panel and the REST Response panel. Kept
+   here rather than duplicated per component, since both need
+   the same closable, horizontally scrolling tab strip.
+   ========================================================= */
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 4px;
+  gap: 2px;
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-dark);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 60px;
+  max-width: 180px;
+  padding: 2px 6px;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  color: var(--c-mid);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  color: var(--c-bright);
+  background: var(--c-dark);
+}
+
+.tab--active {
+  color: var(--c-bright);
+  border-color: var(--c-dim);
+  background: var(--c-bg);
+}
+
+.tab__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab__close {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 2px;
+  line-height: 1;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.tab__close:hover {
+  color: var(--c-red);
+}

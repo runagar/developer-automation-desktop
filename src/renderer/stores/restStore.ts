@@ -4,8 +4,8 @@ import {
   RestEnvironmentInfo, RestResultInfo,
 } from '../../main/types';
 import {
-  ACCEPT, CustomHeader, CustomParam, carryOverValues, craftedPath, defaultHeaderRows,
-  defaultParamRows, keepEditedBody, missingPathParams, requestHeaders,
+  ACCEPT, AUTHORIZATION, CustomHeader, CustomParam, carryOverValues, craftedPath,
+  defaultHeaderRows, defaultParamRows, keepEditedBody, missingPathParams, requestHeaders,
 } from './restCraft';
 
 const SELECTION_KEY = 'dad-rest-selection';
@@ -33,6 +33,25 @@ export interface VersionRef {
 }
 
 export type CrafterTab = 'headers' | 'parameters' | 'body';
+
+/**
+ * One executed request and its reply.
+ *
+ * Held in memory only: requirement 3 drops the whole history on restart, so
+ * there is no storage layer for these at all.
+ */
+export interface ResponseTab {
+  id: string;
+  /** The api-path, shown as the tab title. */
+  title: string;
+  /** Full URL, for the tooltip and the header line. */
+  url: string;
+  method: string;
+  /** True between a link click and its reply arriving. */
+  loading: boolean;
+  result: RestResultInfo | null;
+  origin: 'crafter' | 'link';
+}
 
 /**
  * The parts of a crafted request that are worth surviving a restart.
@@ -102,7 +121,13 @@ interface RestStore {
   tokenLoading: boolean;
   sending: boolean;
   crafterError: string | null;
-  response: RestResultInfo | null;
+
+  /**
+   * Every response of this session, oldest first. Deliberately unbounded
+   * (ambiguity 1) — a tab is removed only when the user closes it.
+   */
+  responses: ResponseTab[];
+  activeResponseId: string | null;
 
   setSearch: (value: string) => void;
   toggleSection: (section: 'releases' | 'prereleases' | 'branches') => void;
@@ -137,6 +162,14 @@ interface RestStore {
   setActiveTab: (tab: CrafterTab) => void;
   send: () => Promise<void>;
   clearCrafterError: () => void;
+
+  // --- REST Response (R4) ---
+  addResponseTab: (tab: Omit<ResponseTab, 'id'>) => string;
+  copyLinkToCrafter: (tabId: string) => void;
+  settleResponseTab: (id: string, result: RestResultInfo) => void;
+  closeResponseTab: (id: string) => void;
+  setActiveResponse: (id: string) => void;
+  followLink: (url: string) => Promise<void>;
 }
 
 export function rowKeyOf(row: { method: string; path: string }): string {
@@ -279,6 +312,80 @@ function saveDraft(draft: RequestDraft): void {
       // Storage unavailable or full — the draft simply will not be restored.
     }
   }, 300);
+}
+
+/**
+ * The `Accept` a followed link is tried with.
+ *
+ * A link crosses into a service whose accept-version cannot be discovered:
+ * `*` / `*` and plain `application/json` are both refused by strict services with
+ * "missing version information", the 406 names no supported version, `OPTIONS`
+ * reveals nothing, and the target service may not be published in api-docs at
+ * all. Rather than guess, DAD tries the most common version and offers
+ * "copy to crafter" so the user can set whatever the service actually wants.
+ */
+export const LINK_ACCEPT = 'application/json;v=1';
+
+/**
+ * A stand-in selection for a followed link.
+ *
+ * The Crafter is built around an operation picked from a contract, but a link
+ * is a bare URL with no contract behind it — possibly to a service that is not
+ * in api-docs at all. This fabricates just enough for the Crafter to render
+ * and send, leaving the user to set the accept-version themselves.
+ */
+export function selectionFromUrl(url: string): ApiDocsRestSelection {
+  let pathname = url;
+  let service = url;
+  try {
+    const parsed = new URL(url);
+    pathname = parsed.pathname;
+    service = pathname.split('/').filter(Boolean)[0] ?? parsed.host;
+  } catch {
+    // Not a URL — keep the raw string so the Crafter still shows something.
+  }
+  return {
+    serviceName: service,
+    category: 'default',
+    contractType: 'RELEASE',
+    contractVersion: 'link',
+    method: 'GET',
+    path: pathname,
+    fullPath: pathname,
+    acceptVersion: '1',
+    acceptHeader: LINK_ACCEPT,
+    produces: [],
+    consumesVersion: null,
+    consumesHeader: null,
+    consumes: [],
+    requestBodySchema: null,
+    bodySkeleton: '',
+    // No contract, so no declared parameters; the query string becomes custom
+    // rows instead, and the path is already concrete.
+    parameters: [],
+    deprecated: false,
+    summary: 'Followed link',
+  };
+}
+
+/** Query parameters of a URL, as the Crafter's custom-parameter rows. */
+export function customParamsFromUrl(url: string): CustomParam[] {
+  try {
+    const params = [...new URL(url).searchParams.entries()];
+    return params.map(([name, value], i) => ({ id: `link-${i}`, name, value }));
+  } catch {
+    return [];
+  }
+}
+
+/** The path and query of a URL, used as a response tab's title. */
+export function pathOfUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
 }
 
 function newId(): string {
@@ -432,7 +539,8 @@ export const useRestStore = create<RestStore>((set, get) => ({
   tokenLoading: false,
   sending: false,
   crafterError: null,
-  response: null,
+  responses: [],
+  activeResponseId: null,
 
   setSearch: (value) => set({ search: value }),
 
@@ -671,21 +779,136 @@ export const useRestStore = create<RestStore>((set, get) => ({
     }
 
     const headerRows = defaultHeaderRows(state.selection, state.customHeaders);
+    const path = craftedPath(state.selection, paramRows, state.paramValues);
+    const environment = state.environments.find((e) => e.key === state.environmentKey);
     set({ sending: true, crafterError: null });
     try {
-      const response = await window.dad.restSend({
+      const result = await window.dad.restSend({
         environmentKey: state.environmentKey,
         method: state.selection.method,
-        path: craftedPath(state.selection, paramRows, state.paramValues),
+        path,
         headers: requestHeaders(headerRows, state.headerValues, state.authValue),
         body: state.bodyText,
         autoAuth: !state.authManual,
       });
-      set({ response, sending: false });
+      // Every send opens its own tab (ambiguity 15) so two runs of the same
+      // request can be compared side by side.
+      get().addResponseTab({
+        title: path,
+        url: result.url || `${environment?.baseUrl ?? ''}${path}`,
+        method: state.selection.method,
+        loading: false,
+        result,
+        origin: 'crafter',
+      });
+      set({ sending: false });
     } catch (err) {
       set({ sending: false, crafterError: messageOf(err) });
     }
   },
 
   clearCrafterError: () => set({ crafterError: null }),
+
+  // -------------------------------------------------------------------------
+  // REST Response (R4)
+  // -------------------------------------------------------------------------
+
+  addResponseTab: (tab) => {
+    const id = newId();
+    // Appended right and activated (ambiguity 14) — the user asked for this
+    // response, so it is what they want to look at.
+    set((s) => ({
+      responses: [...s.responses, { ...tab, id }],
+      activeResponseId: id,
+    }));
+    return id;
+  },
+
+  settleResponseTab: (id, result) => set((s) => ({
+    responses: s.responses.map((r) => (
+      r.id === id ? { ...r, loading: false, result, url: result.url || r.url } : r
+    )),
+  })),
+
+  closeResponseTab: (id) => set((s) => {
+    const index = s.responses.findIndex((r) => r.id === id);
+    if (index === -1) return {};
+    const responses = s.responses.filter((r) => r.id !== id);
+    if (s.activeResponseId !== id) return { responses };
+    // Activate the right-hand neighbour, falling back to the left, so closing
+    // never drops to the empty state while tabs remain.
+    const next = responses[index] ?? responses[index - 1] ?? null;
+    return { responses, activeResponseId: next ? next.id : null };
+  }),
+
+  setActiveResponse: (id) => set({ activeResponseId: id }),
+
+  copyLinkToCrafter: (tabId) => {
+    const tab = get().responses.find((r) => r.id === tabId);
+    if (!tab) return;
+
+    const selection = selectionFromUrl(tab.url);
+    const customParams = customParamsFromUrl(tab.url);
+    // A link may point outside the selected environment; switch to the one that
+    // serves it so the Crafter sends where the link actually pointed.
+    const match = get().environments.find((e) => {
+      try {
+        return new URL(tab.url).host === new URL(e.baseUrl).host;
+      } catch {
+        return false;
+      }
+    });
+
+    set((s) => ({
+      ...applySelection(s, selection),
+      environmentKey: match ? match.key : s.environmentKey,
+      customParams,
+      // Values live in the row map, keyed the way defaultParamRows builds them.
+      paramValues: Object.fromEntries(
+        customParams.map((p) => [`custom:${p.id}`, p.value])
+      ),
+      activeTab: 'headers',
+      crafterError: match
+        ? null
+        : 'This link is outside the selected environment — check the environment before sending.',
+    }));
+    persist(get());
+    saveIdentity(null);
+  },
+
+  followLink: async (url) => {
+    const { environmentKey, authValue, authManual } = get();
+    // The tab opens immediately in a loading state (ambiguity 11) so a slow or
+    // failing link is visible rather than silent.
+    const id = get().addResponseTab({
+      title: pathOfUrl(url),
+      url,
+      method: 'GET',
+      loading: true,
+      result: null,
+      origin: 'link',
+    });
+    try {
+      const result = await window.dad.restSend({
+        environmentKey,
+        method: 'GET',
+        path: '',
+        absoluteUrl: url,
+        // `*/*` is the one Accept proven to pass negotiation on a versioned
+        // endpoint without knowing the version (ambiguity 10).
+        headers: [
+          { name: AUTHORIZATION, value: authValue },
+          { name: ACCEPT, value: LINK_ACCEPT },
+        ],
+        body: '',
+        autoAuth: !authManual,
+      });
+      get().settleResponseTab(id, result);
+    } catch (err) {
+      get().settleResponseTab(id, {
+        ok: false, status: 0, statusText: '', headers: [], body: '', truncated: false,
+        durationMs: 0, url, method: 'GET', error: messageOf(err),
+      });
+    }
+  },
 }));

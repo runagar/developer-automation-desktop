@@ -30,7 +30,7 @@ The REST tooling tab. It is session-unbound — it has no Sessions panel and no 
 |---|---|---|---|
 | API Picker | `api-picker` | `x0 y0 w6 h24` | Implemented (R2) |
 | REST Crafter | `rest-crafter` | `x6 y0 w10 h24` | Implemented (R3) |
-| REST Response | `rest-response` | `x16 y0 w8 h24` | Minimal raw view (R3); formatted in R4 |
+| REST Response | `rest-response` | `x16 y0 w8 h24` | Implemented (R4) |
 
 All three are singletons: always present in the tab's default layout, never destroyed. The ✕ button hides them and the Panel menu toggles them back — exactly the Sessions panel model, now generalised over `SINGLETON_TYPES` rather than hardcoded to the string `'sessions'`.
 
@@ -85,7 +85,23 @@ Because `getToken` caches on `securityHost|clientId` and every environment has a
 **Draft persistence.** `localStorage` key `dad-rest-draft` holds the environment, header and parameter values, custom rows, body text and skeleton baseline — **never the Authorization value**. Written debounced (300 ms), capped at 256 KB, and validated field-by-field on load; a malformed blob is discarded rather than half-applied. It has its own key because the per-tab layout blob is geometry only.
 
 ### REST Response panel
-A deliberately minimal raw view (R3): status and status text, method, URL, elapsed time, and the body in a `<pre>` with **no** prettifying. Transport failures render in the same place, and truncation is announced. All formatting, highlighting and history belong to R4.
+The third functional Rest Room panel (R4). Every executed call gets its own closable tab; JSON bodies render as a collapsible tree, and links inside a response can be followed.
+
+**History.** `restStore.responses` is a `ResponseTab[]` held **in memory only** — responses are deliberately dropped on restart, so there is no storage layer, no SQLite table and no `localStorage` key for them. It is **unbounded**: a tab is removed only when the user closes it. Tabs append right and activate; closing the active tab activates its right-hand neighbour, falling back to the left. Every send opens a new tab rather than replacing one, so two runs of the same request can be compared. Tab titles are the api-path, truncated by CSS (which keeps the readable head) with the full URL as the tooltip.
+
+**Tree model (`src/renderer/stores/responseTree.ts`).** Pure and unit-tested. `buildRows` flattens the parsed body into a visible row list, which is what lets striping follow **visible order** (so it stays correct as nodes open and close) and keeps a future virtualisation a drop-in change. Key points:
+- **Row ids are structural** — parent id plus child *index*, never the property name. A key containing `.` or `[` would otherwise collide with a genuinely nested route, toggling unrelated nodes and duplicating React keys; a followed link returns arbitrary JSON from any service, so keys are uncontrolled.
+- **Every nested container starts collapsed.** `expanded` is a set of ids, so absence means collapsed and no traversal is needed to set that up.
+- **Empty containers are leaves** rendered inline as `[]` / `{}` with no control — a `+` that expands to nothing reads as a bug.
+- **A link is any string value that is an absolute `http(s)` URL**, whatever the property is called. This catches the `href` convention (`rs-consent` alone has 36 and no `_links`), HAL `_links.<rel>.href`, and one-offs like `documentUrl` without maintaining a list.
+
+**Body classification.** Driven by `Content-Type` (looked up case-insensitively) plus a parse attempt: JSON under 1 MB becomes a tree; a JSON body that fails `JSON.parse` (proxy HTML, truncation) or exceeds 1 MB falls back to raw text with a notice; XML/Atom/text render raw; `application/pdf` and other binary types show a type-and-size placeholder rather than bytes; an empty body says so. The 1 MB threshold is a **render** limit — R3's 5 MB cap is a transport limit and does nothing to protect the renderer. Media-type matching is on a `json`/`xml` substring, **not** the `+json` convention: the catalogue publishes `application/vnd.nykredit-v2=xml` with an `=`.
+
+**Following a link.** Clicking fires a single `GET` at the absolute URL, opening its tab immediately in a loading state. **There is no way to discover the target's accept-version in one request** — `*/*` and plain `application/json` are both refused by strict services with "missing version information", the 406 names no supported version, `OPTIONS` reveals nothing, and the target service may not be in api-docs at all (`/effective-mortgage-loan` is served by no published service). So DAD does not guess: it tries `application/json;v=1` and always offers **COPY TO CRAFTER**, which loads the link's path, query parameters and headers into the Crafter so the user can set the version themselves. That hand-off fabricates a stand-in selection (the Crafter is otherwise built around a contract-picked operation) and switches to the environment serving that host, warning inline rather than silently retargeting when the host is unknown.
+
+**Expand/collapse-all** applies to the active tab and expands every level, mirroring `ApiPickerPane`'s toggle and icons. It refuses above 10,000 visible rows rather than hanging the renderer — there is no virtualisation. Expansion state is owned by `RestResponsePane` (a map keyed by tab id) rather than by the tree, because the control lives in the pane header; the map entry is dropped when a tab closes.
+
+**Also shown:** a collapsible response-headers section, collapsed by default (`X-Log-Token` is the correlation id used for log lookups across this estate), and a copy button using the existing `window.dad.clipboardWrite`.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:
@@ -520,7 +536,7 @@ Main process
 ├── apidocs.ts           API-docs client: runtime config, service/version/contract fetch, Swagger 2.0 + OpenAPI 3.x parsing
 ├── restSchema.ts        expands a body schema into an editable JSON skeleton ($ref, allOf/oneOf, cycle + depth guard)
 ├── environments.ts      the 24 REST target environments, restless client id, local Base64 credential
-├── rest.ts              crafted-request execution: token per environment, 401 retry-once, 5 MB body cap
+├── rest.ts              request execution: token per environment, 401 retry-once, 5 MB body cap, followed links
 ├── updater.ts           auto-update via electron-updater (checks GitHub Releases, IPC for renderer notification)
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
@@ -537,7 +553,8 @@ Renderer process
 │   ├── projectStore.ts  projectGroups, CRUD actions
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
 │   ├── restStore.ts     API Picker navigation + REST Crafter state, selection carry-over, request draft
-│   └── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
+│   ├── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
+│   └── responseTree.ts  pure JSON tree flattening + content-type classification for the Response panel
 ├── hooks/
 │   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
 ├── dashboard/           grid layout system (framework-agnostic)
@@ -568,7 +585,8 @@ Renderer process
 ├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
 ├── ApiPickerPane        service/version/operation drill-down with live search (R2)
 ├── RestCrafterPane      URL bar, environment selector, HEADERS/PARAMETERS/BODY tabs, CodeMirror JSON body
-├── RestResponsePane     raw status + body view (formatting belongs to R4)
+├── RestResponsePane     response tabs, status line, collapsible headers, tree or raw body
+├── ResponseTree         the flattened JSON tree rows: +/- toggles, striping, clickable links
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions

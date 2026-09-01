@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  MAX_BODY_BYTES, bearerOf, buildUrl, executeRequest, truncateBody, usableHeaders, withBearer,
+  MAX_BODY_BYTES, bearerOf, buildUrl, executeRequest, isForeignHost, mayAttachToken,
+  truncateBody, usableHeaders, withBearer,
 } from './rest';
 
 afterEach(() => {
@@ -216,5 +217,117 @@ describe('executeRequest', () => {
     expect(result.method).toBe('POST');
     expect(result.url).toBe('http://127.0.0.1:7001/things');
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Followed links (R4)
+// ---------------------------------------------------------------------------
+
+describe('mayAttachToken', () => {
+  it('allows https anywhere, including hosts outside the environment table', () => {
+    expect(mayAttachToken('https://documents.services.totalkredit.dk/d/1')).toBe(true);
+  });
+
+  it('refuses plaintext http, which would put the token on the wire in the clear', () => {
+    expect(mayAttachToken('http://internal.example.net/a')).toBe(false);
+  });
+
+  it('allows loopback over http, which cannot be intercepted off-machine', () => {
+    expect(mayAttachToken('http://127.0.0.1:7001/a')).toBe(true);
+    expect(mayAttachToken('http://localhost:7001/a')).toBe(true);
+  });
+
+  it('refuses a malformed url', () => {
+    expect(mayAttachToken('not a url')).toBe(false);
+  });
+});
+
+describe('isForeignHost', () => {
+  it('compares host including port', () => {
+    expect(isForeignHost('https://t4.nykreditnet.net/a', 'https://t4.nykreditnet.net')).toBe(false);
+    expect(isForeignHost('https://other.example.net/a', 'https://t4.nykreditnet.net')).toBe(true);
+  });
+
+  it('treats a malformed url as foreign', () => {
+    expect(isForeignHost('nonsense', 'https://t4.nykreditnet.net')).toBe(true);
+  });
+});
+
+describe('executeRequest with an absolute url', () => {
+  const linkRequest = {
+    environmentKey: 't4',
+    method: 'GET',
+    path: '',
+    headers: [
+      { name: 'Authorization', value: 'Bearer live-token' },
+      { name: 'Accept', value: '*/*' },
+    ],
+    body: '',
+    autoAuth: true,
+  };
+
+  it('uses the absolute url verbatim rather than the environment base', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, 'ok'));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await executeRequest('/tmp', {
+      ...linkRequest, path: '/ignored',
+      absoluteUrl: 'https://mortgage.services.nykredit.it/consent/consents/1',
+    });
+    expect(fetchMock.mock.calls[0][0])
+      .toBe('https://mortgage.services.nykredit.it/consent/consents/1');
+    expect(result.url).toBe('https://mortgage.services.nykredit.it/consent/consents/1');
+  });
+
+  it('still sends the token to a foreign https host, as decided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, 'ok'));
+    vi.stubGlobal('fetch', fetchMock);
+    await executeRequest('/tmp', {
+      ...linkRequest, absoluteUrl: 'https://documents.services.totalkredit.dk/d/1',
+    });
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer live-token');
+  });
+
+  it('withholds the token from a plaintext http host', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, 'ok'));
+    vi.stubGlobal('fetch', fetchMock);
+    await executeRequest('/tmp', {
+      ...linkRequest, absoluteUrl: 'http://internal.example.net/a',
+    });
+    const sent = fetchMock.mock.calls[0][1].headers;
+    expect(sent.Authorization).toBeUndefined();
+    expect(sent.Accept).toBe('*/*');
+  });
+
+  it('still sends the token to http loopback', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, 'ok'));
+    vi.stubGlobal('fetch', fetchMock);
+    await executeRequest('/tmp', {
+      ...linkRequest, environmentKey: 'local',
+      absoluteUrl: 'http://127.0.0.1:7001/a',
+    });
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer live-token');
+  });
+
+  it('never re-authenticates on a 401 from a foreign host', async () => {
+    // Re-minting cannot fix an audience mismatch, and invalidating would throw
+    // away the token the Crafter is still using.
+    const fetchMock = vi.fn().mockResolvedValue(response(401, 'denied'));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await executeRequest('/tmp', {
+      ...linkRequest, absoluteUrl: 'https://elsewhere.example.net/a',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe(401);
+  });
+
+  it('sends GET with no body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, 'ok'));
+    vi.stubGlobal('fetch', fetchMock);
+    await executeRequest('/tmp', {
+      ...linkRequest, absoluteUrl: 'https://x.example.net/a',
+    });
+    expect(fetchMock.mock.calls[0][1].method).toBe('GET');
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
   });
 });
