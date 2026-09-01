@@ -4,6 +4,7 @@ import {
   environmentTarget, findEnvironment,
 } from './environments';
 import { getToken, invalidateToken } from './nykAuth';
+import { sendsBody } from './restMethods';
 
 /** No cancellation, so the ceiling has to be generous but finite. */
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -104,9 +105,6 @@ function headerEntries(headers: Headers): Array<[string, string]> {
   return out;
 }
 
-/** `fetch` rejects a body on these outright, so it is simply not attached. */
-const BODYLESS_METHODS = ['GET', 'HEAD'];
-
 /** Loopback cannot be intercepted off-machine, so plaintext there is not a leak. */
 function isLoopback(hostname: string): boolean {
   return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
@@ -172,7 +170,7 @@ export async function executeRequest(dataDir: string, req: RestRequest): Promise
       headers: map,
       // Otherwise sent exactly as typed — an invalid body is a legitimate
       // thing to test against an API.
-      body: req.body.length > 0 && !BODYLESS_METHODS.includes(method) ? req.body : undefined,
+      body: req.body.length > 0 && sendsBody(method) ? req.body : undefined,
       // A 302 is a result worth seeing, not something to follow silently.
       redirect: 'manual',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

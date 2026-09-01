@@ -6,7 +6,8 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { ChevronDown, RotateCcw, X } from 'lucide-react';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
-import { useRestStore } from '../stores/restStore';
+import { sendsBody } from '../../main/restMethods';
+import { useRestStore, REST_METHODS, effectiveMethod } from '../stores/restStore';
 import {
   HeaderRow, ParamRow, buildQuery, defaultHeaderRows, defaultParamRows, effectiveValue,
   substitutePath, takesBody,
@@ -15,6 +16,28 @@ import './RestCrafterPane.css';
 
 /** Shown for a field the contract documents no default for; never sent. */
 const EMPTY_PLACEHOLDER = '...';
+
+/**
+ * Close an open dropdown when the pointer goes down anywhere outside it.
+ *
+ * Shared by the three dropdowns in this pane so they cannot drift apart; a
+ * click inside must not close it, or picking a value would never fire.
+ */
+function useDismissOnOutsideClick(
+  open: boolean, wrapRef: React.RefObject<HTMLElement>, close: () => void
+): void {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) closeRef.current();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, wrapRef]);
+}
 
 interface ValueFieldProps {
   value: string;
@@ -40,14 +63,7 @@ function ValueField({
   const wrapRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  useDismissOnOutsideClick(open, wrapRef, () => setOpen(false));
 
   return (
     <div className="rest-crafter-pane__field" ref={wrapRef}>
@@ -106,16 +122,20 @@ export default function RestCrafterPane(): React.ReactElement {
   const {
     selection, environments, environmentKey, authValue, authManual,
     headerValues, customHeaders, paramValues, customParams,
-    bodyText, activeTab, tokenLoading, sending, crafterError,
+    bodyText, activeTab, tokenLoading, sending, crafterError, methodOverride,
     loadEnvironments, setEnvironment, setAuthValue, resetAuth, setHeaderValue,
     addCustomHeader, updateCustomHeader, removeCustomHeader,
     setParamValue, addCustomParam, updateCustomParam, removeCustomParam,
-    setBodyText, setActiveTab, send, clearCrafterError,
+    setBodyText, setActiveTab, setMethodOverride, send, clearCrafterError,
   } = useRestStore();
 
   const [envOpen, setEnvOpen] = useState(false);
   const envRef = useRef<HTMLDivElement>(null);
   const envButtonRef = useRef<HTMLButtonElement>(null);
+
+  const [methodOpen, setMethodOpen] = useState(false);
+  const methodRef = useRef<HTMLDivElement>(null);
+  const methodButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     void loadEnvironments();
@@ -129,14 +149,8 @@ export default function RestCrafterPane(): React.ReactElement {
     void resetAuth();
   }, [selection, authManual, authValue, resetAuth]);
 
-  useEffect(() => {
-    if (!envOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (envRef.current && !envRef.current.contains(e.target as Node)) setEnvOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [envOpen]);
+  useDismissOnOutsideClick(envOpen, envRef, () => setEnvOpen(false));
+  useDismissOnOutsideClick(methodOpen, methodRef, () => setMethodOpen(false));
 
   const headerRows = useMemo(
     () => defaultHeaderRows(selection, customHeaders), [selection, customHeaders]
@@ -228,6 +242,8 @@ export default function RestCrafterPane(): React.ReactElement {
       </div>
     );
   }
+
+  const method = effectiveMethod(selection, methodOverride);
 
   const renderHeaderRow = (row: HeaderRow): React.ReactElement => {
     const custom = row.kind === 'custom'
@@ -344,13 +360,13 @@ export default function RestCrafterPane(): React.ReactElement {
             <ChevronDown size={14} strokeWidth={2.75} />
           </button>
           {envOpen && (
-            <div className="rest-crafter-pane__env-list">
+            <div className="rest-crafter-pane__menu rest-crafter-pane__menu--wide">
               {environments.map((env) => (
                 <button
                   key={env.key}
                   className={
-                    'rest-crafter-pane__env-item'
-                    + (env.key === environmentKey ? ' rest-crafter-pane__env-item--active' : '')
+                    'rest-crafter-pane__menu-item'
+                    + (env.key === environmentKey ? ' rest-crafter-pane__menu-item--active' : '')
                   }
                   title={env.baseUrl}
                   onClick={() => {
@@ -377,10 +393,50 @@ export default function RestCrafterPane(): React.ReactElement {
           className="btn btn--primary rest-crafter-pane__send"
           onClick={handleSend}
           disabled={sending}
-          title={sending ? 'Waiting for a response' : `Send this ${selection.method} request`}
+          title={sending ? 'Waiting for a response' : `Send this ${method} request`}
         >
-          {sending ? 'SENDING' : selection.method}
+          {sending ? 'SENDING' : method}
         </button>
+
+        <div className="rest-crafter-pane__method" ref={methodRef}>
+          <button
+            ref={methodButtonRef}
+            className="btn btn--primary btn--icon rest-crafter-pane__method-toggle"
+            title="Method to send with"
+            aria-label="Method to send with"
+            disabled={sending}
+            onClick={() => setMethodOpen((v) => !v)}
+          >
+            <ChevronDown size={14} strokeWidth={2.75} />
+          </button>
+          {methodOpen && (
+            <div className="rest-crafter-pane__menu rest-crafter-pane__menu--right">
+              {REST_METHODS.map((option) => (
+                <button
+                  key={option}
+                  className={
+                    'rest-crafter-pane__menu-item'
+                    + (option === method ? ' rest-crafter-pane__menu-item--active' : '')
+                  }
+                  title={
+                    option === selection.method
+                      ? `${option} — documented by this operation`
+                      : `${option} — not documented by this operation`
+                  }
+                  onClick={() => {
+                    setMethodOpen(false);
+                    setMethodOverride(option);
+                    // The list unmounts on click, which would otherwise drop
+                    // focus to the body and unfocus the whole panel.
+                    methodButtonRef.current?.focus();
+                  }}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {crafterError && (
@@ -436,7 +492,9 @@ export default function RestCrafterPane(): React.ReactElement {
           <>
             {!takesBody(selection) && (
               <div className="rest-crafter-pane__note">
-                {selection.method} {selection.path} does not support a request body.
+                {selection.method} {selection.path} does not support a request body
+                {method !== selection.method && sendsBody(method)
+                  && `, but anything typed here will be sent with ${method}`}.
               </div>
             )}
             <div className="rest-crafter-pane__editor" ref={editorRef} />

@@ -76,6 +76,8 @@ Because `getToken` caches on `securityHost|clientId` and every environment has a
 
 **URL.** Read-only but selectable. The environment base URL renders `--c-mid` and everything from `fullPath` onwards `--c-bright`, as a single inline flow so copying it yields no line break. Path parameters are substituted live and percent-encoded; unfilled ones stay literal `{name}`. Filled query parameters append a live query string. **Unfilled path parameters block the send**; missing query parameters never do, since testing an endpoint without one is legitimate.
 
+**Method.** The send button is labelled with the method it will use and carries a caret dropdown offering `GET, HEAD, POST, PATCH, PUT, OPTIONS, DELETE`. The picked operation supplies the default; an override lets the user probe an endpoint with a verb the contract does not document — a `HEAD` to check existence, an `OPTIONS` to read the allowed set off a 405. The override is **in memory only and reset whenever an operation is picked**, so a `DELETE` chosen for one endpoint can never carry over to another; it is deliberately absent from the request draft for the same reason. `BODYLESS_METHODS` lives in `src/main/restMethods.ts` — a pure module with no `fs`/`path`/`electron` imports, so the renderer imports it directly (the `workspaceKeys.ts` precedent) rather than keeping a second copy of the list.
+
 **Selection changes.** The environment and the bearer token always survive. Typed values survive where the new operation still has a row of the same key, so re-picking an operation at another accept-version keeps its path parameters and drops query parameters that version lacks; `Accept` is **always** re-taken from the new operation. Custom headers and parameters survive only while the **resource** (service + method + path) is unchanged. A hand-edited body survives only when the new `bodySkeleton` is textually identical to the one it was edited against — which is why the draft persists a `bodySkeletonBaseline`, without which a restart would silently overwrite the body it exists to preserve.
 
 **Tokens in the renderer.** R2's rule was that tokens never leave the main process; R3 deliberately relaxes it so the Authorization header can be shown and edited (`rest:token`). The token is still **never written to disk** — it is excluded from the request draft. Editing the field sets `authManual`, which stops an environment change overwriting it; the ↺ button inside the field clears that flag and re-fetches.
@@ -537,6 +539,7 @@ Main process
 ├── restSchema.ts        expands a body schema into an editable JSON skeleton ($ref, allOf/oneOf, cycle + depth guard)
 ├── environments.ts      the 24 REST target environments, restless client id, local Base64 credential
 ├── rest.ts              request execution: token per environment, 401 retry-once, 5 MB body cap, followed links
+├── restMethods.ts       pure HTTP-method rules (BODYLESS_METHODS, sendsBody) shared with the renderer
 ├── updater.ts           auto-update via electron-updater (checks GitHub Releases, IPC for renderer notification)
 └── IPC handlers         bridges main ↔ renderer via contextBridge
 
@@ -552,7 +555,7 @@ Renderer process
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
-│   ├── restStore.ts     API Picker navigation + REST Crafter state, selection carry-over, request draft
+│   ├── restStore.ts     API Picker navigation + REST Crafter state, method override, selection carry-over, draft
 │   ├── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
 │   └── responseTree.ts  pure JSON tree flattening + content-type classification for the Response panel
 ├── hooks/

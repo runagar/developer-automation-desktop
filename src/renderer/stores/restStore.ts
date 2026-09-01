@@ -35,6 +35,28 @@ export interface VersionRef {
 export type CrafterTab = 'headers' | 'parameters' | 'body';
 
 /**
+ * The methods the crafter can send, in the order they are offered.
+ *
+ * `DELETE` is last rather than beside the other mutating verbs so the list
+ * cannot be mis-clicked from muscle memory. `TRACE` and `CONNECT` are omitted:
+ * no service in the catalogue documents either.
+ */
+export const REST_METHODS = ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'OPTIONS', 'DELETE'] as const;
+
+/**
+ * The method a send will actually use.
+ *
+ * The picked operation supplies the default; the override lets the user probe
+ * an endpoint with a verb the contract does not document — a `HEAD` to check
+ * existence, or an `OPTIONS` to read the allowed set off a 405.
+ */
+export function effectiveMethod(
+  selection: ApiDocsRestSelection | null, methodOverride: string | null
+): string {
+  return methodOverride ?? selection?.method ?? 'GET';
+}
+
+/**
  * One executed request and its reply.
  *
  * Held in memory only: requirement 3 drops the whole history on restart, so
@@ -93,6 +115,12 @@ interface RestStore {
   collapsedTags: Record<string, boolean>;
 
   selection: ApiDocsRestSelection | null;
+  /**
+   * The method picked from the send button's dropdown, or null to use the
+   * operation's own. Held in memory only and reset whenever an operation is
+   * picked, so it can never outlive the request it was chosen for.
+   */
+  methodOverride: string | null;
   /**
    * A persisted selection that could not be resolved yet — the contract fetch
    * failed because login is latched, missing or off VPN. Kept so a valid
@@ -160,6 +188,7 @@ interface RestStore {
   removeCustomParam: (id: string) => void;
   setBodyText: (text: string, fromUser: boolean) => void;
   setActiveTab: (tab: CrafterTab) => void;
+  setMethodOverride: (method: string) => void;
   send: () => Promise<void>;
   clearCrafterError: () => void;
 
@@ -470,8 +499,8 @@ export function applySelection(
     | 'bodyText' | 'bodyEdited' | 'bodySkeletonBaseline'>,
   selection: ApiDocsRestSelection
 ): Pick<RestStore,
-  'selection' | 'headerValues' | 'paramValues' | 'customHeaders' | 'customParams'
-  | 'bodyText' | 'bodyEdited' | 'bodySkeletonBaseline'> {
+  'selection' | 'methodOverride' | 'headerValues' | 'paramValues' | 'customHeaders'
+  | 'customParams' | 'bodyText' | 'bodyEdited' | 'bodySkeletonBaseline'> {
   // Identity ignores the contract version and accept-version: the same
   // endpoint picked from a pre-release is still the same resource. With no
   // previous selection there is nothing to have moved away from — the custom
@@ -497,6 +526,9 @@ export function applySelection(
 
   return {
     selection,
+    // A verb chosen for the previous operation says nothing about this one,
+    // and silently carrying a DELETE across a pick would be dangerous.
+    methodOverride: null,
     headerValues,
     paramValues: carryOverValues(state.paramValues, paramRows),
     customHeaders,
@@ -518,6 +550,7 @@ export const useRestStore = create<RestStore>((set, get) => ({
   expanded: { releases: true, prereleases: false, branches: false },
   collapsedTags: {},
   selection: null,
+  methodOverride: null,
   pendingSelection: loadIdentity(),
   loading: false,
   error: null,
@@ -658,7 +691,7 @@ export const useRestStore = create<RestStore>((set, get) => ({
         // removal, so the stored identity is genuinely stale.
         saveIdentity(null);
         set({
-          selection: null, pendingSelection: null,
+          selection: null, methodOverride: null, pendingSelection: null,
           error: `${identity.method} ${identity.path} is no longer in ${identity.service} ${identity.version}`,
         });
       }
@@ -763,6 +796,10 @@ export const useRestStore = create<RestStore>((set, get) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
+  // Recorded verbatim, including a pick that matches the operation's own
+  // method: the two are indistinguishable to the user and to every send.
+  setMethodOverride: (method) => set({ methodOverride: method }),
+
   send: async () => {
     const state = get();
     // One request in flight per panel (ambiguity 25) — no cancellation.
@@ -780,12 +817,13 @@ export const useRestStore = create<RestStore>((set, get) => ({
 
     const headerRows = defaultHeaderRows(state.selection, state.customHeaders);
     const path = craftedPath(state.selection, paramRows, state.paramValues);
+    const method = effectiveMethod(state.selection, state.methodOverride);
     const environment = state.environments.find((e) => e.key === state.environmentKey);
     set({ sending: true, crafterError: null });
     try {
       const result = await window.dad.restSend({
         environmentKey: state.environmentKey,
-        method: state.selection.method,
+        method,
         path,
         headers: requestHeaders(headerRows, state.headerValues, state.authValue),
         body: state.bodyText,
@@ -796,7 +834,7 @@ export const useRestStore = create<RestStore>((set, get) => ({
       get().addResponseTab({
         title: path,
         url: result.url || `${environment?.baseUrl ?? ''}${path}`,
-        method: state.selection.method,
+        method,
         loading: false,
         result,
         origin: 'crafter',

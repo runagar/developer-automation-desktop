@@ -44,7 +44,7 @@
   border-color: var(--c-bright);
 }
 
-.rest-crafter-pane__env-list {
+.rest-crafter-pane__menu {
   position: absolute;
   top: calc(100% + 2px);
   left: 0;
@@ -53,12 +53,24 @@
   flex-direction: column;
   max-height: 320px;
   overflow-y: auto;
-  min-width: 220px;
+  min-width: 100%;
   background: var(--c-panel);
   border: 1px solid var(--c-mid);
 }
 
-.rest-crafter-pane__env-item {
+/* Environment labels are long enough to wrap against the toggle's own width. */
+.rest-crafter-pane__menu--wide {
+  min-width: 220px;
+}
+
+/* Anchored right: the method menu sits at the pane's trailing edge, where a
+   left-anchored menu would overflow the panel. */
+.rest-crafter-pane__menu--right {
+  left: auto;
+  right: 0;
+}
+
+.rest-crafter-pane__menu-item {
   padding: 4px 8px;
   font-family: var(--font);
   font-size: 0.7rem;
@@ -70,12 +82,12 @@
   cursor: pointer;
 }
 
-.rest-crafter-pane__env-item:hover {
+.rest-crafter-pane__menu-item:hover {
   color: var(--c-bright);
   background: var(--c-panel-hover);
 }
 
-.rest-crafter-pane__env-item--active {
+.rest-crafter-pane__menu-item--active {
   color: var(--c-bright);
 }
 
@@ -112,6 +124,22 @@
   min-width: 76px;
   font-size: 0.72rem;
   letter-spacing: 0.08em;
+}
+
+/* --- method dropdown --- */
+
+.rest-crafter-pane__method {
+  position: relative;
+  flex-shrink: 0;
+  /* Cancels the url-bar gap so the toggle reads as one split button with
+     SEND, which is what .btn--icon's missing left border assumes. */
+  margin-left: -6px;
+}
+
+.rest-crafter-pane__method-toggle {
+  display: flex;
+  align-items: center;
+  height: 100%;
 }
 
 /* --- error strip --- */

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ApiDocsRestSelection, RestResultInfo } from '../../main/types';
 import {
-  LINK_ACCEPT, applySelection, customParamsFromUrl, filterServices, matchesSearch, parseDraft,
-  pathOfUrl, rowKeyOf, selectionFromUrl, serializeDraft, useRestStore,
+  LINK_ACCEPT, REST_METHODS, applySelection, customParamsFromUrl, effectiveMethod, filterServices,
+  matchesSearch, parseDraft, pathOfUrl, rowKeyOf, selectionFromUrl, serializeDraft, useRestStore,
 } from './restStore';
 
 describe('matchesSearch', () => {
@@ -515,5 +515,58 @@ describe('copyLinkToCrafter', () => {
   it('ignores an unknown tab id', () => {
     useRestStore.setState({ responses: [], activeResponseId: null });
     expect(() => useRestStore.getState().copyLinkToCrafter('nope')).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Method override
+// ---------------------------------------------------------------------------
+
+describe('effectiveMethod', () => {
+  it('falls back to the picked operation when nothing is overridden', () => {
+    expect(effectiveMethod(selectionOf({ method: 'PATCH' }), null)).toBe('PATCH');
+  });
+
+  it('prefers the override over the operation', () => {
+    expect(effectiveMethod(selectionOf({ method: 'GET' }), 'DELETE')).toBe('DELETE');
+  });
+
+  it('offers every method a crafted call can use, in the documented order', () => {
+    expect([...REST_METHODS])
+      .toEqual(['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'OPTIONS', 'DELETE']);
+  });
+});
+
+describe('method override lifecycle', () => {
+  it('is cleared when a new operation is picked', () => {
+    // A DELETE chosen for one endpoint must never carry over to another.
+    const result = applySelection(
+      { ...emptyState, selection: selectionOf({ path: '/other' }) },
+      selectionOf()
+    );
+    expect(result.methodOverride).toBeNull();
+  });
+
+  it('sends with the override rather than the operation method', async () => {
+    const restSend = vi.fn().mockResolvedValue({
+      ok: true, status: 200, statusText: 'OK', headers: [], body: '{}',
+      truncated: false, durationMs: 1, url: 'https://x.example.net/consent/consents/c1',
+      method: 'HEAD', error: null,
+    });
+    vi.stubGlobal('window', { dad: { restSend } });
+    useRestStore.setState({
+      selection: selectionOf(), methodOverride: null, sending: false,
+      paramValues: { 'path:consentId': 'c1' }, customParams: [], customHeaders: [],
+      headerValues: {}, authValue: '', authManual: false, bodyText: '',
+      environments: [], environmentKey: 'p0', responses: [], activeResponseId: null,
+    });
+
+    useRestStore.getState().setMethodOverride('HEAD');
+    await useRestStore.getState().send();
+
+    expect(restSend.mock.calls[0][0].method).toBe('HEAD');
+    // The response tab has to agree, or the history would misreport the call.
+    expect(useRestStore.getState().responses[0].method).toBe('HEAD');
+    vi.unstubAllGlobals();
   });
 });
