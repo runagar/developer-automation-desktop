@@ -197,3 +197,18 @@ These guidelines exist to keep the codebase lean, avoid accidental duplication, 
 - **Do not add synchronous file I/O in new code** on the main process unless performance is demonstrably acceptable. Prefer async I/O for new file operations.
 - **Do not create new migration files** without using the shared utilities in `migrationUtils.ts`.
 - **Do not add `console.log` for production logging.** Use descriptive `[module]` prefix format (e.g. `console.log('[tmux] Creating session...')`). Silent catches must have a comment explaining why silence is acceptable.
+
+## GIT
+
+### Commits
+
+- Commit messages should always follow format: `<type>: <summary>`
+  - `<type>` should be one of 
+    - `fix`: exclusively used for bugfixes
+    - `feat`: exclusively used for new features
+    - `chore` exclusively used for chore/plumbing/maintenance tasks that don't fall under new features or bugfixes. This type is rare and mostly used by automatic jobs, e.g. releases.
+  - `<summary>` should be short (fit within the summary character count if possible), but always accurately describe what was added or changed. 
+    - e.g. `fix: do not attach auth token on cross-host redirect` cannot be reduced without destroying (or inverting) the meaning of the summary, and thus all of it should be included in the summary even if it is longer than the usual limit.
+  - a `<body>` can be optionally included, mostly only when the summary would otherwise include details not strictly necessary.
+    - e.g. Instead of summary `fix: restore idle state detection for copilot 1.0.82`, write summary `fix: restore idle state detection` and body `Copilot CLI 1.0.82 replaced the `❯` prompt with a hint-bar footer.`. 
+    - Use your best judgement for when to do this
