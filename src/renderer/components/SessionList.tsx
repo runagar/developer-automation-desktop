@@ -404,22 +404,32 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
 
       {archivedSessions.length > 0 && (
         <div className="session-list__archived">
-          <button
-            className="session-list__archived-header"
-            onClick={() => {
-              setArchivedExpanded((v) => {
-                const next = !v;
-                try { localStorage.setItem('dad-archived-expanded', String(next)); } catch { /* ok */ }
-                return next;
-              });
-            }}
-          >
-            <span className="session-list__archived-arrow">
-              {archivedExpanded ? '▾' : '▸'}
-            </span>
-            <span>ARCHIVED SESSIONS</span>
-            <span className="session-list__archived-count">({archivedSessions.length})</span>
-          </button>
+          <div className="session-list__archived-headerbar">
+            <button
+              className="session-list__archived-header"
+              onClick={() => {
+                setArchivedExpanded((v) => {
+                  const next = !v;
+                  try { localStorage.setItem('dad-archived-expanded', String(next)); } catch { /* ok */ }
+                  return next;
+                });
+              }}
+            >
+              <span className="session-list__archived-arrow">
+                {archivedExpanded ? '▾' : '▸'}
+              </span>
+              <span>ARCHIVED SESSIONS</span>
+              <span className="session-list__archived-count">({archivedSessions.length})</span>
+            </button>
+            {archivedExpanded && archivedSessions.length > 1 && (
+              <button
+                className="btn btn--micro btn--danger session-list__destroy-all-btn"
+                onClick={() => setDestroyAllPending(true)}
+              >
+                ✕ DESTROY ALL
+              </button>
+            )}
+          </div>
           {archivedExpanded && (
             <ul className="session-list__archived-items">
               {archivedSessions.map((session) => (
@@ -453,16 +463,6 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                 </li>
               ))}
             </ul>
-          )}
-          {archivedExpanded && archivedSessions.length > 1 && (
-            <div className="session-list__destroy-all">
-              <button
-                className="btn btn--micro btn--danger session-list__destroy-all-btn"
-                onClick={() => setDestroyAllPending(true)}
-              >
-                ✕ DESTROY ALL
-              </button>
-            </div>
           )}
         </div>
       )}
