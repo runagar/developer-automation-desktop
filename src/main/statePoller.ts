@@ -87,22 +87,54 @@ export class StatePoller {
   }
 }
 
+/**
+ * Every copilot CLI state is identified by the hint bar it draws in the bottom
+ * few rows of the pane. Only ever match against that region (`CHROME_LINES`) —
+ * copilot's own output and thinking text quotes these same strings verbatim,
+ * so scanning further up produces false positives.
+ *
+ *   awaiting  a modal replaces the whole prompt chrome with its own hint bar,
+ *             e.g. "↑/↓ select · enter accept · ctrl+d decline · esc cancel"
+ *   running   "◎ Working · 11.5 KiB esc interrupt"
+ *   idle      "← open sidebar · / commands · ? help · tab next tab"
+ *
+ * The `/ commands` hint is the only idle entry present in every variant — the
+ * `? help` hint is dropped in autopilot mode and `tab next tab` in single-tab
+ * sessions. There is deliberately no `❯` fallback for pre-1.0.82 builds: the
+ * current UI draws `❯` in front of the selected option of a modal, so matching
+ * it reported awaiting sessions as idle.
+ */
+const CHROME_LINES = 5;
+const AWAITING_MARKERS = [
+  'enter to select',
+  'enter to submit',
+  'enter to confirm',
+  'enter to continue',
+  'enter accept', // elicitation form ("Copilot needs information")
+  'ctrl+d decline', // elicitation form
+  'enter select', // "Approve inference request?"
+  'enter Allow', // tool permission prompt
+];
+const RUNNING_MARKER = 'esc interrupt';
+const IDLE_MARKER = '/ commands';
+
 export function detectStateFromPane(content: string): SessionState | null {
   const plain = content.replace(ANSI_RE, '');
-  // Only check the last portion of the pane for state indicators — all copilot
-  // status chrome (prompt, status bar) appears at the bottom. Checking the full
-  // pane risks false matches from copilot's own output/thinking text.
   const lines = plain.split('\n');
   // Strip trailing empty lines — suspended copilot sessions show the message
   // near the top with empty rows filling the rest of the pane.
   while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
     lines.pop();
   }
+  // Suspended has no hint bar at all, so it needs a wider window than the rest.
   const tail = lines.slice(-12).join('\n');
+  const chrome = lines.slice(-CHROME_LINES).join('\n');
 
   if (tail.includes('Copilot has been suspended')) return 'suspended';
-  if (tail.includes('enter to select') || tail.includes('enter to submit') || tail.includes('enter to confirm') || tail.includes('Asking user')) return 'awaiting';
-  if (tail.includes('esc interrupt')) return 'running';
-  if (tail.includes('❯')) return 'idle';
+  // Awaiting first: a modal hides the working/prompt footer, but the reverse is
+  // not guaranteed, so a visible dialog must always win.
+  if (AWAITING_MARKERS.some((marker) => chrome.includes(marker))) return 'awaiting';
+  if (chrome.includes(RUNNING_MARKER)) return 'running';
+  if (chrome.includes(IDLE_MARKER)) return 'idle';
   return null;
 }

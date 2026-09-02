@@ -255,7 +255,7 @@ State detection uses **tmux `capture-pane` polling** — a single `setInterval` 
 |---|---|
 | **Idle** | Input prompt (`❯`) visible in the captured pane |
 | **Running** | Output is streaming (`esc cancel` pattern detected) |
-| **Awaiting** | CLI is waiting for user input (`enter to select` / `enter to confirm` / `Asking user`) |
+| **Awaiting** | CLI is waiting for user input — a modal dialog or elicitation form is open |
 | **Suspended** | Copilot was suspended with Ctrl+Z (`Copilot has been suspended` detected). Resumed via SIGCONT (▶ RESUME button or Alt+R in terminal panel) |
 | **Dead** *(flag)* | tmux session of an **active** session has exited; session row has `dead = 1`. Never applies to archived sessions |
 | **Warm** *(display)* | Archived, copilot tmux still alive — restores instantly |
@@ -265,14 +265,20 @@ States are shown as coloured indicator pills in the session sidebar.
 
 **Detection patterns** (defined in `src/main/statePoller.ts`, `detectStateFromPane()`):
 
-| Pattern in pane capture | Transition |
+Every copilot CLI state is identified by the **hint bar it draws in the bottom rows of the pane**. Matching is therefore restricted to the last `CHROME_LINES` (5) rows — copilot quotes these same strings verbatim in its output and thinking text, so scanning further up produces false positives. `suspended` is the exception: it draws no hint bar, so it is matched against a wider 12-line tail.
+
+| Pattern in chrome region | Transition |
 |---|---|
-| `Copilot has been suspended` | → `suspended` |
-| `esc cancel` | → `running` |
-| `enter to select` | → `awaiting` |
-| `enter to confirm` | → `awaiting` |
-| `Asking user` | → `awaiting` |
-| `❯` | → `idle` |
+| `Copilot has been suspended` *(12-line tail)* | → `suspended` |
+| `enter accept` / `ctrl+d decline` *(elicitation form)* | → `awaiting` |
+| `enter to select` / `enter to submit` / `enter to confirm` / `enter to continue` | → `awaiting` |
+| `enter select` *(inference approval)* / `enter Allow` *(tool permission)* | → `awaiting` |
+| `esc interrupt` *(e.g. `◎ Working · 11.5 KiB esc interrupt`)* | → `running` |
+| `/ commands` *(e.g. `← open sidebar · / commands · ? help · tab next tab`)* | → `idle` |
+
+Order matters: `awaiting` is checked first because a modal hides the working/prompt footer, but the reverse is not guaranteed — a visible dialog must always win.
+
+`/ commands` is the only idle hint present in every variant; `? help` is dropped in autopilot mode and `tab next tab` in single-tab sessions. There is deliberately **no `❯` fallback** for pre-1.0.82 CLI builds: the current UI draws `❯` in front of the selected option of a modal, so matching it reported awaiting sessions as idle.
 
 **Key design decisions:**
 - Only **active** sessions are polled. `getPollableSessions()` filters `dead = 0 AND archived = 0`, so archived sessions cost no `capture-pane` subprocess and are never marked dead.
@@ -729,7 +735,15 @@ Notes markdown files are stored under the configured notes root (`settings.json`
 ```
 
 ### State detection patterns
-Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed. State is polled from tmux `capture-pane` output every 3 seconds.
+Defined in `src/main/statePoller.ts` (`detectStateFromPane()` function). Pattern strings should be confirmed empirically against the installed Copilot CLI version and updated as needed — the CLI has changed its prompt chrome before and will again. State is polled from tmux `capture-pane` output every 3 seconds.
+
+To re-derive the patterns after a CLI upgrade, capture live panes in each state and replay them through the detector:
+
+```bash
+tmux capture-pane -p -t smith-<sessionId> | tail -6
+```
+
+`src/main/statePoller.test.ts` holds trimmed real captures for each state; update those fixtures rather than inventing synthetic panes.
 
 ---
 
