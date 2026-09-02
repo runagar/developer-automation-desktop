@@ -339,7 +339,7 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
                   spellCheck={false}
                 />
               ) : (
-                <span className="notes-pane__tab-name">{tab.name}</span>
+                <span className="notes-pane__tab-name" title={tab.name}>{tab.name}</span>
               )}
               <button
                 className="notes-pane__tab-close"
