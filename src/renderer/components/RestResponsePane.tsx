@@ -3,7 +3,7 @@ import { ChevronsDownUp, ChevronsUpDown, ChevronDown, ChevronRight, Copy, X } fr
 import { cn } from '../utils/cn';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import { ResponseTab, useRestStore } from '../stores/restStore';
-import { allExpandableIds, buildRows, classifyBody } from '../stores/responseTree';
+import { allExpandableIds, buildRows, classifyBody, topLevelExpandableIds } from '../stores/responseTree';
 import ResponseTree from './ResponseTree';
 import './RestResponsePane.css';
 
@@ -12,6 +12,9 @@ import './RestResponsePane.css';
  * DOM nodes and hang the renderer.
  */
 const MAX_EXPAND_ALL_ROWS = 10_000;
+
+/** Shared so a tab with nothing expanded keeps one identity across renders. */
+const NO_EXPANSION: Set<string> = new Set();
 
 function statusLabel(tab: ResponseTab): string {
   if (tab.loading) return '…';
@@ -39,12 +42,27 @@ export default function RestResponsePane(): React.ReactElement {
   const [expandNotice, setExpandNotice] = useState<string | null>(null);
 
   const active = responses.find((r) => r.id === activeResponseId) ?? null;
-  const expanded = (activeResponseId && expandedByTab[activeResponseId]) || new Set<string>();
 
   const view = useMemo(() => {
     if (!active?.result || !active.result.ok) return null;
     return classifyBody(active.result.body, active.result.headers, active.result.truncated);
   }, [active]);
+
+  // A response opens with its top level expanded — the shape of the payload is
+  // what anyone reads first — and everything below it collapsed. The default is
+  // dropped entirely if it would already blow the render budget, so a wide
+  // response cannot hang the renderer before the user has asked for anything.
+  const defaultExpanded = useMemo(() => {
+    if (view?.kind !== 'tree') return NO_EXPANSION;
+    const ids = topLevelExpandableIds(view.data);
+    if (ids.length === 0) return NO_EXPANSION;
+    const candidate = new Set(ids);
+    return buildRows(view.data, candidate).length > MAX_EXPAND_ALL_ROWS
+      ? NO_EXPANSION
+      : candidate;
+  }, [view]);
+
+  const expanded = (activeResponseId && expandedByTab[activeResponseId]) || defaultExpanded;
 
   const rows = useMemo(
     () => (view?.kind === 'tree' ? buildRows(view.data, expanded) : []),
@@ -54,23 +72,20 @@ export default function RestResponsePane(): React.ReactElement {
   const toggle = useCallback((id: string) => {
     if (!activeResponseId) return;
     setExpandedByTab((prev) => {
-      const current = prev[activeResponseId] ?? new Set<string>();
+      // Falls back to the opening expansion rather than an empty set: without
+      // that, the first click on a top-level row would re-add an id that is
+      // already expanded by default and the row would refuse to close.
+      const current = prev[activeResponseId] ?? defaultExpanded;
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return { ...prev, [activeResponseId]: next };
     });
-  }, [activeResponseId]);
+  }, [activeResponseId, defaultExpanded]);
 
-  const anyExpanded = expanded.size > 0;
-
-  const toggleAll = useCallback(() => {
+  const expandAll = useCallback(() => {
     if (!activeResponseId || view?.kind !== 'tree') return;
     setExpandNotice(null);
-    if (anyExpanded) {
-      setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set() }));
-      return;
-    }
     const all = allExpandableIds(view.data);
     const fullSize = buildRows(view.data, new Set(all)).length;
     if (fullSize > MAX_EXPAND_ALL_ROWS) {
@@ -81,7 +96,15 @@ export default function RestResponsePane(): React.ReactElement {
       return;
     }
     setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set(all) }));
-  }, [activeResponseId, view, anyExpanded]);
+  }, [activeResponseId, view]);
+
+  const collapseAll = useCallback(() => {
+    if (!activeResponseId) return;
+    setExpandNotice(null);
+    // An explicit empty set, not a delete: the tab must stay collapsed rather
+    // than fall back to the opening expansion.
+    setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set() }));
+  }, [activeResponseId]);
 
   const handleClose = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -149,13 +172,22 @@ export default function RestResponsePane(): React.ReactElement {
           <span className="rest-response-pane__url" title={active.url}>{active.url}</span>
           {result && <span className="rest-response-pane__time">{result.durationMs} ms</span>}
           {view?.kind === 'tree' && (
-            <button
-              className="btn btn--micro rest-response-pane__action"
-              onClick={toggleAll}
-              title={anyExpanded ? 'Collapse all' : 'Expand all'}
-            >
-              {anyExpanded ? <ChevronsDownUp size={12} /> : <ChevronsUpDown size={12} />}
-            </button>
+            <>
+              <button
+                className="btn btn--micro rest-response-pane__action"
+                onClick={expandAll}
+                title="Expand all"
+              >
+                <ChevronsUpDown size={12} />
+              </button>
+              <button
+                className="btn btn--micro rest-response-pane__action"
+                onClick={collapseAll}
+                title="Collapse all"
+              >
+                <ChevronsDownUp size={12} />
+              </button>
+            </>
           )}
           {result && (
             <button

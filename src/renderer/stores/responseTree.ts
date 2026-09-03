@@ -75,8 +75,9 @@ function childrenOf(value: unknown): Array<[string, unknown]> {
 /**
  * The visible rows for a value, given the set of expanded row ids.
  *
- * Absence from `expanded` means collapsed, so a response opens with every
- * nested container closed and no traversal is needed to set that up.
+ * Absence from `expanded` means collapsed, so no traversal is needed to build
+ * the initial state; `topLevelExpandableIds` supplies the top level a response
+ * opens with.
  */
 export function buildRows(value: unknown, expanded: Set<string>): TreeRow[] {
   const rows: TreeRow[] = [];
@@ -125,9 +126,24 @@ export function buildRows(value: unknown, expanded: Set<string>): TreeRow[] {
   return rows;
 }
 
-/** Every expandable row id, for expand-all. */
-export function allExpandableIds(value: unknown): string[] {
+/**
+ * Expandable ids at the top level only — the expansion a response opens with.
+ *
+ * Scalars and empty containers are skipped for the same reason they carry no
+ * control anywhere else: they have nothing to reveal.
+ */
+export function topLevelExpandableIds(value: unknown): string[] {
   const ids: string[] = [];
+  childrenOf(value).forEach(([, child], index) => {
+    const kind = kindOf(child);
+    if (kind === 'scalar' || kind === 'empty') return;
+    ids.push(String(index));
+  });
+  return ids;
+}
+
+/** Every expandable row id, for expand-all. */
+export function allExpandableIds(value: unknown): string[] {  const ids: string[] = [];
 
   const walk = (entries: Array<[string, unknown]>, prefix: string): void => {
     entries.forEach(([, child], index) => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MAX_TREE_BYTES, allExpandableIds, baseMediaType, buildRows, classifyBody, headerValue,
-  isBinaryType, isJsonType, isLinkValue, scalarText,
+  isBinaryType, isJsonType, isLinkValue, scalarText, topLevelExpandableIds,
 } from './responseTree';
 
 const none = new Set<string>();
@@ -147,6 +147,36 @@ describe('allExpandableIds', () => {
     const ids = allExpandableIds({ loans: [{ deep: { x: 1 } }] });
     // loans, loans[0], loans[0].deep
     expect(ids).toHaveLength(3);
+  });
+});
+
+describe('topLevelExpandableIds', () => {
+  it('expands only the top level, leaving deeper containers closed', () => {
+    const body = { a: { b: { c: 1 } }, d: { e: 2 } };
+    const rows = buildRows(body, new Set(topLevelExpandableIds(body)));
+    // 'b' and 'e' are revealed; 'c' stays behind the collapsed 'b'.
+    expect(rows.map((r) => r.label)).toEqual(['a', 'b', 'd', 'e']);
+  });
+
+  it('omits scalars and empty containers, which have nothing to reveal', () => {
+    expect(topLevelExpandableIds({ a: 1, b: [], c: {}, d: null })).toEqual([]);
+  });
+
+  it('numbers ids by index so they match the ids buildRows generates', () => {
+    const body = { a: 1, b: { x: 1 }, c: [1] };
+    expect(topLevelExpandableIds(body)).toEqual(['1', '2']);
+  });
+
+  it('expands the items of a top-level array', () => {
+    const body = [{ x: 1 }, { y: 2 }];
+    const rows = buildRows(body, new Set(topLevelExpandableIds(body)));
+    expect(rows.map((r) => r.label)).toEqual(['[0]', 'x', '[1]', 'y']);
+  });
+
+  it('is a subset of allExpandableIds', () => {
+    const body = { a: { b: { c: 1 } }, d: [{ e: 1 }] };
+    const all = new Set(allExpandableIds(body));
+    expect(topLevelExpandableIds(body).every((id) => all.has(id))).toBe(true);
   });
 });
 
