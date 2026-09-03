@@ -32,7 +32,6 @@ export interface Session {
   dead: boolean;
   archived: boolean;        // true if session is archived (tmux keeps running)
   warm?: boolean;           // runtime-only: archived session whose copilot tmux is still alive
-  restored: boolean;        // true if resumed from a previous run (runtime-only, not persisted)
   createdAt: string;
   lastActive: string;
   jiraKey: string | null;

@@ -227,7 +227,7 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 8. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions — they are never evicted or demoted.
 
 **Warm/cold rules:**
-- `archived_at` is a DB column (ISO timestamp, `NULL` for rows archived by older versions — treated as expired). `Session.warm` is **runtime-only**, like `Session.restored`, and is never persisted.
+- `archived_at` is a DB column (ISO timestamp, `NULL` for rows archived by older versions — treated as expired). `Session.warm` is **runtime-only** and is never persisted.
 - Warmth is **reconciled against live tmux** (`listSmithSessions()`) at startup and on every reap — never inferred from bookkeeping, since a copilot process can exit on its own or survive a crash. The reconciled set is pushed to the renderer via `sessions:warmthChanged`; the renderer treats a no-op update as a no-op so it can be re-sent every tick.
 - All session lifecycle operations (unarchive, revive, destroy, reap, quit-eviction) are serialised per session id through `SessionManager.withSessionLock()`, and re-check eligibility **inside** the lock. Without this the reaper can kill a tmux session that a concurrent restore has just recreated. Any new lifecycle operation must use it.
 - `handleUnarchiveSession()` in the renderer must **await the unarchive IPC before** flipping `archived` in the store — a cold session has no tmux yet, so un-archiving first lets the panel attach to a session that does not exist.
@@ -627,8 +627,7 @@ Main process → node-pty.spawn('tmux attach-session -t smith-xxx') → PTY data
 4. On archive (✕ button), all PTY attachments for the session are killed, linked panels are destroyed, but tmux sessions (terminal + shell) keep running.
 5. On restore (↺ from archived list), the session is activated and Default panels switch to it. PTY attachment happens when the panel instance mounts.
 6. On app quit, `before-quit` runs cleanup: archived sessions' copilot tmux is evicted, then `persistAll()` kills all attach PTYs and state polling is stopped. Active sessions' tmux and all shell tmux sessions survive.
-7. On next launch, `restoreSessions()` ensures tmux sessions exist for active sessions; PTY attachment is driven by panel instance mount.
-8. Sessions that were alive when the app closed are marked with `Session.restored = true` (runtime-only flag, not persisted to the DB).
+7. On next launch, `restoreSessions()` ensures tmux sessions exist for active sessions; PTY attachment is driven by panel instance mount. A resumed session is presented exactly like a new one — the distinction carries no meaning for the user, so it is deliberately not surfaced or tracked.
 
 > **Shutdown cleanup must live on `before-quit`, not `window-all-closed`.** The latter is not emitted when `app.quit()` is called directly (e.g. by the auto-updater's `quitAndInstall()`), which would skip cleanup entirely. The handler calls `event.preventDefault()`, awaits cleanup, then calls `app.quit()` from a `finally` block — guarded by a `cleanupDone` flag for idempotency. Returning a Promise from an Electron event handler does **not** make Electron await it.
 

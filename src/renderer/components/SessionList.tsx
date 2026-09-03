@@ -390,10 +390,9 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                 >✕</button>
               </div>
             </div>
-            {(session.project || session.restored) && (
+            {session.project && (
               <div className="session-item__meta">
-                {session.restored && <span className="session-item__restored">↺</span>}
-                {session.project && <span className="session-item__project">[ {session.project} ]</span>}
+                <span className="session-item__project">[ {session.project} ]</span>
               </div>
             )}
           </li>

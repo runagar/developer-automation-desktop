@@ -199,10 +199,6 @@
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
-.session-item__restored {
-  font-size: 0.7rem;
-  color: var(--c-mid);
-}
 
 /* Manage workspaces button */
 .session-list__manage {

@@ -21,8 +21,6 @@ export class SessionManager {
   private dataDir: string;
   private window: BrowserWindow | null = null;
   private sessionsRestored = false;
-  // IDs of sessions resumed from the previous run — runtime only, not persisted.
-  private restoredIds = new Set<string>();
   // IDs of sessions whose tmux is currently being created. The state poller
   // skips these to avoid a race where the poller marks a session dead before
   // its tmux session finishes spawning.
@@ -114,14 +112,13 @@ export class SessionManager {
     // previous run may have left some alive (e.g. a crash before eviction).
     await this.reconcileWarmth();
 
-    // Mark non-dead, non-archived sessions as restored.
+    // Revive the tmux session behind every live row.
     // PTY attachment is deferred to renderer-driven ptyAttach calls.
     const rows = this.db.prepare(
       'SELECT * FROM sessions WHERE dead = 0 AND archived = 0'
     ).all() as any[];
 
     for (const row of rows) {
-      this.restoredIds.add(row.id);
       // Ensure the tmux session exists (may have been killed externally)
       const tmuxName = tmuxSessionName(row.id);
       const tmuxExists = await hasTmuxSession(tmuxName);
@@ -578,7 +575,6 @@ export class SessionManager {
     dead: row.dead === 1,
     archived: row.archived === 1,
     warm: this.warmIds.has(row.id),
-    restored: this.restoredIds.has(row.id),
     createdAt: row.created_at,
     lastActive: row.last_active,
     jiraKey: row.jira_key ?? null,
