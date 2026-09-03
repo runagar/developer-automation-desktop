@@ -802,6 +802,10 @@ On launch the app validates that `tmux` and `copilot` are available in PATH. If 
 
 Development uses `electron-vite dev` with Vite HMR for the renderer and auto-rebuild for the main process. Native modules (`better-sqlite3`, `node-pty`) are externalised and rebuilt via `postinstall`.
 
+**The renderer dev server is pinned to port 5173 with `strictPort: true`, and must stay that way.** In dev the renderer's origin *is* the dev-server URL, and Chromium partitions `localStorage` per origin. Vite's default is to fall back to the next free port when 5173 is taken, which silently moves the app to a new origin: it then boots against an empty store, and every `localStorage`-backed preference (`dad-theme`, the CRT toggles, `dad-zoom`, `dad-active-tab`, `dad-dashboard-<tabId>`, …) reads as its default, exactly as if settings had been wiped. `strictPort` converts that into a loud `Port 5173 is already in use` and no app launch, which is the correct outcome — a busy port means a dev instance is already running, and a second one would also contend for the same SQLite database and tmux sessions.
+
+If you hit that error, stop the running instance rather than changing the port. Production is unaffected either way: packaged builds `loadFile()` from a stable `file://` origin, which is why this only ever showed up during development. Note that `settings.json`-backed preferences (workspaces, notes root, default working directory, window bounds) live in `userData` and never reset this way — if only theme/effects/layout are gone, the origin changed.
+
 Checks:
 
 ```bash
