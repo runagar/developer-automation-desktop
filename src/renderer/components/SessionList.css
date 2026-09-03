@@ -37,10 +37,10 @@
   padding: 4px 10px;
 }
 
-/* Dropdown — uses fixed positioning to escape panel overflow:hidden */
+/* Positioned with measured viewport coordinates (see dropdownStyle), so it
+   opts out of anchor positioning. The top layer keeps it above every panel. */
 .session-list__new .dropdown {
   position: fixed;
-  z-index: 600;
   background: var(--c-panel);
   border: 1px solid var(--c-bright);
   box-shadow: var(--glow);

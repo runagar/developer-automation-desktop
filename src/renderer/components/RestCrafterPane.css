@@ -46,14 +46,18 @@
 
 .rest-crafter-pane__menu {
   position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  z-index: 20;
+  top: calc(anchor(bottom) + 2px);
+  left: anchor(left);
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   max-height: 320px;
   overflow-y: auto;
-  min-width: 100%;
+  min-width: anchor-size(width);
+  color: var(--c-bright);
   background: var(--c-panel);
   border: 1px solid var(--c-mid);
 }
@@ -67,7 +71,7 @@
    left-anchored menu would overflow the panel. */
 .rest-crafter-pane__menu--right {
   left: auto;
-  right: 0;
+  right: anchor(right);
 }
 
 .rest-crafter-pane__menu-item {
@@ -325,14 +329,18 @@
 
 .rest-crafter-pane__options {
   position: absolute;
-  top: calc(100% + 1px);
-  right: 0;
-  z-index: 20;
+  top: calc(anchor(bottom) + 1px);
+  left: auto;
+  right: anchor(right);
+  bottom: auto;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   min-width: 160px;
   max-height: 220px;
   overflow-y: auto;
+  color: var(--c-bright);
   background: var(--c-panel);
   border: 1px solid var(--c-mid);
 }

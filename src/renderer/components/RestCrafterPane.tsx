@@ -6,6 +6,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { ChevronDown, RotateCcw, X } from 'lucide-react';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
+import { useTopLayer } from './dropdown';
 import { sendsBody } from '../../main/restMethods';
 import { useRestStore, REST_METHODS, effectiveMethod } from '../stores/restStore';
 import {
@@ -37,6 +38,24 @@ function useDismissOnOutsideClick(
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open, wrapRef]);
+}
+
+/**
+ * A menu list raised into the top layer so it paints above every panel.
+ *
+ * Shared by this pane's three menus; see `useTopLayer` for why a z-index
+ * cannot achieve this. Anchors to its DOM parent, which each caller has
+ * already made the positioned wrapper.
+ */
+function Menu({ className, children }: MenuProps): React.ReactElement {
+  const ref = useRef<HTMLDivElement>(null);
+  useTopLayer(ref);
+  return <div ref={ref} className={className}>{children}</div>;
+}
+
+interface MenuProps {
+  className: string;
+  children: React.ReactNode;
 }
 
 interface ValueFieldProps {
@@ -87,7 +106,7 @@ function ValueField({
             <ChevronDown size={14} strokeWidth={2.75} />
           </button>
           {open && (
-            <div className="rest-crafter-pane__options">
+            <Menu className="rest-crafter-pane__options">
               {options.map((option) => (
                 <button
                   key={option}
@@ -103,7 +122,7 @@ function ValueField({
                   {option}
                 </button>
               ))}
-            </div>
+            </Menu>
           )}
         </>
       )}
@@ -360,7 +379,7 @@ export default function RestCrafterPane(): React.ReactElement {
             <ChevronDown size={14} strokeWidth={2.75} />
           </button>
           {envOpen && (
-            <div className="rest-crafter-pane__menu rest-crafter-pane__menu--wide">
+            <Menu className="rest-crafter-pane__menu rest-crafter-pane__menu--wide">
               {environments.map((env) => (
                 <button
                   key={env.key}
@@ -380,7 +399,7 @@ export default function RestCrafterPane(): React.ReactElement {
                   {env.label}
                 </button>
               ))}
-            </div>
+            </Menu>
           )}
         </div>
 
@@ -410,7 +429,7 @@ export default function RestCrafterPane(): React.ReactElement {
             <ChevronDown size={14} strokeWidth={2.75} />
           </button>
           {methodOpen && (
-            <div className="rest-crafter-pane__menu rest-crafter-pane__menu--right">
+            <Menu className="rest-crafter-pane__menu rest-crafter-pane__menu--right">
               {REST_METHODS.map((option) => (
                 <button
                   key={option}
@@ -434,7 +453,7 @@ export default function RestCrafterPane(): React.ReactElement {
                   {option}
                 </button>
               ))}
-            </div>
+            </Menu>
           )}
         </div>
       </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTopLayer } from './useTopLayer';
 import './Dropdown.css';
 
 // --- Dropdown container ---
@@ -8,15 +9,26 @@ interface DropdownProps {
   className?: string;
   style?: React.CSSProperties;
   onMouseDown?: (e: React.MouseEvent) => void;
+  /**
+   * Set to false for menus positioned with explicit viewport coordinates
+   * (context menus opened at the pointer) rather than under their container.
+   */
+  anchorToParent?: boolean;
 }
 
 export const Dropdown = React.forwardRef<HTMLDivElement, DropdownProps>(function Dropdown(
-  { children, className, style, onMouseDown },
+  { children, className, style, onMouseDown, anchorToParent = true },
   ref,
 ): React.ReactElement {
+  const innerRef = React.useRef<HTMLDivElement>(null);
+  useTopLayer(innerRef, { anchorToParent });
+
+  // Keep the caller's ref working while the hook drives the same node.
+  React.useImperativeHandle(ref, () => innerRef.current as HTMLDivElement);
+
   return (
     <div
-      ref={ref}
+      ref={innerRef}
       className={`dropdown${className ? ` ${className}` : ''}`}
       style={style}
       onMouseDown={onMouseDown ?? ((e) => e.stopPropagation())}

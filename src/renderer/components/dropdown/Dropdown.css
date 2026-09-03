@@ -2,16 +2,31 @@
    SHARED DROPDOWN MENU SYSTEM
    ========================================================= */
 
+/* Menus are promoted into the top layer by `useTopLayer`, which is what puts
+   them above every panel — no z-index here can do that, because each panel is
+   its own stacking context. Two consequences handled below:
+
+   1. Positioning is resolved against the viewport, so `top: 100%` of the
+      container no longer works; `anchor()` is used instead. Menus that set
+      explicit coordinates inline (context menus) override these.
+   2. The UA stylesheet styles `[popover]` with `inset: 0`, `margin: auto`,
+      `overflow: auto`, `border`, `padding` and `color: CanvasText`. Each is
+      reset here to what the menu looked like before it entered the top layer. */
 .dropdown {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  top: calc(anchor(bottom) + 4px);
+  left: anchor(left);
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  /* Submenus render outside the menu box — must not be clipped. */
+  overflow: visible;
   min-width: 170px;
   padding: 4px 0;
+  color: var(--c-bright);
   background: var(--c-panel);
   border: 1px solid var(--c-bright);
   box-shadow: var(--glow);
-  z-index: 10000;
 }
 
 /* Section header — auto-divider above (except first) */

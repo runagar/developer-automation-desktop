@@ -650,6 +650,24 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - `--c-bright` — primary text, active elements, headings.
 - Terminal autocomplete suggestions use ANSI `brightBlack` (mapped to `--c-mid`-equivalent values in `xterm-theme.ts`).
 
+### Menus and the top layer
+
+**Every dropdown, popup or context menu must be raised into the browser's top layer via `useTopLayer` (`components/dropdown/useTopLayer.ts`). A `z-index` will not work.**
+
+`WorkspacePanel` sets `z-index: placement.z` on each `.workspace-panel`, so **every panel is its own stacking context**. A menu rendered inside a panel is clamped to that panel's context and can never out-stack a *sibling* panel — no `z-index` is large enough, because the value is only compared against its siblings inside the panel. The top layer sits above all stacking contexts and all `overflow: hidden` clipping, so it is the only fix that always holds.
+
+The hook is applied automatically by the shared `<Dropdown>` component, so anything built on it is already correct. Menus with bespoke markup must call it directly — `RestCrafterPane`'s local `Menu` component is the example to copy.
+
+Two properties keep it safe to retrofit onto existing menus:
+- `popover="manual"` (never `"auto"`) adds no light-dismiss and no Esc handling, so each menu keeps the open/close logic it already had.
+- A popover keeps its **position in the DOM** and is only *painted* elsewhere, so `wrapper.contains(event.target)` click-outside checks, event bubbling and inherited `--c-*` theme variables all keep working.
+
+Consequences for the CSS of any menu that opts in:
+- Positioning resolves against the viewport, so `top: calc(100% + 4px)` of a container no longer works. Use CSS anchor positioning — `top: calc(anchor(bottom) + 4px)`, `left: anchor(left)`, `min-width: anchor-size(width)`. The hook wires the `anchor-name` to the menu's DOM parent, so that parent must be the intended anchor. Menus positioned at the pointer pass explicit viewport coordinates inline and opt out with `anchorToParent: false`.
+- The UA stylesheet styles `[popover]` with `inset: 0`, `margin: auto`, `overflow: auto`, `border`, `padding` and `color: CanvasText`. Reset each one explicitly, or the menu will stretch, lose its theme colour, or clip its own submenus.
+
+Requires Chromium 114+ (Popover API) and 125+ (anchor positioning); Electron 33 ships Chromium 130.
+
 ---
 
 ## Keyboard shortcuts

@@ -5,6 +5,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import SessionContextMenu from './SessionContextMenu';
+import { Dropdown } from './dropdown';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './SessionList.css';
 
@@ -275,7 +276,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         </button>
 
         {dropdownOpen && (
-          <div className="dropdown" style={dropdownStyle}>
+          <Dropdown anchorToParent={false} style={dropdownStyle}>
             {workspaceGroups.length === 0 && (
               <div className="dropdown__empty">No projects found</div>
             )}
@@ -305,7 +306,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                 })}
               </div>
             ))}
-          </div>
+          </Dropdown>
         )}
       </div>
 
