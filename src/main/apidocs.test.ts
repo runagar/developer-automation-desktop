@@ -269,9 +269,44 @@ describe('parseOperations tag grouping', () => {
     expect(rows.find((r) => r.path === '/health')!.tag).toBe(UNTAGGED);
   });
 
-  it('orders rows by the contract-declared tag order', () => {
+  it('orders rows alphabetically by tag, with untagged last', () => {
     const rows = parseOperations(contract);
     expect(rows.map((r) => r.tag)).toEqual(['Consents', 'Logs', 'Zebra', UNTAGGED]);
+  });
+
+  it('ignores the contract-declared tag order in favour of alphabetical', () => {
+    const rows = parseOperations({
+      tags: [{ name: 'Zebra' }, { name: 'Consents' }, { name: 'Logs' }],
+      paths: {
+        '/z': { get: { tags: ['Zebra'] } },
+        '/l': { get: { tags: ['Logs'] } },
+        '/c': { get: { tags: ['Consents'] } },
+      },
+    });
+    expect(rows.map((r) => r.tag)).toEqual(['Consents', 'Logs', 'Zebra']);
+  });
+
+  it('sorts undeclared tags alphabetically among declared ones', () => {
+    const rows = parseOperations({
+      tags: [{ name: 'Beta' }],
+      paths: {
+        '/b': { get: { tags: ['Beta'] } },
+        '/a': { get: { tags: ['Alpha'] } },
+        '/c': { get: { tags: ['Gamma'] } },
+      },
+    });
+    expect(rows.map((r) => r.tag)).toEqual(['Alpha', 'Beta', 'Gamma']);
+  });
+
+  it('sorts tags case-insensitively', () => {
+    const rows = parseOperations({
+      paths: {
+        '/b': { get: { tags: ['beta'] } },
+        '/a': { get: { tags: ['Alpha'] } },
+        '/c': { get: { tags: ['Gamma'] } },
+      },
+    });
+    expect(rows.map((r) => r.tag)).toEqual(['Alpha', 'beta', 'Gamma']);
   });
 
   it('keeps every operation of a tag together', () => {

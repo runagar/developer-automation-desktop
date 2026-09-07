@@ -622,16 +622,9 @@ export function parseOperations(contract: any): OperationRow[] {
     row.tag = row.variants[0].tags[0] ?? row.tag;
   }
 
-  // Order tags the way the contract declares them, with anything undeclared
-  // after, so the picker reads in the same order as the published documentation.
-  const declared: string[] = Array.isArray(contract?.tags)
-    ? contract.tags.map((t: any) => t?.name).filter((n: unknown): n is string => typeof n === 'string')
-    : [];
-  const tagRank = (tag: string): number => {
-    const idx = declared.indexOf(tag);
-    if (idx !== -1) return idx;
-    return tag === UNTAGGED ? Number.MAX_SAFE_INTEGER : declared.length;
-  };
+  // Tags are listed alphabetically. `UNTAGGED` is a synthetic bucket rather than
+  // a real tag, so it always sorts last regardless of where its label would fall.
+  const tagRank = (tag: string): number => (tag === UNTAGGED ? 1 : 0);
 
   rows.sort((a, b) =>
     tagRank(a.tag) - tagRank(b.tag)

@@ -131,8 +131,8 @@ export default function ApiPickerPane(): React.ReactElement {
 
   const filtered = useMemo(() => filterServices(services, search), [services, search]);
 
-  // Operations arrive already ordered by the contract's declared tag order, so
-  // grouping by first encounter preserves it.
+  // Operations arrive already ordered alphabetically by tag, so grouping by
+  // first encounter preserves that order.
   const taggedGroups = useMemo(() => {
     const groups = new Map<string, ApiDocsOperationRow[]>();
     for (const row of operations) {
