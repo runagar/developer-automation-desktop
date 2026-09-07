@@ -325,7 +325,13 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
               dropTargetId === session.id ? 'session-item--drop-target' : '',
             ].join(' ')}
             onClick={() => { if (!justDraggedRef.current && !dragStartRef.current) onSelect(session.id); }}
-            onFocus={() => { if (!justDraggedRef.current && !dragStartRef.current) onSelect(session.id); }}
+            // React's onFocus is the bubbling focusin event, so focus landing on a
+            // child (archive/revive button, rename input) would otherwise select the
+            // session. Only a focus on the row itself — i.e. Tab navigation — selects.
+            onFocus={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (!justDraggedRef.current && !dragStartRef.current) onSelect(session.id);
+            }}
             onPointerDown={(e) => handleDragPointerDown(session.id, e)}
             onDoubleClick={() => {
               if (!session.archived && !session.dead) {

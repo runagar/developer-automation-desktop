@@ -244,6 +244,8 @@ Each session UUID is passed to copilot as `--session-id`, allowing Copilot's ser
 - Destroy permanently kills the tmux session and deletes the DB row (with confirmation).
 - An archived session keeps its copilot process alive (~350 MB RSS) while it is **warm**. It is demoted to **cold** (copilot tmux killed, shell tmux kept) after 30 minutes, when it falls outside the 3-session warm cap, or when the app quits. Restoring a cold session re-runs `copilot --session-id <uuid>`, which resumes the conversation from `~/.copilot/session-state/` and repaints it — it just takes a few seconds instead of being instant.
 - Archived sessions are excluded from **Tab** / **Shift+Tab** cycling.
+- **Archiving never moves the selection unless it has to.** Archiving an inactive session leaves the active session untouched. Archiving the *active* session hands over to the session directly **below** it, falling back to the one above when it was last in the list — resolved by the pure `pickNextActiveSessionId()` helper in `sessionStore.ts` (unit tested in `sessionStore.test.ts`), against the list order captured *before* the `archived` flag flips.
+- Session rows select on `onFocus`, which is the **bubbling** `focusin` event, so the handler is gated on `e.target === e.currentTarget`. Without that gate, clicking the ✕ button (Chromium focuses it even at `tabIndex={-1}`) selects the session immediately before archiving it. Any new focusable control added inside a session row relies on this gate.
 - The collapse state of the archived section is persisted to `localStorage`.
 
 ### Session state detection

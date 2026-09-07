@@ -84,6 +84,25 @@ export async function initSessionStore(): Promise<void> {
   }
 }
 
+/**
+ * Pick which session takes over as active when `archivedId` is archived.
+ *
+ * `sessions` must be the session list *before* the archive flag is applied.
+ * Hands over to the session below the archived one, falling back to the one
+ * above when it was last in the list.
+ */
+export function pickNextActiveSessionId(
+  sessions: Session[],
+  archivedId: string
+): string | null {
+  const unarchived = sessions.filter((s) => !s.archived);
+  const idx = unarchived.findIndex((s) => s.id === archivedId);
+  const next = idx === -1
+    ? unarchived.find((s) => s.id !== archivedId)
+    : (unarchived[idx + 1] ?? unarchived[idx - 1]);
+  return next?.id ?? null;
+}
+
 /** Register IPC listeners that update the session store. */
 export function registerSessionListeners(): () => void {
   const { updateSession } = useSessionStore.getState();
@@ -98,11 +117,13 @@ export function registerSessionListeners(): () => void {
 
   const unsubArchived = window.dad.onSessionArchived((id: string) => {
     const store = useSessionStore.getState();
+    const wasActive = store.activeSessionId === id;
+    // Resolve the successor against the order *before* the archive flag flips.
+    const successorId = pickNextActiveSessionId(store.sessions, id);
     updateSession(id, { archived: true, warm: true });
-    if (store.activeSessionId === id) {
-      const next = store.sessions.find((s) => s.id !== id && !s.archived);
-      useSessionStore.getState().setActiveSessionId(next?.id ?? null);
-    }
+    // Archiving an inactive session must not steal the active selection.
+    if (!wasActive) return;
+    useSessionStore.getState().setActiveSessionId(successorId);
   });
 
   const unsubWarmth = window.dad.onSessionsWarmthChanged((warmIds: string[]) => {
