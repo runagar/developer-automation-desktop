@@ -25,7 +25,7 @@ command -v nvm   # should print "nvm"
 nvm --version
 ```
 
-### 1. Install prerequisites
+### 2. Install prerequisites
 
 ```bash
 sudo apt-get install tmux
@@ -34,7 +34,7 @@ npm install -g @github/copilot
 copilot --version
 ```
 
-### 2. Download & install DAD
+### 3. Download & install DAD
 
 Download the latest `.deb` from [Releases](https://github.com/runagar/developer-automation-desktop/releases/latest):
 
@@ -44,7 +44,7 @@ wget https://github.com/runagar/developer-automation-desktop/releases/latest/dow
 sudo dpkg -i dad_<version>_amd64.deb
 ```
 
-### 3. Launch
+### 4. Launch
 
 From the system app menu, or from a terminal:
 

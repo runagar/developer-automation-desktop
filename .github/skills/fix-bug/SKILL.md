@@ -10,5 +10,5 @@ allowed-tools: shell
 4. Fix the issue
 5. Ask the user to test the bugfix
 6. Repeat from step 3. if issue persists
-7. When confirmed fixed, update ./.github/agent-smith.md if necessary
+7. When confirmed fixed, update ./.github/developer-automation-desktop.md if necessary
 8. Commit to main and push to remote. Never create or push tags.
