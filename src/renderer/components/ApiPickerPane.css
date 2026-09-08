@@ -202,6 +202,112 @@
   padding-left: 10px;
 }
 
+/* --- services --- */
+
+/* The row, not the name button, carries the background: the star overlays a
+   long name and has to be able to match whatever shade sits behind it. */
+.api-picker-pane__service {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-left: 2px solid transparent;
+}
+
+.api-picker-pane__service:hover {
+  background: var(--c-panel-hover);
+}
+
+.api-picker-pane__service--selected {
+  background: var(--c-active);
+  border-left-color: var(--c-bright);
+}
+
+.api-picker-pane__service-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  /* Right padding keeps a short name clear of the star slot: the icon's 14px
+     plus the slot's own padding. */
+  padding: 4px 26px 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-picker-pane__service:hover .api-picker-pane__service-name {
+  color: var(--c-bright);
+}
+
+.api-picker-pane__service--selected .api-picker-pane__service-name {
+  color: var(--c-bright);
+}
+
+/* A favorite that has left the catalogue cannot be opened, so it neither
+   brightens nor offers a pointer. It stays at --c-mid: no text may be dimmer. */
+.api-picker-pane__service--unavailable .api-picker-pane__service-name {
+  cursor: default;
+}
+
+.api-picker-pane__service--unavailable:hover .api-picker-pane__service-name {
+  color: var(--c-mid);
+}
+
+/* Absolutely positioned so the star is always inside the panel, painting over
+   an overflowing name instead of being pushed out of sight with it. Opaque,
+   tracking the row's own background so the covered text is hidden cleanly. */
+.api-picker-pane__fav {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--c-mid);
+  background: var(--c-bg);
+  border: none;
+  cursor: pointer;
+}
+
+/* A favorite is marked at all times (requirement 2.3.1), so its slot is the one
+   exception to the hover-only reveal. */
+.api-picker-pane__fav--marked,
+.api-picker-pane__service:hover .api-picker-pane__fav {
+  display: flex;
+}
+
+.api-picker-pane__service:hover .api-picker-pane__fav {
+  background: var(--c-panel-hover);
+}
+
+.api-picker-pane__service--selected .api-picker-pane__fav {
+  background: var(--c-active);
+}
+
+.api-picker-pane__fav:hover {
+  color: var(--c-bright);
+}
+
+/* Star at rest, star-minus on hover, in the one slot — so the width never
+   changes and the resting star is never itself clickable. */
+.api-picker-pane__fav-hover {
+  display: none;
+}
+
+.api-picker-pane__service:hover .api-picker-pane__fav-hover {
+  display: block;
+}
+
+.api-picker-pane__service:hover .api-picker-pane__fav-rest {
+  display: none;
+}
+
 /* --- operations --- */
 
 .api-picker-pane__op {

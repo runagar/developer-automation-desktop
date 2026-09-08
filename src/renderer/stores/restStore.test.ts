@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ApiDocsRestSelection, RestResultInfo } from '../../main/types';
 import {
-  LINK_ACCEPT, REST_METHODS, applySelection, customParamsFromUrl, effectiveMethod, filterServices,
-  matchesSearch, parseDraft, pathOfUrl, rowKeyOf, selectionFromUrl, serializeDraft, useRestStore,
+  LINK_ACCEPT, REST_METHODS, applySelection, buildServiceCategories, customParamsFromUrl,
+  effectiveMethod, filterServices, matchesSearch, parseDraft, parseFavorites, pathOfUrl, rowKeyOf,
+  selectionFromUrl, serializeDraft, toggleFavoriteName, useRestStore,
 } from './restStore';
 
 describe('matchesSearch', () => {
@@ -49,6 +50,179 @@ describe('filterServices', () => {
 
   it('returns nothing when no service matches', () => {
     expect(filterServices(services, 'nope')).toEqual([]);
+  });
+});
+
+describe('parseFavorites', () => {
+  it('gives nothing for an absent, malformed or non-array payload', () => {
+    expect(parseFavorites(null)).toEqual([]);
+    expect(parseFavorites('{ not json')).toEqual([]);
+    expect(parseFavorites('{"rs-consent":true}')).toEqual([]);
+    expect(parseFavorites('"rs-consent"')).toEqual([]);
+  });
+
+  it('refuses an oversized payload rather than parsing it', () => {
+    expect(parseFavorites(JSON.stringify(['x'.repeat(70 * 1024)]))).toEqual([]);
+  });
+
+  it('drops members that are not service names', () => {
+    expect(parseFavorites('["rs-consent", 7, null, {"a":1}]')).toEqual(['rs-consent']);
+  });
+
+  it('dedupes and sorts what it keeps', () => {
+    expect(parseFavorites('["rs-document","rs-consent","rs-document"]'))
+      .toEqual(['rs-consent', 'rs-document']);
+  });
+});
+
+describe('toggleFavoriteName', () => {
+  it('adds in sorted position rather than appending', () => {
+    expect(toggleFavoriteName(['api-search', 'rs-document'], 'rs-consent'))
+      .toEqual(['api-search', 'rs-consent', 'rs-document']);
+  });
+
+  it('removes a name already present', () => {
+    expect(toggleFavoriteName(['api-search', 'rs-consent'], 'rs-consent'))
+      .toEqual(['api-search']);
+  });
+
+  it('round-trips back to the original list', () => {
+    const start = ['api-search', 'rs-document'];
+    expect(toggleFavoriteName(toggleFavoriteName(start, 'rs-consent'), 'rs-consent'))
+      .toEqual(start);
+  });
+});
+
+describe('buildServiceCategories', () => {
+  const services = ['api-search', 'rs-consent', 'rs-document'];
+
+  it('returns Favorites then All, both present even when empty', () => {
+    const empty = buildServiceCategories([], [], '', false);
+    expect(empty.map((c) => c.id)).toEqual(['favorites', 'all']);
+    expect(empty.map((c) => c.label)).toEqual(['Favorites', 'All']);
+    expect(empty.every((c) => c.entries.length === 0)).toBe(true);
+  });
+
+  it('puts a service in exactly one category', () => {
+    const [favorites, all] = buildServiceCategories(services, ['rs-consent'], '', true);
+    expect(favorites.entries.map((e) => e.name)).toEqual(['rs-consent']);
+    expect(all.entries.map((e) => e.name)).toEqual(['api-search', 'rs-document']);
+  });
+
+  it('sorts favorites alphabetically rather than by when they were added', () => {
+    const [favorites] = buildServiceCategories(services, ['rs-document', 'api-search'], '', true);
+    expect(favorites.entries.map((e) => e.name)).toEqual(['api-search', 'rs-document']);
+  });
+
+  it('marks a favorite missing from a loaded catalogue as unavailable', () => {
+    const [favorites] = buildServiceCategories(services, ['rs-retired'], '', true);
+    expect(favorites.entries).toEqual([
+      { name: 'rs-retired', favorite: true, unavailable: true },
+    ]);
+  });
+
+  it('marks nothing unavailable until a catalogue has actually loaded', () => {
+    // Before the first fetch returns, and after one fails, the empty service
+    // list says nothing about whether a favorite still exists.
+    const [favorites] = buildServiceCategories([], ['rs-retired'], '', false);
+    expect(favorites.entries[0].unavailable).toBe(false);
+  });
+
+  it('keeps an unavailable favorite in alphabetical position', () => {
+    const [favorites] = buildServiceCategories(
+      services, ['api-search', 'rs-document', 'rs-retired'], '', true
+    );
+    expect(favorites.entries.map((e) => e.name))
+      .toEqual(['api-search', 'rs-document', 'rs-retired']);
+  });
+
+  it('filters both categories independently', () => {
+    const [favorites, all] = buildServiceCategories(services, ['rs-consent'], 'rs-', true);
+    expect(favorites.entries.map((e) => e.name)).toEqual(['rs-consent']);
+    expect(all.entries.map((e) => e.name)).toEqual(['rs-document']);
+  });
+
+  it('matches an unavailable favorite by name', () => {
+    const [favorites, all] = buildServiceCategories(services, ['rs-retired'], 'retired', true);
+    expect(favorites.entries.map((e) => e.name)).toEqual(['rs-retired']);
+    expect(all.entries).toEqual([]);
+  });
+});
+
+describe('servicesLoaded', () => {
+  function stub(apidocsServices: unknown, apidocsRefresh?: unknown): void {
+    vi.stubGlobal('window', { dad: { apidocsServices, apidocsRefresh } });
+  }
+
+  function reset(): void {
+    useRestStore.setState({
+      services: [], servicesLoaded: false, loading: false, error: null,
+      selectedService: null, selectedVersion: null, level: 'services',
+      selection: null, pendingSelection: null,
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('stays false when the first load fails, so favorites are not blamed', async () => {
+    reset();
+    stub(vi.fn().mockRejectedValue(new Error('off VPN')));
+    await useRestStore.getState().loadServices();
+    expect(useRestStore.getState().servicesLoaded).toBe(false);
+    expect(useRestStore.getState().error).toBe('off VPN');
+  });
+
+  it('is true for an empty but successful catalogue', async () => {
+    reset();
+    stub(vi.fn().mockResolvedValue([]));
+    await useRestStore.getState().loadServices();
+    expect(useRestStore.getState().servicesLoaded).toBe(true);
+  });
+
+  it('retries after a failure even though a stale list is still held', async () => {
+    reset();
+    useRestStore.setState({ services: ['rs-stale'], servicesLoaded: false });
+    const apidocsServices = vi.fn().mockResolvedValue(['rs-consent']);
+    stub(apidocsServices);
+    await useRestStore.getState().loadServices();
+    expect(apidocsServices).toHaveBeenCalled();
+    expect(useRestStore.getState().services).toEqual(['rs-consent']);
+  });
+
+  it('does not refetch once loaded', async () => {
+    reset();
+    const apidocsServices = vi.fn().mockResolvedValue(['rs-consent']);
+    stub(apidocsServices);
+    await useRestStore.getState().loadServices();
+    await useRestStore.getState().loadServices();
+    expect(apidocsServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes false when a refresh fails', async () => {
+    reset();
+    useRestStore.setState({ services: ['rs-consent'], servicesLoaded: true });
+    stub(vi.fn().mockRejectedValue(new Error('gone')), vi.fn().mockResolvedValue(undefined));
+    await useRestStore.getState().refresh();
+    expect(useRestStore.getState().servicesLoaded).toBe(false);
+  });
+
+  it('stays true when a refresh reloads the catalogue but fails further down', async () => {
+    // The versions reload throwing says nothing about the service list that
+    // was already fetched successfully.
+    reset();
+    useRestStore.setState({ selectedService: 'rs-consent', level: 'versions' });
+    vi.stubGlobal('window', {
+      dad: {
+        apidocsRefresh: vi.fn().mockResolvedValue(undefined),
+        apidocsServices: vi.fn().mockResolvedValue(['rs-consent']),
+        apidocsVersions: vi.fn().mockRejectedValue(new Error('boom')),
+      },
+    });
+    await useRestStore.getState().refresh();
+    expect(useRestStore.getState().servicesLoaded).toBe(true);
+    expect(useRestStore.getState().error).toBe('boom');
   });
 });
 

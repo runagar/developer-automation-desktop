@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { RefreshCw, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import {
+  RefreshCw, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Star, StarPlus, StarMinus,
+} from 'lucide-react';
 import { ApiDocsContractVersion, ApiDocsOperationRow } from '../../main/types';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
-import { filterServices, rowKeyOf, useRestStore, VersionRef } from '../stores/restStore';
+import {
+  buildServiceCategories, rowKeyOf, ServiceEntry, useRestStore, VersionRef,
+} from '../stores/restStore';
 import './ApiPickerPane.css';
 
 interface SectionProps {
@@ -94,6 +98,57 @@ function OperationRowView({ row, activeVersion, isSelected, onSelect }: Operatio
   );
 }
 
+interface ServiceRowProps {
+  entry: ServiceEntry;
+  selected: boolean;
+  onOpen: () => void;
+  onToggleFavorite: () => void;
+}
+
+/** One service in the picker's list, with its favorite control. */
+function ServiceRow(
+  { entry, selected, onOpen, onToggleFavorite }: ServiceRowProps
+): React.ReactElement {
+  const className = 'api-picker-pane__service'
+    + (selected ? ' api-picker-pane__service--selected' : '')
+    + (entry.unavailable ? ' api-picker-pane__service--unavailable' : '');
+
+  return (
+    <div className={className}>
+      <button
+        className="api-picker-pane__service-name"
+        // A favorite that is no longer in the catalogue cannot be drilled into,
+        // so the row does nothing on click. Not `disabled`, which would stop the
+        // row hit-testing and with it the hover that reveals the star.
+        onClick={entry.unavailable ? undefined : onOpen}
+        title={entry.unavailable ? 'No longer published in API-docs' : entry.name}
+      >
+        {entry.unavailable ? `(unavailable) ${entry.name}` : entry.name}
+      </button>
+      <button
+        className={`api-picker-pane__fav${entry.favorite ? ' api-picker-pane__fav--marked' : ''}`}
+        // Chromium focuses a clicked button even at tabIndex -1, and this one
+        // unmounts the instant it is clicked as the row changes category. That
+        // would drop focus out of the panel entirely and silently disable Tab
+        // navigation, so the focus is suppressed while the click is not.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onToggleFavorite}
+        tabIndex={-1}
+        title={entry.favorite ? 'Remove from favorites' : 'Add to favorites'}
+      >
+        {entry.favorite ? (
+          <>
+            <Star className="api-picker-pane__fav-rest" size={14} />
+            <StarMinus className="api-picker-pane__fav-hover" size={14} />
+          </>
+        ) : (
+          <StarPlus className="api-picker-pane__fav-hover" size={14} />
+        )}
+      </button>
+    </div>
+  );
+}
+
 /** API Picker body — browse services, pick a contract version, pick an operation. */
 export default function ApiPickerPane(): React.ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -104,9 +159,10 @@ export default function ApiPickerPane(): React.ReactElement {
   // there is no periodic poll here, so a change always means something the pane
   // actually renders.
   const {
-    level, search, services, versions, operations, selectedService, selectedVersion,
-    expanded, collapsedTags, selection, pendingSelection, loading, error,
-    setSearch, toggleSection, toggleTag, setAllTagsCollapsed, loadServices, openService, openVersion,
+    level, search, services, servicesLoaded, versions, operations, selectedService, selectedVersion,
+    expanded, collapsedTags, collapsedCategories, favorites, selection, pendingSelection, loading,
+    error, setSearch, toggleSection, toggleTag, setAllTagsCollapsed, toggleCategory, toggleFavorite,
+    loadServices, openService, openVersion,
     selectOperation, goToServices, goToVersions, refresh, restoreSelection,
   } = useRestStore();
 
@@ -129,7 +185,10 @@ export default function ApiPickerPane(): React.ReactElement {
     });
   }, [pendingSelection, restoreSelection]);
 
-  const filtered = useMemo(() => filterServices(services, search), [services, search]);
+  const categories = useMemo(
+    () => buildServiceCategories(services, favorites, search, servicesLoaded),
+    [services, favorites, search, servicesLoaded]
+  );
 
   // Operations arrive already ordered alphabetically by tag, so grouping by
   // first encounter preserves that order.
@@ -218,20 +277,35 @@ export default function ApiPickerPane(): React.ReactElement {
 
         {!loading && level === 'services' && (
           <>
-            <div className="api-picker-pane__status">
-              {search.trim()
-                ? `${filtered.length} MATCH${filtered.length === 1 ? '' : 'ES'}`
-                : `${services.length} SERVICES`}
-            </div>
-            {filtered.map((name) => (
-              <button
-                key={name}
-                className={`api-picker-pane__row${name === selectedService ? ' api-picker-pane__row--selected' : ''}`}
-                onClick={() => void openService(name)}
-              >
-                {name}
-              </button>
-            ))}
+            {categories.map((category) => {
+              const collapsed = collapsedCategories[category.id] === true;
+              return (
+                <div className="api-picker-pane__section" key={category.id}>
+                  <button
+                    className="api-picker-pane__section-header"
+                    onClick={() => toggleCategory(category.id)}
+                  >
+                    {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    <span className="api-picker-pane__section-label">
+                      {category.label} ({category.entries.length})
+                    </span>
+                  </button>
+                  {!collapsed && (
+                    <div className="api-picker-pane__section-body">
+                      {category.entries.map((entry) => (
+                        <ServiceRow
+                          key={entry.name}
+                          entry={entry}
+                          selected={entry.name === selectedService}
+                          onOpen={() => void openService(entry.name)}
+                          onToggleFavorite={() => toggleFavorite(entry.name)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
 

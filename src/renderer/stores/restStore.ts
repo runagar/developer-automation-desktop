@@ -10,8 +10,11 @@ import {
 
 const SELECTION_KEY = 'dad-rest-selection';
 const DRAFT_KEY = 'dad-rest-draft';
+const FAVORITES_KEY = 'dad-rest-favorites';
 /** A draft larger than this is a runaway body, not something worth restoring. */
 const DRAFT_LIMIT = 256 * 1024;
+/** Service names are short; anything past this is not a favorites list. */
+const FAVORITES_LIMIT = 64 * 1024;
 const DEFAULT_ENVIRONMENT = 'p0';
 
 export type PickerLevel = 'services' | 'versions' | 'operations';
@@ -104,6 +107,12 @@ interface RestStore {
   search: string;
 
   services: string[];
+  /**
+   * True when `services` came from a request that succeeded. Distinct from
+   * `services.length > 0`: an empty catalogue is a valid answer, while an empty
+   * list after a failure is not an answer at all.
+   */
+  servicesLoaded: boolean;
   versions: ApiDocsServiceVersions | null;
   operations: ApiDocsOperationRow[];
 
@@ -113,6 +122,10 @@ interface RestStore {
   expanded: { releases: boolean; prereleases: boolean; branches: boolean };
   /** Tags the user has collapsed. Absent means expanded — tags start open. */
   collapsedTags: Record<string, boolean>;
+  /** Service categories the user has collapsed. Memory only, as with tags. */
+  collapsedCategories: Record<ServiceCategoryId, boolean>;
+  /** Services marked as favorite, sorted. Persisted to `dad-rest-favorites`. */
+  favorites: string[];
 
   selection: ApiDocsRestSelection | null;
   /**
@@ -161,6 +174,8 @@ interface RestStore {
   toggleSection: (section: 'releases' | 'prereleases' | 'branches') => void;
   toggleTag: (tag: string) => void;
   setAllTagsCollapsed: (tags: string[], collapsed: boolean) => void;
+  toggleCategory: (id: ServiceCategoryId) => void;
+  toggleFavorite: (name: string) => void;
 
   loadServices: (force?: boolean) => Promise<void>;
   openService: (service: string) => Promise<void>;
@@ -218,6 +233,104 @@ export function matchesSearch(name: string, query: string): boolean {
 
 export function filterServices(services: string[], query: string): string[] {
   return services.filter((name) => matchesSearch(name, query));
+}
+
+// ---------------------------------------------------------------------------
+// Favorite services (R5)
+// ---------------------------------------------------------------------------
+
+export type ServiceCategoryId = 'favorites' | 'all';
+
+export interface ServiceEntry {
+  name: string;
+  favorite: boolean;
+  /** Favorited once, but no longer in the catalogue — requirement 4. */
+  unavailable: boolean;
+}
+
+export interface ServiceCategory {
+  id: ServiceCategoryId;
+  label: string;
+  entries: ServiceEntry[];
+}
+
+/**
+ * Mirrors the collator `sortServiceNames` uses in `src/main/apidocs.ts`, so
+ * Favorites orders identically to the list its entries were lifted from.
+ * That module cannot be imported here — it is main-process code and would drag
+ * Node built-ins into the renderer bundle.
+ */
+const serviceCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function sortNames(names: string[]): string[] {
+  return [...names].sort((a, b) => serviceCollator.compare(a, b));
+}
+
+export function parseFavorites(raw: string | null): string[] {
+  // A payload this large is not a list of service names, and parsing it would
+  // cost more than the feature is worth.
+  if (!raw || raw.length > FAVORITES_LIMIT) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const names = parsed.filter((n): n is string => typeof n === 'string');
+    return sortNames([...new Set(names)]);
+  } catch {
+    return [];
+  }
+}
+
+export function toggleFavoriteName(favorites: string[], name: string): string[] {
+  return favorites.includes(name)
+    ? favorites.filter((n) => n !== name)
+    : sortNames([...favorites, name]);
+}
+
+/**
+ * The two titled categories of the services list — requirements 1 and 4.
+ *
+ * A service appears in exactly one category (requirement 1.2.4), and both are
+ * returned even when empty so the list never reflows as the last favorite is
+ * removed. `unavailable` is only ever set once a service list has actually
+ * loaded: before the first fetch returns, and after one fails, `services` is
+ * empty for reasons that say nothing about the favorites.
+ */
+export function buildServiceCategories(
+  services: string[], favorites: string[], search: string, servicesLoaded: boolean
+): ServiceCategory[] {
+  const available = new Set(services);
+  const favoriteSet = new Set(favorites);
+
+  const favoriteEntries = filterServices(sortNames(favorites), search).map((name) => ({
+    name,
+    favorite: true,
+    unavailable: servicesLoaded && !available.has(name),
+  }));
+
+  const allEntries = filterServices(services, search)
+    .filter((name) => !favoriteSet.has(name))
+    .map((name) => ({ name, favorite: false, unavailable: false }));
+
+  return [
+    { id: 'favorites', label: 'Favorites', entries: favoriteEntries },
+    { id: 'all', label: 'All', entries: allEntries },
+  ];
+}
+
+function loadFavorites(): string[] {
+  try {
+    return parseFavorites(localStorage.getItem(FAVORITES_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function saveFavorites(favorites: string[]): void {
+  try {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  } catch {
+    // Storage unavailable or full — the favorites simply will not persist.
+  }
 }
 
 function loadIdentity(): SelectionIdentity | null {
@@ -543,12 +656,15 @@ export const useRestStore = create<RestStore>((set, get) => ({
   level: 'services',
   search: '',
   services: [],
+  servicesLoaded: false,
   versions: null,
   operations: [],
   selectedService: null,
   selectedVersion: null,
   expanded: { releases: true, prereleases: false, branches: false },
   collapsedTags: {},
+  collapsedCategories: { favorites: false, all: false },
+  favorites: loadFavorites(),
   selection: null,
   methodOverride: null,
   pendingSelection: loadIdentity(),
@@ -591,14 +707,27 @@ export const useRestStore = create<RestStore>((set, get) => ({
     collapsedTags: Object.fromEntries(tags.map((tag) => [tag, collapsed])),
   })),
 
+  toggleCategory: (id) => set((s) => ({
+    collapsedCategories: { ...s.collapsedCategories, [id]: !s.collapsedCategories[id] },
+  })),
+
+  toggleFavorite: (name) => set((s) => {
+    const favorites = toggleFavoriteName(s.favorites, name);
+    saveFavorites(favorites);
+    return { favorites };
+  }),
+
   loadServices: async (force = false) => {
-    if (!force && get().services.length > 0) return;
+    // Gated on the flag rather than on `services.length`, so an empty-but-valid
+    // catalogue is not refetched on every mount and a stale list left behind by
+    // a failure cannot block the retry.
+    if (!force && get().servicesLoaded) return;
     set({ loading: true, error: null });
     try {
       const services = await window.dad.apidocsServices();
-      set({ services, loading: false });
+      set({ services, servicesLoaded: true, loading: false });
     } catch (err) {
-      set({ loading: false, error: messageOf(err) });
+      set({ servicesLoaded: false, loading: false, error: messageOf(err) });
     }
   },
 
@@ -650,11 +779,14 @@ export const useRestStore = create<RestStore>((set, get) => ({
 
   refresh: async () => {
     const { selectedService, selectedVersion, level, selection, pendingSelection } = get();
-    set({ loading: true, error: null });
+    // Cleared up front and restored beside the fetched list, so a failure part
+    // way through never leaves the flag vouching for a catalogue that was
+    // evicted but not replaced.
+    set({ loading: true, error: null, servicesLoaded: false });
     try {
       await window.dad.apidocsRefresh();
       const services = await window.dad.apidocsServices();
-      set({ services });
+      set({ services, servicesLoaded: true });
 
       // Reloading the current level matters as much as clearing the caches:
       // leaving the view showing evicted data would break the next lookup.
