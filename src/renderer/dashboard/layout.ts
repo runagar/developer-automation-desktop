@@ -283,7 +283,12 @@ export function validateState(value: unknown, tabId: ToolTabId): DashboardState 
         : (r.type === 'notes' && isGlobal ? (r.id as string) : undefined),
       type: r.type as PanelType,
       placement: clampPlacement({ x: p.x, y: p.y, w: p.w, h: p.h, visible: p.visible, z: p.z }),
-      mode: r.mode as PanelMode,
+      // A global panel is session-unbound, so it can never be the default view
+      // of the active session. Coerced rather than trusted because layouts
+      // written before the fix to `destroyPanel`'s default promotion could
+      // record one as `default`, which showed the default badge on a panel that
+      // demonstrably ignores the active session.
+      mode: isGlobal ? 'linked' : (r.mode as PanelMode),
       linkedSessionId: typeof r.linkedSessionId === 'string' ? r.linkedSessionId : undefined,
       currentSessionId: typeof r.currentSessionId === 'string' ? r.currentSessionId : undefined,
       isGlobal,

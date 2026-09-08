@@ -112,6 +112,24 @@ describe('validateState', () => {
     expect(notes.map((i) => i.id)).toEqual(['notes-viewA', 'notes-viewB']);
   });
 
+  it('demotes a global panel persisted as the default', () => {
+    // Regression guard: destroyPanel's default promotion used to pick a global
+    // panel when the real default of that type was closed, badging a panel that
+    // ignores the active session as its default view.
+    const stale = { ...globalNote('notes-global', 'note-row-1'), mode: 'default' as const };
+    const parsed = validateState(serialize({ instances: [stale], locked: false }), 'agent-smith');
+    const note = parsed!.instances.find((i) => i.id === 'notes-global');
+    expect(note!.mode).toBe('linked');
+    expect(note!.isGlobal).toBe(true);
+  });
+
+  it('leaves a non-global default alone', () => {
+    const parsed = validateState(serialize(defaultState('agent-smith')), 'agent-smith');
+    const defaults = parsed!.instances.filter((i) => i.mode === 'default');
+    expect(defaults.length).toBeGreaterThan(0);
+    expect(defaults.every((i) => i.isGlobal === undefined)).toBe(true);
+  });
+
   it('rejects a payload that is not the instances schema', () => {
     expect(validateState(null, 'agent-smith')).toBeNull();
     expect(validateState({ layout: {} }, 'agent-smith')).toBeNull();

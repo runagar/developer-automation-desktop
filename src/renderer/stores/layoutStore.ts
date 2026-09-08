@@ -341,12 +341,17 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const type = inst.type;
       let instances = currentInstances.filter((i) => i.id !== id);
 
-      // Default promotion: if we removed the default, promote the first of same type
+      // Default promotion: if we removed the default, promote the first of same
+      // type. Global panels are never candidates — they ignore the active
+      // session entirely, so making one the default would badge it as a session
+      // view it can never act as. Mirrors the `!inst.isGlobal` test spawnPanel
+      // already uses when deciding whether a new panel becomes the default.
       if (wasDefault) {
-        const ordered = panelOrder(instances).filter((i) => i.type === type);
+        const promotable = (i: PanelInstance): boolean => i.type === type && !i.isGlobal;
+        const ordered = panelOrder(instances).filter(promotable);
         const candidates = ordered.length > 0
           ? ordered
-          : instances.filter((i) => i.type === type);
+          : instances.filter(promotable);
         if (candidates.length > 0) {
           const promoteId = candidates[0].id;
           instances = instances.map((i) =>
