@@ -37,5 +37,3 @@ allowed-tools: shell
 15. Once testing is complete, update ./.github/developer-automation-desktop.md
 16. Commit, push to remote. Never create or push tags
 17. NEVER push to remote if user has not confirmed that everything is working as detailed by step 9. and 10.
-
-

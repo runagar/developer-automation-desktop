@@ -34,6 +34,20 @@ npm install -g @github/copilot
 copilot --version
 ```
 
+#### npm error code E401 - Incorrect or missing password.
+If you encounter this error, login or re-login to nexus
+
+```bash
+# Confirm registry points at npmjs.tools.nykredit.it
+npm config get registry
+
+# Identify stale authToken. If this finds an entry, remove it from ~/.npmrc
+grep _authToken ~/.npmrc
+
+# Finally
+npm login --registry=https://npmjs.tools.nykredit.it/nexus/repository/npm/
+```
+
 ### 3. Download & install DAD
 
 Download the latest `.deb` from [Releases](https://github.com/runagar/developer-automation-desktop/releases/latest):
