@@ -17,6 +17,7 @@ Thumbs.db
 # dev directories
 Screenshots/
 features/
+tmp/
 
 # Secrets
 .env
