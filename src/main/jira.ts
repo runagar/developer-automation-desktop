@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { JiraIssue, JiraLinkedIssue } from './types';
+import { RefreshOutcome } from './jiraRefresh';
 import { convertWikiToMarkdown } from './wikiToMarkdown';
 import { resolveCredential } from './credentials';
 
@@ -101,11 +102,12 @@ export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
     .filter(Boolean) as JiraLinkedIssue[];
 
   return {
-    __schemaVersion: 3,
+    __schemaVersion: 4,
     key: data.key ?? key,
     summary,
     description,
     status: f.status?.name ?? '',
+    statusCategory: f.status?.statusCategory?.key ?? '',
     priority: f.priority?.name ?? '',
     issueType: f.issuetype?.name ?? '',
     assignee: f.assignee?.displayName ?? null,
@@ -149,6 +151,13 @@ export interface FetchGraphOpts {
   maxIssues: number;
   whitelist: string[];
   maintenanceEpic: string;
+  /**
+   * Resolve one issue: fetch and write it, or skip it as already fresh.
+   *
+   * Injected so this module stays a Jira API client with no knowledge of the
+   * vault or the filesystem, and so the traversal can be unit tested.
+   */
+  resolve: (key: string, kind: 'primary' | 'secondary') => Promise<RefreshOutcome>;
 }
 
 function matchesWhitelist(key: string, whitelist: string[]): boolean {
@@ -160,15 +169,22 @@ function matchesWhitelist(key: string, whitelist: string[]): boolean {
 export async function fetchIssueGraph(
   key: string,
   opts: FetchGraphOpts
-): Promise<{ primary: JiraIssue; related: JiraIssue[]; filtered: number }> {
-  const { linkedDepth, linkLimit, maxIssues, whitelist, maintenanceEpic } = opts;
+): Promise<{ primary: JiraIssue; refreshed: string[] }> {
+  const { linkedDepth, linkLimit, maxIssues, whitelist, maintenanceEpic, resolve } = opts;
   const visited = new Set<string>();
-  const related: JiraIssue[] = [];
-  let filtered = 0;
+  /**
+   * Keys actually refetched during this crawl, tracked separately from
+   * `visited`: an epic reached first through the BFS is visited but must still
+   * have its children rediscovered, which a `visited` check alone would skip.
+   */
+  const refreshed = new Set<string>();
 
-  // Fetch primary
-  const primary = await fetchJiraIssue(key);
+  // The primary is never subject to the freshness windows — the user named it.
+  const primaryOutcome = await resolve(key, 'primary');
+  if (!primaryOutcome.issue) throw (primaryOutcome as { error: Error }).error;
+  const primary = primaryOutcome.issue;
   visited.add(primary.key);
+  if (primaryOutcome.status === 'refreshed') refreshed.add(primary.key);
 
   // BFS linked issues
   type QueueEntry = { key: string; depth: number };
@@ -180,63 +196,121 @@ export async function fetchIssueGraph(
     const entry = queue.shift()!;
     if (visited.has(entry.key)) continue;
     if (entry.key === maintenanceEpic) { visited.add(entry.key); continue; }
-    if (!matchesWhitelist(entry.key, whitelist)) { filtered++; continue; }
+    if (!matchesWhitelist(entry.key, whitelist)) continue;
 
     visited.add(entry.key);
-    try {
-      const issue = await fetchJiraIssue(entry.key);
-      related.push(issue);
+    const outcome = await resolve(entry.key, 'secondary');
+    if (outcome.status === 'failed') {
+      console.log(`[jira] Skipping linked issue ${entry.key}: ${outcome.error.message}`);
+      continue;
+    }
+    if (outcome.status === 'refreshed') refreshed.add(entry.key);
 
-      if (entry.depth < linkedDepth) {
-        for (const li of issue.linkedIssues.slice(0, linkLimit)) {
-          if (!visited.has(li.key)) {
-            queue.push({ key: li.key, depth: entry.depth + 1 });
-          }
+    // A note skipped as fresh contributes no links to the queue. Unreachable
+    // at linkedDepth 1 (1 < 1 is false); if depth is ever raised, seed the
+    // queue from the cached note's links instead.
+    if (entry.depth < linkedDepth) {
+      for (const li of outcome.issue.linkedIssues.slice(0, linkLimit)) {
+        if (!visited.has(li.key)) {
+          queue.push({ key: li.key, depth: entry.depth + 1 });
         }
       }
-    } catch (err) {
-      console.log(`[jira] Skipping linked issue ${entry.key}: ${(err as Error).message}`);
     }
   }
 
-  // Epic awareness — primary issue's parent only (per decision)
-  if (
-    primary.parentKey &&
-    primary.parentKey !== maintenanceEpic &&
-    !visited.has(primary.parentKey) &&
-    matchesWhitelist(primary.parentKey, whitelist) &&
-    visited.size < maxIssues
-  ) {
-    visited.add(primary.parentKey);
-    try {
-      const epic = await fetchJiraIssue(primary.parentKey);
-      related.push(epic);
+  // --- Epic awareness ---
+  // Children are discovered by a separate query, so an active epic can gain
+  // children without any of its own fields changing. Rediscovery is therefore
+  // tied to whether the epic was refreshed, not to whether it was visited.
+  const epicKey = await selectEpicForChildren(primary, {
+    visited, refreshed, related: null, maxIssues, whitelist, maintenanceEpic, resolve,
+  });
 
-      // Fetch epic children belonging to the same project as the primary issue
-      const primaryProject = primary.key.replace(/-\d+$/, '');
-      try {
-        const children = await fetchEpicChildren(primary.parentKey, primaryProject, maxIssues - visited.size);
-        for (const child of children) {
-          if (!visited.has(child.key)) {
-            visited.add(child.key);
-            related.push(child);
-          }
+  if (epicKey) {
+    const primaryProject = primary.key.replace(/-\d+$/, '');
+    try {
+      const childKeys = await fetchEpicChildKeys(epicKey, primaryProject, maxIssues - visited.size);
+      for (const childKey of childKeys) {
+        if (visited.has(childKey) || visited.size >= maxIssues) continue;
+        visited.add(childKey);
+        const outcome = await resolve(childKey, 'secondary');
+        if (outcome.status === 'failed') {
+          console.log(`[jira] Skipping epic child ${childKey}: ${outcome.error.message}`);
+          continue;
         }
-      } catch (err) {
-        console.log(`[jira] Skipping epic children for ${primary.parentKey}: ${(err as Error).message}`);
+        if (outcome.status === 'refreshed') refreshed.add(childKey);
       }
     } catch (err) {
-      console.log(`[jira] Skipping parent epic ${primary.parentKey}: ${(err as Error).message}`);
+      console.log(`[jira] Skipping epic children for ${epicKey}: ${(err as Error).message}`);
     }
   }
 
-  return { primary, related, filtered };
+  return { primary, refreshed: [...refreshed] };
 }
 
 /**
- * Fetch children of an epic filtered to a specific project via JQL.
+ * Decide which epic, if any, should have its children rediscovered, refreshing
+ * the parent epic on the way if it has not been seen yet.
+ *
+ * Returns null when there is no epic, when it is excluded, or when the epic's
+ * note is still fresh — in which case its children keep their cached state.
  */
-async function fetchEpicChildren(epicKey: string, project: string, limit: number): Promise<JiraIssue[]> {
+async function selectEpicForChildren(
+  primary: JiraIssue,
+  ctx: {
+    visited: Set<string>;
+    refreshed: Set<string>;
+    related: null;
+    maxIssues: number;
+    whitelist: string[];
+    maintenanceEpic: string;
+    resolve: FetchGraphOpts['resolve'];
+  }
+): Promise<string | null> {
+  const { visited, refreshed, maxIssues, whitelist, maintenanceEpic, resolve } = ctx;
+
+  // A directly named epic is always refreshed as the primary, so its children
+  // are always rediscovered.
+  if (primary.issueType === 'Epic') {
+    return primary.key === maintenanceEpic ? null : primary.key;
+  }
+
+  const parentKey = primary.parentKey;
+  if (!parentKey || parentKey === maintenanceEpic) return null;
+  if (!matchesWhitelist(parentKey, whitelist)) return null;
+
+  // Reached through the BFS already. It was refreshed there, so its children
+  // still need discovery — the old `!visited.has(...)` guard skipped this case
+  // entirely whenever the parent epic was also a linked issue.
+  if (visited.has(parentKey)) {
+    return refreshed.has(parentKey) ? parentKey : null;
+  }
+
+  if (visited.size >= maxIssues) return null;
+
+  visited.add(parentKey);
+  const outcome = await resolve(parentKey, 'secondary');
+  if (outcome.status === 'failed') {
+    console.log(`[jira] Skipping parent epic ${parentKey}: ${outcome.error.message}`);
+    return null;
+  }
+  if (outcome.status !== 'refreshed') return null;
+
+  refreshed.add(parentKey);
+  return parentKey;
+}
+
+/**
+ * Fetch the keys of an epic's children, filtered to a specific project via JQL.
+ *
+ * Returns keys rather than issues so the caller can skip a child that is still
+ * fresh *before* paying for its request.
+ *
+ * Throws on a failed query. Returning an empty list would be indistinguishable
+ * from an epic that genuinely has no children, which would let a transient JQL
+ * failure stamp the epic fresh and suppress rediscovery for up to a month.
+ */
+async function fetchEpicChildKeys(epicKey: string, project: string, limit: number): Promise<string[]> {
   if (limit <= 0) return [];
   const { pat, baseUrl } = loadCredentials();
 
@@ -249,20 +323,9 @@ async function fetchEpicChildren(epicKey: string, project: string, limit: number
   });
 
   if (!response.ok) {
-    console.log(`[jira] Epic children JQL failed: ${response.status}`);
-    return [];
+    throw new Error(`Epic children JQL failed: ${response.status} ${response.statusText}`);
   }
 
   const data = await response.json() as any;
-  const keys: string[] = (data.issues ?? []).map((i: any) => i.key);
-
-  const results: JiraIssue[] = [];
-  for (const key of keys) {
-    try {
-      results.push(await fetchJiraIssue(key));
-    } catch (err) {
-      console.log(`[jira] Skipping epic child ${key}: ${(err as Error).message}`);
-    }
-  }
-  return results;
+  return (data.issues ?? []).map((i: any) => i.key);
 }

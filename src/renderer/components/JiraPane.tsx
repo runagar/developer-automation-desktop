@@ -47,7 +47,8 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
     setError(null);
 
     try {
-      const fetched = await window.dad.fetchAndPopulateVault(key);
+      // Manual fetch is the escape hatch: bypasses freshness tiers and backoff.
+      const fetched = await window.dad.fetchAndPopulateVault(key, true);
       onIssueLoaded(fetched);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to fetch issue');

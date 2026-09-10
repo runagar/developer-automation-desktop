@@ -15,7 +15,19 @@ interface JiraStore {
 
 // Internal state not exposed as reactive — kept in closure
 const keyBuffer = new Map<string, string>();
-const keyCache = new Map<string, Set<string>>();
+
+/**
+ * Burst suppression, deliberately NOT a freshness policy.
+ *
+ * Auto-detect is fed by terminal *output*, so one tmux repaint (attach, resize,
+ * maximize) re-emits every key on screen at once. This absorbs that. Freshness
+ * is decided in the main process against the vault.
+ *
+ * Global rather than per-session: the same key on two terminals is the same
+ * repaint problem, and main already guarantees cross-session correctness.
+ */
+const recentKeys = new Map<string, number>();
+const SUPPRESS_MS = 60_000;
 
 // Hoisted regex — avoids recompilation on every keystroke
 const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]+-\d+)\b(?=[\s\r,;:.!?]|$)/g;
@@ -64,14 +76,18 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
     const buf = (keyBuffer.get(sessionId) ?? '') + data;
     keyBuffer.set(sessionId, buf);
 
+    const now = Date.now();
+    // Prune here rather than on a timer — the map only grows on detection.
+    for (const [k, seenAt] of recentKeys) {
+      if (now - seenAt > SUPPRESS_MS) recentKeys.delete(k);
+    }
+
     JIRA_KEY_RE.lastIndex = 0;
     let match;
     while ((match = JIRA_KEY_RE.exec(buf)) !== null) {
       const key = match[1];
-      const cache = keyCache.get(sessionId) ?? new Set();
-      if (cache.has(key)) continue;
-      cache.add(key);
-      keyCache.set(sessionId, cache);
+      if (recentKeys.has(key)) continue;
+      recentKeys.set(key, now);
 
       window.dad.fetchAndPopulateVault(key)
         .catch(() => {});
@@ -83,8 +99,9 @@ export const useJiraStore = create<JiraStore>((set, get) => ({
   },
 
   cleanupSession: (sessionId) => {
+    // Only the buffer is per-session. `recentKeys` is global and must survive:
+    // clearing it here would let a repaint in another session refetch at once.
     keyBuffer.delete(sessionId);
-    keyCache.delete(sessionId);
   },
 }));
 

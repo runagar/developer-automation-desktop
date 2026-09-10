@@ -7,11 +7,12 @@ export interface JiraLinkedIssue {
 }
 
 export interface JiraIssue {
-  __schemaVersion?: number;     // 3 for Markdown description; absent or 2 in legacy cached data
+  __schemaVersion?: number;     // 4 adds statusCategory; 3 for Markdown description; absent or 2 in legacy cached data
   key: string;
   summary: string;
   description: string;
   status: string;
+  statusCategory?: string;      // Jira statusCategory.key; absent in notes/blobs written before v4
   priority: string;
   issueType: string;
   assignee: string | null;
@@ -85,7 +86,7 @@ export interface IpcApi {
 
   // Jira
   fetchJiraIssue: (key: string) => Promise<JiraIssue>;
-  fetchAndPopulateVault: (key: string) => Promise<JiraIssue>;
+  fetchAndPopulateVault: (key: string, force?: boolean) => Promise<JiraIssue>;
   writeToVault: (issue: JiraIssue) => Promise<void>;
   readJiraIssue: (key: string) => Promise<JiraIssue | null>;
   getOrFetchJiraIssue: (key: string) => Promise<JiraIssue>;

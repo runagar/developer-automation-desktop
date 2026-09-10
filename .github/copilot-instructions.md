@@ -24,6 +24,8 @@ src/main/          Electron main process (Node.js)
   settings.ts      AppSettings — settings.json read/write + in-memory cache
   jira.ts          Jira REST API client — fetch, graph traversal, epic discovery
   vault.ts         Jira vault — write/read issue notes as markdown files
+  vaultFreshness.ts  Pure refresh-tier policy for vault notes (statusCategory → tier, isStale)
+  jiraRefresh.ts   Jira refresh coordinator — single-flight, failure backoff, cached fallback
   credentials.ts   .env file credential management + validation
   migrationUtils.ts  Shared file migration helpers (copyDirRecursive, rollbackCopiedFiles, validatePathWritable)
   shellTmux.ts     ShellTmuxManager — tmux-backed shell panel attachment

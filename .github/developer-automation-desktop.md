@@ -306,12 +306,13 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 **Fetching issues:**
 - Enter a Jira issue key (e.g. `PROJ-123`) in the key input and press Enter or click **FETCH**.
 - FETCH triggers a **recursive fetch** via `jira:fetchAndPopulateVault`:
-  1. Fetches the primary issue with 12 fields (summary, description, status, priority, issuetype, assignee, reporter, labels, fixVersions, components, issuelinks, parent + discovered custom epic-link field).
+  1. Fetches the primary issue with 12 fields (summary, description, status, priority, issuetype, assignee, reporter, labels, fixVersions, components, issuelinks, parent + discovered custom epic-link field). `statusCategory` arrives nested inside `status` and needs no extra field request.
   2. Follows linked issues (BFS, depth 1, max 8 links per issue, max 30 total).
   3. Fetches the primary's parent epic (if not the maintenance epic `NRPPRO-326`).
-  4. Fetches the epic's children belonging to the same project as the primary.
+  4. Fetches the epic's children belonging to the same project as the primary. A primary that is **itself** an Epic also has its children discovered.
   5. Filters by project-key whitelist (configurable via `<dataDir>/jira-whitelist.json`).
   6. Writes all fetched issues to the **Jira vault** as Markdown notes with YAML frontmatter and `[[wikilinks]]`.
+- Every issue in the traversal goes through the **refresh coordinator** (see *Vault freshness* below), so a secondary whose note is still fresh is skipped before its request is made. The FETCH button passes `force`, bypassing freshness and backoff entirely.
 - Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/credentials.ts` in order:
   1. Environment variables (highest priority — shown as read-only in the UI)
   2. `<dataDir>/credentials.env` (managed via Settings → Jira dialog)
@@ -322,23 +323,35 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 **Display:** SUMMARY → STATUS · PRIORITY · TYPE (metadata row) → LABELS → FIX VERSIONS → DESCRIPTION (rendered Markdown via `react-markdown` + `remark-gfm`) → LINKED ISSUES. Descriptions are rendered as formatted HTML with headings, lists, tables, and code blocks styled per theme.
 
 **Link clickthrough:**
-- Clicking a Jira issue key (in Linked Issues section or within the Markdown description) fetches the issue (vault-first via `jira:getOrFetch`, API fallback) and displays it in the same panel.
+- Clicking a Jira issue key (in Linked Issues section or within the Markdown description) fetches the issue via `jira:getOrFetch` and displays it in the same panel. A click-through is treated as a **primary** — always refetched, with the cached note used only if the fetch fails.
 - Ctrl+clicking spawns a new linked Jira panel showing that issue. Focus stays on the current panel.
 - Jira keys in Markdown are rendered via a custom `jira://` URL scheme intercepted by a custom link component.
 
 **PLAN button:** Sends `Plan <KEY>\r` to the active session's PTY as a single-shot write. The user's Copilot skills (`plan-jira-issue`, `implement-jira-issue`) are responsible for making the agent read the vault notes.
 
-**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body (already converted from wiki markup) with `[[wikilinks]]` in the Linked Issues section. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup. Vault is also readable via `jira:readIssue` IPC (parses frontmatter + body back into `JiraIssue`).
+**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body (already converted from wiki markup) with `[[wikilinks]]` in the Linked Issues section. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup. Vault is read via `readVaultNote` (async, one read + one parse) which returns the `JiraIssue` **and** its freshness metadata; `jira:readIssue` exposes the issue half.
+
+**Vault freshness:** Notes were previously written once and never refreshed — auto-detect deduped on a per-session `Set` with no expiry, and `jira:getOrFetch` was read-through forever, so a user could sit on month-old data with nothing on screen to say so. Three pieces now cooperate:
+
+- **`writeIssueNote` stamps every note** with `fetched:` (ISO-8601, always `Z`) and `statusCategory:`. Notes written before this feature have neither and are treated as **maximally stale**, so they self-heal on next encounter — there is no migration step.
+- **`src/main/vaultFreshness.ts`** is the pure policy (no I/O, injected `now`, same shape as `archivePolicy.ts`). Tiers are keyed on Jira's `statusCategory`, **not the status name**: the instance defines 291 distinct status names across only three categories in use, so a hand-maintained name list was never viable. `done` → 30 days, `indeterminate` → 8 hours, `new` → always. **Anything unrecognised — including Jira's fourth key `undefined` ("No Category"), a missing category, and any category Atlassian adds later — must resolve to `always`.** Guessing the longest tier would hide a stale note for a month with no signal. A stamp more than a minute in the future is also treated as stale, and a timestamp without an explicit timezone is rejected, because `Date.parse` would read it as local time.
+- **`src/main/jiraRefresh.ts`** is the coordinator every entry point shares. It holds a **single-flight lock spanning read → fetch → write** (the pattern is mirrored from `nykAuth.ts`, not shared — that one is token-specific): without it two panels can both see a stale note, both fetch, and the slower response lands last, overwriting newer content and stamping it fresh. Atomic rename protects against partial files, not against write ordering. It also holds a 5-minute in-memory failure backoff.
+
+**Rules that must hold:** the **primary is never tiered** — an explicitly named or clicked issue is always refetched, which is also what keeps the tiering's dependence on a possibly-stale stored status harmless. A failed fetch **never** writes: the existing note survives and is served as-is, and only network/API errors are caught (a write failure is a real fault and must surface). A `force` call must never adopt a queued non-forced result, or the manual FETCH escape hatch silently becomes a cache hit.
+
+**Epic child discovery** is tied to whether the epic was **refreshed**, tracked separately from `visited`: an epic reached first through the BFS is visited but still needs its children rediscovered, and a `visited` check alone skipped that case entirely. `fetchEpicChildKeys` returns keys (so a fresh child is skipped *before* its request) and **throws** on a failed query — returning `[]` would be indistinguishable from a childless epic and would let a transient JQL failure stamp the epic fresh and suppress rediscovery for up to a month.
 
 **Project-key whitelist:** `<dataDir>/jira-whitelist.json` with named profiles. Default profile created on first run with the team's 9 project prefixes. Active profile is global (per-workspace profiles deferred).
 
-**Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal input is scanned for Jira key patterns. Detected keys trigger a recursive fetch via `jira:fetchAndPopulateVault` (same traversal as the FETCH button — linked issues, parent/epic, epic children) and are written to the vault silently — the Jira pane is NOT updated. Per-session dedup prevents re-fetching. Toggle persisted to `localStorage`.
+**Auto-detect Jira keys:** When enabled (⚡ toggle in the Jira pane header), terminal **output** (`onPtyData`, not keystrokes) is scanned for Jira key patterns. Detected keys trigger a recursive fetch via `jira:fetchAndPopulateVault` (same traversal as the FETCH button) and are written to the vault silently — the Jira pane is NOT updated. Toggle persisted to `localStorage`.
 
-**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Only the **default** Jira panel's issue is persisted to the DB; linked/spawned panels are transient. Issues are restored on startup. The type includes `__schemaVersion: 3` for the Markdown-description format.
+**Burst suppression is not a freshness policy.** Because the scan is fed by terminal output, one tmux repaint — attach, resize, maximize — re-emits every key on screen at once. `jiraStore` therefore holds a **global** (not per-session) key → timestamp map with a **60-second** window purely to absorb those storms. Freshness is decided in the main process against the vault; this window must stay short enough that it can never become the effective refresh policy. `keyBuffer` remains per-session and `cleanupSession` clears **only** the buffer — clearing the suppression map there would let a repaint in another session refetch immediately.
+
+**Persistence:** The fetched issue is stored as JSON in the `jira_key` / `jira_data` columns of the `sessions` SQLite table (added via migration-safe `ALTER TABLE`). Only the **default** Jira panel's issue is persisted to the DB; linked/spawned panels are transient. Issues are restored on startup. The type includes `__schemaVersion: 4` (adds `statusCategory`; 3 was the Markdown-description format). `statusCategory` is **optional** on `JiraIssue` precisely because older `jira_data` blobs lack it.
 
 **Per-panel issue state:** The `jiraStore` keys issues by `panelInstanceId` (not `sessionId`). Each Jira panel manages its own issue independently. When the default panel's session changes, it reseeds from `session.jiraData`.
 
-**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (vault-first + API fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc/jira.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**IPC channels:** `jira:fetchIssue` (single issue), `jira:fetchAndPopulateVault` (recursive + vault; takes an optional `force`), `jira:writeToVault` (vault-only), `jira:readIssue` (vault-read), `jira:getOrFetch` (refresh + cached fallback), `jira:saveIssue`, `jira:clearIssue` — registered in `ipc/jira.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`). The single shared `createRefresher(...)` instance lives in `registerJiraHandlers` — single-flight and failure backoff are only meaningful if every entry point shares one.
 
 ### Notes panel
 The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be either **session-bound** (created per-session like other panel types) or **global** (not associated with any session, persists independently).
@@ -553,6 +566,8 @@ Main process
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
 ├── PtySession           node-pty wrapper for tmux attach-session client
 ├── nykAuth.ts           shared Nykredit OAuth2: token acquisition, single-flight cache, rejection latch
+├── vaultFreshness.ts    pure status-category refresh tiers for vault notes (no I/O, unit-tested)
+├── jiraRefresh.ts       shared Jira refresh coordinator: single-flight, failure backoff, cached fallback
 ├── apidocs.ts           API-docs client: runtime config, service/version/contract fetch, Swagger 2.0 + OpenAPI 3.x parsing
 ├── restSchema.ts        expands a body schema into an editable JSON skeleton ($ref, allOf/oneOf, cycle + depth guard)
 ├── environments.ts      the 24 REST target environments, restless client id, local Base64 credential
@@ -569,7 +584,7 @@ Renderer process
 ├── App.tsx              root wiring, renderBody dispatcher, activation flow
 ├── stores/              Zustand state stores
 │   ├── sessionStore.ts  sessions, activeSessionId, attachGen, lifecycle actions
-│   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer/cache
+│   ├── jiraStore.ts     jiraIssues map, auto-fetch toggle/buffer, 60s burst suppression
 │   ├── notesStore.ts    notes scope state, tabs, content mirroring across shared scopes
 │   ├── projectStore.ts  projectGroups, CRUD actions
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups

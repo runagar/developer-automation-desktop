@@ -27,13 +27,14 @@ allowed-tools: shell
    1. This might require back-and-forth conversation and multiple passes
 7. When all ambiguties are resolved, write an implementation plan in the `## Implementation Plan` section. 
 8. Perform rubberduck analysis of the plan against the requirements, ambiguities and codebase.
-9. Ask the user to approve the plan.
+9. Perform a reuse audit of the plan against the codebase. For every new module, component, function, method, hook, type, constant or CSS class the plan introduces, search the codebase first and confirm no existing equivalent can be reused or extended. Record the audit in the plan under a `### Reuse audit` heading, listing what is reused, what duplication was found and removed, and what is confirmed genuinely new. Also note the conventions the new code follows from the nearest existing equivalent.
+10. Ask the user to approve the plan.
    1.  This might require back-and-forth conversation and multiple passes
-10. When the plan is approved, checkout main and pull from origin
-11. Do not create a new working branch, work directly on main
-12. Implement the feature. Do not update ./.github/developer-automation-desktop.md at this stage
-13. Ask the user to perform manual tests when implemenation is complete
-14. Fix any bugs described by the user. Do not invoke the fix-bug skill.
-15. Once testing is complete, update ./.github/developer-automation-desktop.md
-16. Commit, push to remote. Never create or push tags
-17. NEVER push to remote if user has not confirmed that everything is working as detailed by step 9. and 10.
+11. When the plan is approved, checkout main and pull from origin
+12. Do not create a new working branch, work directly on main
+13. Implement the feature. Do not update ./.github/developer-automation-desktop.md at this stage
+14. Ask the user to perform manual tests when implemenation is complete
+15. Fix any bugs described by the user. Do not invoke the fix-bug skill.
+16. Once testing is complete, update ./.github/developer-automation-desktop.md
+17. Commit, push to remote. Never create or push tags
+18. NEVER push to remote if user has not confirmed that everything is working as detailed by step 10. and 11.
