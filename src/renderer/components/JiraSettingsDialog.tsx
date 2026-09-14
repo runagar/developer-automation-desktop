@@ -106,24 +106,46 @@ export default function JiraSettingsDialog({ onClose }: Props): React.ReactEleme
     const field = fields.find((f) => f.status.key === key);
     if (!field || field.editedValue === null || field.status.source === 'env') return;
 
-    updateField(key, { saving: true, error: null, saved: false });
+    // Atlassian credentials are validated as a pair, so every pending edit in
+    // the group must be submitted together. Sending only the clicked field
+    // makes first-time setup impossible: validation falls back to the stored
+    // value for the other half, which is still empty, and both rows fail with
+    // "Both Access Token and Base URL are required".
+    const batch = fields.filter((f) =>
+      f.status.group === field.status.group
+      && f.status.source !== 'env'
+      && f.editedValue !== null);
+    const batchKeys = new Set(batch.map((f) => f.status.key));
+
+    setFields((prev) => prev.map((f) => (batchKeys.has(f.status.key)
+      ? { ...f, saving: true, error: null, saved: false }
+      : f)));
 
     try {
-      const results = await window.dad.saveCredentials([{ key, value: field.editedValue }]);
-      const result = results.find((r) => r.key === key);
-      if (result?.valid) {
-        updateField(key, {
+      const results = await window.dad.saveCredentials(
+        batch.map((f) => ({ key: f.status.key, value: f.editedValue as string })),
+      );
+      setFields((prev) => prev.map((f) => {
+        const submitted = batch.find((b) => b.status.key === f.status.key);
+        if (!submitted) return f;
+        const result = results.find((r) => r.key === f.status.key);
+        if (!result?.valid) {
+          return { ...f, saving: false, error: result?.error ?? 'Validation failed' };
+        }
+        const value = submitted.editedValue as string;
+        return {
+          ...f,
           saving: false,
           saved: true,
           error: null,
           editedValue: null,
-          status: { ...field.status, source: 'file', value: field.editedValue },
-        });
-      } else {
-        updateField(key, { saving: false, error: result?.error ?? 'Validation failed' });
-      }
+          status: { ...f.status, source: 'file', value },
+        };
+      }));
     } catch (err: any) {
-      updateField(key, { saving: false, error: err?.message ?? 'Save failed' });
+      setFields((prev) => prev.map((f) => (batchKeys.has(f.status.key)
+        ? { ...f, saving: false, error: err?.message ?? 'Save failed' }
+        : f)));
     }
   }, [fields]);
 
