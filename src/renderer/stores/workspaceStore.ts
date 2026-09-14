@@ -7,6 +7,7 @@ interface WorkspaceStore {
   loadGroups: () => Promise<void>;
   addWorkspace: (key: string, repo: string, group: string, wdr?: string, createMissingDir?: boolean) => Promise<{ created: boolean; path?: string; error?: string }>;
   removeWorkspace: (key: string) => Promise<void>;
+  renameWorkspace: (oldKey: string, newKey: string) => Promise<{ renamed: boolean; error?: string }>;
   addGroup: (name: string) => Promise<void>;
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;
@@ -34,6 +35,12 @@ export const useWorkspaceStore = create<WorkspaceStore>((set) => {
     removeWorkspace: async (key) => {
       await window.dad.removeWorkspace(key);
       await refresh();
+    },
+
+    renameWorkspace: async (oldKey, newKey) => {
+      const result = await window.dad.renameWorkspace(oldKey, newKey);
+      if (result.renamed) await refresh();
+      return result;
     },
 
     addGroup: async (name) => {

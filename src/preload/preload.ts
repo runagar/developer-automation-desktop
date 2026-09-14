@@ -19,6 +19,7 @@ const api: IpcApi = {
   getWorkspaceGroups: () => ipcRenderer.invoke('workspaces:getGroups'),
   addWorkspace: (opts) => ipcRenderer.invoke('workspaces:add', opts),
   removeWorkspace: (key) => ipcRenderer.invoke('workspaces:remove', key),
+  renameWorkspace: (oldKey, newKey) => ipcRenderer.invoke('workspaces:rename', oldKey, newKey),
   addGroup: (name) => ipcRenderer.invoke('workspaces:addGroup', name),
   removeGroup: (name) => ipcRenderer.invoke('workspaces:removeGroup', name),
   moveWorkspace: (key, toGroup, toIndex) => ipcRenderer.invoke('workspaces:move', key, toGroup, toIndex),

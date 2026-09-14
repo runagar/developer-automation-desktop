@@ -182,8 +182,8 @@ export default function WorkspaceDiscoveryDialog({
                       <input
                         className={cn(
                           'manage-workspaces__input',
-                          'workspace-discovery__key-input',
-                          invalidKeys.has(row.workingDir) && 'workspace-discovery__key-input--invalid',
+                          'manage-workspaces__key-input',
+                          invalidKeys.has(row.workingDir) && 'manage-workspaces__key-input--invalid',
                         )}
                         value={row.key}
                         maxLength={KEY_MAX_LENGTH}

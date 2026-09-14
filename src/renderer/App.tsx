@@ -244,6 +244,20 @@ export default function App(): React.ReactElement {
     return useWorkspaceStore.getState().removeWorkspace(key);
   }, []);
 
+  // The main process cascades the rename into `sessions.project` but emits no
+  // event for it, so the session store is patched here — same shape as
+  // handleRenameSession.
+  const handleRenameWorkspace = useCallback(async (oldKey: string, newKey: string) => {
+    const result = await useWorkspaceStore.getState().renameWorkspace(oldKey, newKey);
+    if (result.renamed) {
+      const store = useSessionStore.getState();
+      store.sessions
+        .filter((s) => s.project === oldKey)
+        .forEach((s) => store.updateSession(s.id, { project: newKey }));
+    }
+    return result;
+  }, []);
+
   const handleAddGroup = useCallback((name: string) => {
     return useWorkspaceStore.getState().addGroup(name);
   }, []);
@@ -443,6 +457,7 @@ export default function App(): React.ReactElement {
           workspaceGroups={workspaceGroups}
           sessions={sessions}
           onRemove={handleRemoveWorkspace}
+          onRename={handleRenameWorkspace}
           onAddGroup={handleAddGroup}
           onRemoveGroup={handleRemoveGroup}
           onMove={handleMoveWorkspace}

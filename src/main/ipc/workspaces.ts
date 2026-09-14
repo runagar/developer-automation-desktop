@@ -1,5 +1,6 @@
 import { IpcMain } from 'electron';
 import { WorkspaceManager } from '../workspaces';
+import { SessionManager } from '../sessions';
 import { DiscoveredWorkspace } from '../types';
 import { discoverWorkspaces } from '../workspaceDiscovery';
 import { getDefaultWorkingRoot } from '../settings';
@@ -7,6 +8,7 @@ import { getDefaultWorkingRoot } from '../settings';
 export function registerWorkspaceHandlers(
   ipcMain: IpcMain,
   workspaceManager: WorkspaceManager,
+  sessionManager: SessionManager,
   dataDir: string,
   pendingDiscovery: {
     peek: () => Promise<DiscoveredWorkspace[]>;
@@ -23,6 +25,24 @@ export function registerWorkspaceHandlers(
   ipcMain.handle('workspaces:remove', (_event, key: string) =>
     workspaceManager.removeWorkspace(key)
   );
+
+  // The workspace key is denormalised into `sessions.project`, so a rename has
+  // to touch two stores. `workspaces.json` is the source of truth and goes
+  // first; sessions pointing at a key that was never written would show a
+  // phantom badge *and* defeat the has-active-sessions removal guard.
+  ipcMain.handle('workspaces:rename', (_event, oldKey: string, newKey: string) => {
+    const result = workspaceManager.renameWorkspace(oldKey, newKey);
+    if (!result.renamed || oldKey === newKey) return result;
+
+    try {
+      sessionManager.reassignProject(oldKey, newKey);
+    } catch (err: any) {
+      // Compensate, so the two stores cannot be left disagreeing.
+      workspaceManager.renameWorkspace(newKey, oldKey);
+      return { renamed: false, error: `Failed to update sessions: ${err?.message ?? 'unknown error'}` };
+    }
+    return result;
+  });
 
   ipcMain.handle('workspaces:addGroup', (_event, name: string) =>
     workspaceManager.addGroup(name)

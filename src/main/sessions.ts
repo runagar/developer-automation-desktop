@@ -312,6 +312,15 @@ export class SessionManager {
     this.db.prepare('UPDATE sessions SET name = ? WHERE id = ?').run(name, id);
   }
 
+  /**
+   * Follow a workspace key rename. `sessions.project` is a denormalised copy of
+   * the workspace key, so it must track renames or every existing session shows
+   * a stale badge and the has-active-sessions removal guard stops matching.
+   */
+  reassignProject(oldKey: string, newKey: string): void {
+    this.db.prepare('UPDATE sessions SET project = ? WHERE project = ?').run(newKey, oldKey);
+  }
+
   async reviveSession(id: string, _cols?: number, _rows?: number): Promise<void> {
     return this.withSessionLock(id, async () => {
       const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;

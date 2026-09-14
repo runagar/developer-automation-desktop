@@ -167,6 +167,27 @@
   vertical-align: middle;
 }
 
+/* Inline-editable KEY cell. Shared with WorkspaceDiscoveryDialog so the two
+   workspace tables cannot drift apart.
+
+   The --invalid rules are qualified with .manage-workspaces__input to outrank
+   it on specificity rather than source order — it also sets colour and border,
+   and declaring these first would otherwise silently lose the cascade. */
+.manage-workspaces__key-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.manage-workspaces__input.manage-workspaces__key-input--invalid {
+  border-color: var(--c-red);
+  color: var(--c-red);
+}
+
+.manage-workspaces__input.manage-workspaces__key-input--invalid:focus {
+  border-color: var(--c-red);
+  box-shadow: none;
+}
+
 .manage-workspaces__col-repo {
   color: var(--c-mid);
   width: 200px;

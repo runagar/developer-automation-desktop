@@ -24,6 +24,11 @@ export interface SaveDiscoveredResult {
   error?: string;
 }
 
+export interface RenameWorkspaceResult {
+  renamed: boolean;
+  error?: string;
+}
+
 export class WorkspaceManager {
   constructor(
     private readonly configPath: string,
@@ -176,6 +181,41 @@ export class WorkspaceManager {
       g.workspaces = g.workspaces.filter((w) => w.key !== key);
     }
     this.writeGroups(groups);
+  }
+
+  /**
+   * Rename an existing workspace's key.
+   *
+   * The entry is mutated **in place** rather than removed and re-added, so its
+   * group membership and its position within that group survive by
+   * construction — the order is user-controlled via drag & drop.
+   *
+   * Keys are globally unique (both `addWorkspace` and `saveDiscovered` check
+   * across every group), so the collision scan is global too.
+   */
+  renameWorkspace(oldKey: string, newKey: string): RenameWorkspaceResult {
+    if (oldKey === newKey) return { renamed: true };
+    if (!isValidKey(newKey)) {
+      return { renamed: false, error: `Key must be ${KEY_FORMAT_HINT}` };
+    }
+
+    const groups = this.readGroups();
+    const target = groups.flatMap((g) => g.workspaces).find((w) => w.key === oldKey);
+    if (!target) {
+      return { renamed: false, error: `Workspace "${oldKey}" no longer exists` };
+    }
+    // No "except myself" clause is needed — oldKey === newKey already returned.
+    if (groups.some((g) => g.workspaces.some((w) => w.key === newKey))) {
+      return { renamed: false, error: `Workspace key "${newKey}" already exists` };
+    }
+
+    target.key = newKey;
+    try {
+      this.writeGroups(groups);
+    } catch (err: any) {
+      return { renamed: false, error: `Failed to save workspaces: ${err?.message ?? 'unknown error'}` };
+    }
+    return { renamed: true };
   }
 
   addGroup(name: string): void {

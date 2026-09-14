@@ -33,7 +33,7 @@ export function registerIpcHandlers(
 ): void {
   registerSessionHandlers(ipcMain, sessionManager, shellTmuxManager, notesManager);
   registerPtyHandlers(ipcMain, sessionManager, shellTmuxManager);
-  registerWorkspaceHandlers(ipcMain, workspaceManager, dataDir, pendingDiscovery);
+  registerWorkspaceHandlers(ipcMain, workspaceManager, sessionManager, dataDir, pendingDiscovery);
   registerSettingsHandlers(ipcMain, notesManager, dataDir);
   registerJiraHandlers(ipcMain, sessionManager, dataDir);
   registerNotesHandlers(ipcMain, notesManager, getWindow);

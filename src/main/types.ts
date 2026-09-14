@@ -60,6 +60,7 @@ export interface IpcApi {
   getWorkspaceGroups: () => Promise<WorkspaceGroup[]>;
   addWorkspace: (opts: { key: string; repo: string; group: string; wdr?: string; createMissingDir?: boolean }) => Promise<{ created: boolean; entry?: WorkspaceEntry; path?: string; error?: string }>;
   removeWorkspace: (key: string) => Promise<void>;
+  renameWorkspace: (oldKey: string, newKey: string) => Promise<{ renamed: boolean; error?: string }>;
   addGroup: (name: string) => Promise<void>;
   removeGroup: (name: string) => Promise<void>;
   moveWorkspace: (key: string, toGroup: string, toIndex: number) => Promise<void>;

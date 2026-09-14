@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WorkspaceEntry, WorkspaceGroup, Session, DiscoveredWorkspace } from '../../main/types';
 import { normalizeKey, isValidKey, KEY_MAX_LENGTH, KEY_FORMAT_HINT } from '../../main/workspaceKeys';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { cn } from '../utils/cn';
 import ConfirmDialog from './ConfirmDialog';
 import './ManageWorkspacesDialog.css';
 
@@ -9,6 +10,7 @@ interface Props {
   workspaceGroups: WorkspaceGroup[];
   sessions: Session[];
   onRemove: (key: string) => Promise<void>;
+  onRename: (oldKey: string, newKey: string) => Promise<{ renamed: boolean; error?: string }>;
   onAddGroup: (name: string) => Promise<void>;
   onRemoveGroup: (name: string) => Promise<void>;
   onMove: (key: string, toGroup: string, toIndex: number) => Promise<void>;
@@ -22,6 +24,7 @@ export default function ManageWorkspacesDialog({
   workspaceGroups,
   sessions,
   onRemove,
+  onRename,
   onAddGroup,
   onRemoveGroup,
   onMove,
@@ -31,6 +34,17 @@ export default function ManageWorkspacesDialog({
   onClose,
 }: Props): React.ReactElement {
   const [pendingRemoveKey, setPendingRemoveKey] = useState<string | null>(null);
+
+  // Inline KEY editing. Only one input can hold focus, so a single draft is
+  // enough. `pendingRenameKey` outlives the draft: it covers the window between
+  // the draft being cleared on blur and the rename actually resolving.
+  const [keyDraft, setKeyDraft] = useState<{ key: string; value: string } | null>(null);
+  const [renameError, setRenameError] = useState<{ key: string; message: string } | null>(null);
+  const [pendingRenameKey, setPendingRenameKey] = useState<string | null>(null);
+  const keyDraftRef = useRef(keyDraft);
+  useEffect(() => { keyDraftRef.current = keyDraft; }, [keyDraft]);
+  // Set by Escape so the blur it triggers reverts instead of committing.
+  const revertRef = useRef(false);
 
   // Add workspace form
   const [showAddForm, setShowAddForm] = useState(false);
@@ -163,6 +177,11 @@ export default function ManageWorkspacesDialog({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (suspendedRef.current) return;
+      // A key edit in progress owns Escape — it reverts the edit rather than
+      // closing the dialogue. The input also stops propagation; this ref guard
+      // is the backstop, and is a ref so the listener is not re-registered on
+      // every keystroke.
+      if (keyDraftRef.current) return;
       if (e.key === 'Escape' && !pendingRemoveKey && !missingDirPath && !pendingRediscover) onClose();
     };
     document.addEventListener('keydown', handler);
@@ -220,6 +239,52 @@ export default function ManageWorkspacesDialog({
   const hasActiveSession = (key: string) =>
     sessions.some((s) => s.project === key && !s.dead);
 
+  const allKeys = workspaceGroups.flatMap((g) => g.workspaces.map((w) => w.key));
+
+  // --- Rename workspace key ---
+  const commitKeyEdit = useCallback(async (oldKey: string) => {
+    const draft = keyDraftRef.current;
+    // Always clear: the input falls back to the key from props, which is the
+    // old key while a rename is rejected (auto-revert) and the new one once the
+    // store has refreshed.
+    setKeyDraft(null);
+    if (revertRef.current) { revertRef.current = false; return; }
+    if (!draft || draft.key !== oldKey) return;
+
+    const next = draft.value;
+    if (next === oldKey) return;
+
+    const fail = (message: string) => setRenameError({ key: oldKey, message });
+    if (!isValidKey(next)) { fail(`Key must be ${KEY_FORMAT_HINT}`); return; }
+    if (allKeys.includes(next)) { fail(`Key "${next}" already exists`); return; }
+
+    setPendingRenameKey(oldKey);
+    try {
+      const result = await onRename(oldKey, next);
+      if (!result.renamed) fail(result.error ?? 'Rename failed');
+    } catch (err: any) {
+      // invoke() rejects if the main-process handler throws — without this the
+      // row would stay stuck in the pending state with no feedback.
+      fail(err?.message ?? 'Rename failed');
+    } finally {
+      setPendingRenameKey(null);
+    }
+  }, [allKeys, onRename]);
+
+  // Enter and Escape only blur; blur is the single commit path, which makes a
+  // double commit structurally impossible.
+  const handleKeyInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      revertRef.current = true;
+      e.currentTarget.blur();
+    }
+  }, []);
+
   // --- Add workspace ---
   const handleAddSubmit = async () => {
     const trimmedKey = normalizeKey(newKey);
@@ -229,7 +294,6 @@ export default function ManageWorkspacesDialog({
       setAddError(`Repo is required and key must be ${KEY_FORMAT_HINT}`); return;
     }
     if (!trimmedGroup) { setAddError('Please select a group'); return; }
-    const allKeys = workspaceGroups.flatMap((g) => g.workspaces.map((w) => w.key));
     if (allKeys.includes(trimmedKey)) { setAddError(`Key "${trimmedKey}" already exists`); return; }
     void handleAddWorkspace(false);
   };
@@ -414,6 +478,12 @@ export default function ManageWorkspacesDialog({
                     group.workspaces.map((w, wi) => {
                       const active = hasActiveSession(w.key);
                       const isFirst = wi === 0;
+                      const isEditing = keyDraft?.key === w.key;
+                      const isRenaming = pendingRenameKey === w.key;
+                      const draftInvalid = isEditing
+                        && keyDraft.value !== w.key
+                        && (!isValidKey(keyDraft.value) || allKeys.includes(keyDraft.value));
+                      const rowError = renameError?.key === w.key ? renameError.message : null;
                       return (
                         <tr
                           key={w.key}
@@ -423,7 +493,7 @@ export default function ManageWorkspacesDialog({
                             dropTargetKey === w.key ? 'manage-workspaces__drop-target' : '',
                             isFirst && dropTargetGroupReorder === group.group ? 'manage-workspaces__drop-target-reorder' : '',
                           ].filter(Boolean).join(' ')}
-                          draggable
+                          draggable={!isEditing && !isRenaming}
                           onDragStart={handleDragStart(w.key)}
                           onDragEnd={handleDragEnd}
                           onDragOver={handleDragOverWorkspace(w.key)}
@@ -456,14 +526,38 @@ export default function ManageWorkspacesDialog({
                               >{group.group}</span>
                             )}
                           </td>
-                          <td className="manage-workspaces__col-key">{w.key}</td>
+                          <td className="manage-workspaces__col-key">
+                            <input
+                              className={cn(
+                                'manage-workspaces__input',
+                                'manage-workspaces__key-input',
+                                (draftInvalid || rowError) && 'manage-workspaces__key-input--invalid',
+                              )}
+                              value={isEditing ? keyDraft.value : w.key}
+                              maxLength={KEY_MAX_LENGTH}
+                              disabled={isRenaming}
+                              spellCheck={false}
+                              onFocus={() => { setKeyDraft({ key: w.key, value: w.key }); setRenameError(null); }}
+                              onChange={(e) => { setKeyDraft({ key: w.key, value: normalizeKey(e.target.value) }); setRenameError(null); }}
+                              onBlur={() => void commitKeyEdit(w.key)}
+                              onKeyDown={handleKeyInputKeyDown}
+                              title={draftInvalid
+                                ? `Invalid or duplicate key — ${KEY_FORMAT_HINT}, and each key must be unique`
+                                : `Rename ${w.key}`}
+                              aria-invalid={draftInvalid || !!rowError}
+                              aria-label={`Key for ${w.repo}`}
+                            />
+                            {rowError && (
+                              <div className="manage-workspaces__error">{rowError}</div>
+                            )}
+                          </td>
                           <td className="manage-workspaces__col-repo">{w.repo}</td>
                           <td className="manage-workspaces__col-dir">{w.workingDir}</td>
                           <td className="manage-workspaces__col-actions">
                             <button
                               className="btn btn--micro btn--danger"
                               title={active ? 'Cannot remove — has active session(s)' : `Remove ${w.key}`}
-                              disabled={active}
+                              disabled={active || isRenaming}
                               onClick={() => setPendingRemoveKey(w.key)}
                             >✕</button>
                           </td>
