@@ -1,5 +1,13 @@
 import { ITheme } from '@xterm/xterm';
 
+export const DEFAULT_THEME_ID = 'phosphor-green';
+
+/** Pre-rename theme ids still found in `dad-theme`; mirrors SettingsMenu's migration map. */
+const THEME_ALIASES: Record<string, string> = {
+  'pipboy-3000':  'phosphor-green',
+  'pipboy-3000a': 'amber-orange',
+};
+
 export const XTERM_THEMES: Record<string, ITheme> = {
   'phosphor-green': {
     background:          '#000000',
@@ -53,7 +61,11 @@ export const XTERM_THEMES: Record<string, ITheme> = {
   },
 };
 
+export function getXtermThemeById(themeId: string | null | undefined): ITheme {
+  const id = themeId ?? DEFAULT_THEME_ID;
+  return XTERM_THEMES[THEME_ALIASES[id] ?? id] ?? XTERM_THEMES[DEFAULT_THEME_ID];
+}
+
 export function getXtermTheme(): ITheme {
-  const themeId = document.documentElement.getAttribute('data-theme') ?? 'phosphor-green';
-  return XTERM_THEMES[themeId] ?? XTERM_THEMES['phosphor-green'];
+  return getXtermThemeById(document.documentElement.getAttribute('data-theme'));
 }

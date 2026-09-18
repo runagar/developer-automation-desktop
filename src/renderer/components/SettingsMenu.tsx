@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ZoomControls } from './ZoomControl';
 import { getCrtEffects, setCrtEffect, setAllCrtEffects, CrtEffectState } from './crtEffects';
 import { Dropdown, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
+import { getXtermTheme } from '../xterm-theme';
 import './SettingsMenu.css';
 
 // Theme definitions (source of truth for theme IDs and labels)
@@ -31,6 +32,20 @@ function readTheme(): string {
   return localStorage.getItem(THEME_STORAGE_KEY) ?? DEFAULT_THEME;
 }
 
+/**
+ * Tell the main process which colours the terminals are painted in. It answers
+ * copilot's startup colour query with them for sessions that have no panel
+ * attached yet, so every session picks the same theme a live xterm would have
+ * produced. Must run after `applyTheme` — `getXtermTheme` reads `data-theme`.
+ */
+function publishTerminalColors(): void {
+  const theme = getXtermTheme();
+  const bg = theme.background;
+  const fg = theme.foreground;
+  if (!bg || !fg) return;
+  window.dad.setTerminalColors({ bg, fg });
+}
+
 /** Apply saved theme on startup, migrating old IDs if needed. */
 export function initTheme(): void {
   let saved = readTheme();
@@ -39,6 +54,7 @@ export function initTheme(): void {
     localStorage.setItem(THEME_STORAGE_KEY, saved);
   }
   applyTheme(saved);
+  publishTerminalColors();
 }
 
 interface Props {
@@ -80,6 +96,10 @@ export default function SettingsMenu({ onOpenWorkspaces, onOpenJira, onOpenNotes
     setCurrentTheme(id);
     localStorage.setItem(THEME_STORAGE_KEY, id);
     applyTheme(id);
+    // Sessions created from here on answer with the new palette. Sessions that
+    // already asked keep the theme they resolved at startup — copilot only
+    // queries once, so there is nothing to re-apply.
+    publishTerminalColors();
     closeMenu();
   }
 

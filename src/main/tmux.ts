@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { spawnColorResponder } from './termColors';
 
 export const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
 
@@ -87,6 +88,13 @@ export async function createTmuxSession(sessionId: string, workingDir: string): 
   });
 
   await configureTmuxSession(name);
+
+  // copilot asks the terminal for its colours within ~300 ms of starting, and
+  // nothing is attached yet to answer. Do it for it, or the session renders in
+  // the 16-colour fallback theme for the rest of its life. Deliberately not
+  // awaited — session creation must not wait on copilot booting.
+  spawnColorResponder(name);
+
   console.log(`[tmux] Session ${name} created`);
   return name;
 }

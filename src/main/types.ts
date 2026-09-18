@@ -100,6 +100,13 @@ export interface IpcApi {
   windowClose: () => void;
   onWindowMaximized: (callback: (maximized: boolean) => void) => () => void;
 
+  /**
+   * Mirror the renderer's xterm background/foreground into the main process so
+   * it can answer copilot's startup colour query for sessions whose panel is
+   * not attached yet. Both values are `#rrggbb`.
+   */
+  setTerminalColors: (colors: { bg: string; fg: string }) => void;
+
   // Clipboard (uses Electron clipboard — no IPC round-trip needed)
   clipboardWrite: (text: string) => void;
   clipboardRead: () => string;

@@ -226,6 +226,19 @@ Each copilot session runs inside a **tmux session** that is independent of the E
 - `allow-passthrough on` (for OSC 52 clipboard)
 - `set-clipboard on`
 
+**Terminal colour negotiation (`src/main/termColors.ts`).** Copilot CLI ≥ 1.0.85 asks the terminal what it looks like before choosing a theme: it writes an `OSC 10` (foreground) and `OSC 11` (background) query at startup and waits ~300 ms. With both answers it renders its full 24-bit theme; with neither it falls back to a palette built from the 16 named ANSI colours — and because that fallback leaves `textPrimary` undefined, body text inherits the terminal's default foreground, painting the whole pane in the Pip-Boy accent colour and reverting the input line to the older `›` chrome.
+
+DAD creates every tmux session **detached** and defers PTY attachment to the renderer, so at the moment copilot asks there is normally no client for tmux to forward the query to. A detached pane answers **0 of 18** queries. Only a session whose panel happened to attach inside that 300 ms window resolved correctly, which is why the first session and freshly spawned ones looked right while switched-to ones did not.
+
+`createTmuxSession` therefore attaches a throwaway tmux client that answers on DAD's behalf, then detaches. Points that must hold:
+- **Only `OSC 10`/`OSC 11` can be answered.** tmux never forwards the 16 per-index `OSC 4` palette queries copilot also sends. That is sufficient — copilot treats the palette as optional and succeeds on background + foreground alone (`queryTerminalColors: detected bg=… fg=… ansi=0/16`).
+- **The responder answers every query for its whole 30 s window**, rather than detaching once it has supplied one background/foreground pair. The interactive login shell wrapping copilot probes the terminal itself, a second or two before copilot starts, so the first pair is usually the shell's; detaching then leaves copilot's own query unanswered. The two are indistinguishable from here, since copilot's only distinguishing mark is the `OSC 4` queries tmux drops.
+- Matching requires the trailing `?` of a *query*. Copilot also emits `OSC 11` to **set** a colour, and answering that would be replying to DAD's own echo.
+- Lingering is safe because tmux's `window-size` is `latest`: a real panel attaching later becomes the latest client and sizes the window.
+- It is **fire-and-forget and never awaited** — session creation must not wait on copilot booting — and every failure is swallowed, because a session that starts in the fallback theme is still a working session.
+
+**The palette is published from `preload.ts`, before `renderer:ready`.** That event triggers `restoreSessions()`, which creates tmux sessions whose copilot asks immediately; publishing from React would race it and resolve every restored session against the default theme instead of the user's. Both are `ipcRenderer.send`, so ordering is guaranteed. `SettingsMenu` re-publishes on theme change, which applies to **subsequently created** sessions only — copilot queries once at startup, so existing sessions keep the theme they resolved and only reappear correctly after a relaunch.
+
 **Session lifecycle:**
 1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot. PTY attachment is deferred to the renderer.
 2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
@@ -571,6 +584,7 @@ Main process
 ├── NotesManager         SQLite + filesystem notes storage (panels, tabs, markdown files)
 ├── StatePoller          tmux capture-pane polling + state detection
 ├── tmux.ts              tmux CLI wrapper (create/kill/capture for both terminal + shell sessions)
+├── termColors.ts        answers copilot's OSC 10/11 startup colour query so sessions pick the right theme
 ├── PtySession           node-pty wrapper for tmux attach-session client
 ├── nykAuth.ts           shared Nykredit OAuth2: token acquisition, single-flight cache, rejection latch
 ├── vaultFreshness.ts    pure status-category refresh tiers for vault notes (no I/O, unit-tested)
@@ -682,6 +696,7 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - `--c-mid` — secondary/subdued text (labels, placeholders, inactive tabs, metadata). Interactive text at `--c-mid` brightens to `--c-bright` on hover.
 - `--c-bright` — primary text, active elements, headings.
 - Terminal autocomplete suggestions use ANSI `brightBlack` (mapped to `--c-mid`-equivalent values in `xterm-theme.ts`).
+- `xterm-theme.ts` is imported by **`preload.ts` as well as the renderer**, so it must stay free of React and DOM-only dependencies. `getXtermTheme()` reads `data-theme` off the document; `getXtermThemeById()` is the DOM-free variant preload uses to resolve the saved theme (including the legacy `pipboy-3000*` ids) before the renderer has mounted.
 
 ### Menus and the top layer
 

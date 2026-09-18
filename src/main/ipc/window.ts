@@ -1,6 +1,7 @@
 import { IpcMain, BrowserWindow, screen } from 'electron';
 import { SessionManager } from '../sessions';
 import { StatePoller } from '../statePoller';
+import { setTerminalColors, TerminalColors } from '../termColors';
 
 let statePoller: StatePoller | null = null;
 let isSimulatedMaximized = false;
@@ -79,6 +80,12 @@ export function registerWindowHandlers(
   };
   // Register on current window and re-register when renderer:ready fires
   getWindow()?.on('maximize', onNativeMaximize);
+
+  // The renderer's xterm palette, mirrored so the main process can answer
+  // copilot's startup colour query for sessions that have no panel attached yet.
+  ipcMain.on('terminal:setColors', (_e, colors: TerminalColors) => {
+    setTerminalColors(colors);
+  });
 
   // Notify session manager of window reference whenever renderer is ready,
   // then restore sessions so PTY events are never fired while window is null.

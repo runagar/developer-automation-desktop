@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import { IpcApi, Session, SessionState, WorkspaceEntry, JiraIssue, AuthStatusInfo } from '../main/types';
+import { getXtermThemeById } from '../renderer/xterm-theme';
 
 const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
@@ -74,6 +75,7 @@ const api: IpcApi = {
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
+  setTerminalColors: (colors) => ipcRenderer.send('terminal:setColors', colors),
   onWindowMaximized: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) =>
       callback(maximized);
@@ -200,6 +202,21 @@ const api: IpcApi = {
 };
 
 contextBridge.exposeInMainWorld('dad', api);
+
+// Publish the terminal palette *before* renderer:ready. That event triggers
+// restoreSessions(), which creates tmux sessions whose copilot immediately asks
+// what colour the terminal is — if the answer has not arrived yet, every
+// restored session resolves against the default theme instead of the user's.
+// Both are `send`, so Electron delivers them in this order.
+try {
+  const theme = getXtermThemeById(localStorage.getItem('dad-theme'));
+  if (theme.background && theme.foreground) {
+    ipcRenderer.send('terminal:setColors', { bg: theme.background, fg: theme.foreground });
+  }
+} catch {
+  // Main defaults to the phosphor-green palette; a wrong accent colour is not
+  // worth failing startup over.
+}
 
 // Notify main that renderer is ready
 ipcRenderer.send('renderer:ready');
