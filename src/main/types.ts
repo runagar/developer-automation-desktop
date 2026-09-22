@@ -185,6 +185,34 @@ export interface IpcApi {
   restToken: (environmentKey: string) => Promise<string>;
   restSend: (request: RestRequestSpec) => Promise<RestResultInfo>;
 
+  // Pull My Finger (GIT1)
+  githubListPullRequests: () => Promise<PrLists>;
+  githubGetPullRequest: (ref: PrRef) => Promise<PrDetail>;
+  githubGetDiff: (ref: PrRef, diffRef: PrDiffRef, changedFiles: number) => Promise<PrDiff>;
+  githubSubmitReview: (
+    pullRequestId: string, reviewId: string | null, event: PrReviewEvent, body: string
+  ) => Promise<void>;
+  githubDiscardReview: (reviewId: string) => Promise<void>;
+  githubAddReviewComment: (
+    pullRequestId: string, reviewId: string | null, anchor: PrCommentAnchor, body: string
+  ) => Promise<{ thread: PrReviewThread; pendingReviewId: string | null }>;
+  githubReplyThread: (threadId: string, reviewId: string | null, body: string) => Promise<PrThreadComment>;
+  githubAddComment: (
+    subjectId: string, body: string
+  ) => Promise<{ id: string; createdAt: string; body: string; author: string | null }>;
+  githubSetThreadResolved: (threadId: string, resolved: boolean) => Promise<PrThreadState>;
+  githubDeleteComment: (id: string, kind: 'review' | 'issue') => Promise<void>;
+  githubSetFileViewed: (pullRequestId: string, path: string, viewed: boolean) => Promise<void>;
+  githubMerge: (pullRequestId: string, options: PrMergeOptions) => Promise<void>;
+  githubSetAutoMerge: (
+    pullRequestId: string, enabled: boolean, options?: PrMergeOptions
+  ) => Promise<PrAutoMerge | null>;
+  githubSetDraft: (pullRequestId: string, draft: boolean) => Promise<boolean>;
+  githubClose: (pullRequestId: string) => Promise<string>;
+  githubSetReviewers: (
+    pullRequestId: string, userLogins: string[], teamLogins: string[]
+  ) => Promise<PrReviewer[]>;
+
   // Auto-updater
   onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => void) => () => void;
   updaterInstall: () => void;
@@ -347,3 +375,329 @@ export interface DiscoveredWorkspace {
 
 /** Default group name offered for newly discovered workspaces (editable). */
 export const DEFAULT_DISCOVERY_GROUP = 'Default Group';
+
+// ---------------------------------------------------------------------------
+// GitHub (GIT1 — Pull My Finger)
+// ---------------------------------------------------------------------------
+
+export type PrCheckState = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'NONE';
+
+/** One entry in the status-check rollup. */
+export interface PrCheck {
+  name: string;
+  /** Normalised across CheckRun's status/conclusion and StatusContext's state. */
+  state: PrCheckState | 'SKIPPED';
+  /** Whether branch protection requires this one to pass. */
+  required: boolean;
+}
+/**
+ * Whether the branch conflicts. **Not** whether it can be merged.
+ *
+ * GitHub answers MERGEABLE for a draft, for a PR missing required reviews and
+ * for one with failing required checks — it only ever reports on textual
+ * conflicts. Merge *readiness* is `PrMergeStateStatus`.
+ */
+export type PrMergeableState = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+
+/**
+ * Whether the pull request can actually be merged right now.
+ *
+ * The seven values are GitHub's `MergeStateStatus` enum verbatim — note that
+ * there is no DRAFT member: a draft reports BLOCKED, alongside missing
+ * required reviews and failing required checks. `BEHIND` means the head ref
+ * is out of date; `UNSTABLE` is mergeable with non-passing (non-required)
+ * checks.
+ */
+export type PrMergeStateStatus =
+  | 'CLEAN' | 'DIRTY' | 'BLOCKED' | 'BEHIND' | 'UNSTABLE' | 'HAS_HOOKS' | 'UNKNOWN';
+
+/**
+ * A reviewer's position on a pull request.
+ *
+ * `COMMENTED` and `DISMISSED` are deliberately distinct rather than folded
+ * into "no action yet": both say something the other states do not.
+ * `PENDING_REQUEST` covers a requested reviewer who has not responded, which
+ * is the only state a requested *team* can be in.
+ */
+export type PrReviewerState =
+  | 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING_REQUEST';
+
+export interface PrReviewer {
+  /** Login for a user, bare slug for a team. Display only. */
+  name: string;
+  /**
+   * What `requestReviewsByLogin` expects back: a login for a user, but the
+   * **`org/team-slug`** form for a team — the bare slug is rejected.
+   */
+  requestKey: string;
+  isTeam: boolean;
+  /**
+   * Bots appear as reviewers but cannot be submitted to
+   * `requestReviewsByLogin`, which rejects the whole call.
+   */
+  isBot: boolean;
+  state: PrReviewerState;
+  /**
+   * True when there is an *outstanding* review request.
+   *
+   * Distinct from `state`: someone who approved and was then re-requested is
+   * both. Only these belong in the replace-set sent to
+   * `requestReviewsByLogin` — including past reviewers would silently
+   * re-request everyone and invalidate their existing approvals.
+   */
+  requested: boolean;
+}
+
+/** A row in the "Your Pull Requests" panel. */
+export interface PrListItem {
+  id: string;
+  number: number;
+  title: string;
+  url: string;
+  owner: string;
+  repo: string;
+  /** `owner/repo`, shown as the dim second line. */
+  nameWithOwner: string;
+  isDraft: boolean;
+  mergeable: PrMergeableState;
+  mergeState: PrMergeStateStatus;
+  checks: PrCheckState;
+  updatedAt: string;
+  reviewers: PrReviewer[];
+}
+
+export type PrListId = 'created' | 'reviewing' | 'listening';
+
+export interface PrList {
+  items: PrListItem[];
+  /** Matches beyond the cap. Approximate for `listening` — see `moreIsApproximate`. */
+  more: number;
+  moreIsApproximate: boolean;
+}
+
+export interface PrLists {
+  created: PrList;
+  reviewing: PrList;
+  listening: PrList;
+}
+
+export interface PrRef {
+  owner: string;
+  repo: string;
+  number: number;
+}
+
+export interface PrLabel {
+  name: string;
+  color: string;
+}
+
+export interface PrAutoMerge {
+  enabledAt: string;
+  mergeMethod: PrMergeMethod;
+  enabledBy: string | null;
+}
+
+export type PrMergeMethod = 'MERGE' | 'SQUASH' | 'REBASE';
+
+export interface PrAllowedMergeMethods {
+  merge: boolean;
+  squash: boolean;
+  rebase: boolean;
+}
+
+export interface PrPendingReview {
+  id: string;
+  body: string;
+  commentCount: number;
+}
+
+/** Merge is not method-agnostic: rebase takes no commit message. */
+export interface PrMergeOptions {
+  method: PrMergeMethod;
+  commitHeadline?: string;
+  commitBody?: string;
+}
+
+export interface PrCompare {
+  aheadBy: number;
+  behindBy: number;
+  status: string;
+}
+
+/** Everything the viewer's header and merge controls need. */
+export interface PrSummary {
+  id: string;
+  number: number;
+  owner: string;
+  repo: string;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  merged: boolean;
+  mergeable: PrMergeableState;
+  mergeState: PrMergeStateStatus;
+  checks: PrCheckState;
+  reviewDecision: string | null;
+  /** The rollup broken out, for the Checks tooltip. */
+  checkRuns: PrCheck[];
+  changedFiles: number;
+  commitCount: number;
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  baseRefName: string;
+  headRefName: string;
+  baseRefOid: string;
+  headRefOid: string;
+  headRepoOwner: string | null;
+  isCrossRepository: boolean;
+  viewerCanUpdate: boolean;
+  viewerDidAuthor: boolean;
+  mergeHeadline: string;
+  mergeBody: string;
+  autoMerge: PrAutoMerge | null;
+  allowedMergeMethods: PrAllowedMergeMethods;
+  labels: PrLabel[];
+  assignees: string[];
+  milestone: string | null;
+  reviewers: PrReviewer[];
+  suggestedReviewers: string[];
+  pendingReview: PrPendingReview | null;
+  compare: PrCompare | null;
+}
+
+export interface PrCommit {
+  oid: string;
+  abbreviatedOid: string;
+  messageHeadline: string;
+  committedDate: string;
+  author: string | null;
+}
+
+/** A force push, offered in the diff dropdown as a before…after range. */
+export interface PrForcePush {
+  id: string;
+  createdAt: string;
+  actor: string | null;
+  beforeOid: string | null;
+  beforeAbbrev: string | null;
+  afterOid: string;
+  afterAbbrev: string;
+}
+
+/** An inline comment shown under its review in the Overview. */
+export interface PrReviewComment {
+  id: string;
+  path: string;
+  /** Null once the anchor no longer exists in the current diff. */
+  line: number | null;
+  body: string;
+  viewerCanDelete: boolean;
+}
+
+export type PrTimelineRow =
+  | { kind: 'commit'; id: string; at: string; commit: PrCommit }
+  | { kind: 'force-push'; id: string; at: string; actor: string | null; force: PrForcePush }
+  | {
+    kind: 'comment'; id: string; at: string; author: string | null; body: string;
+    viewerDidAuthor: boolean; viewerCanDelete: boolean;
+  }
+  | {
+    kind: 'review'; id: string; at: string; author: string | null; state: string; body: string;
+    comments: PrReviewComment[];
+    /** Comments beyond the page fetched, so a huge review is not silently cut. */
+    moreComments: number;
+  }
+  | {
+    kind: 'outdated-thread'; id: string; at: string; author: string | null; path: string;
+    body: string; isResolved: boolean;
+  }
+  | { kind: 'event'; id: string; at: string; actor: string | null; text: string };
+
+export interface PrThreadComment {
+  id: string;
+  databaseId: number | null;
+  body: string;
+  createdAt: string;
+  author: string | null;
+  viewerDidAuthor: boolean;
+  outdated: boolean;
+  /** `PENDING` while the comment is part of an unsubmitted review. */
+  state: string;
+  viewerCanDelete: boolean;
+}
+
+export interface PrReviewThread {
+  id: string;
+  isResolved: boolean;
+  isOutdated: boolean;
+  viewerCanResolve: boolean;
+  viewerCanUnresolve: boolean;
+  viewerCanReply: boolean;
+  path: string;
+  /** Null once the thread's line no longer exists in the current diff. */
+  line: number | null;
+  startLine: number | null;
+  side: 'LEFT' | 'RIGHT';
+  comments: PrThreadComment[];
+}
+
+/** Which diff the viewer is showing (requirement 3.2.3.1). */
+/** What a resolve/unresolve returns: the state *and* the refreshed rights. */
+export interface PrThreadState {
+  isResolved: boolean;
+  viewerCanResolve: boolean;
+  viewerCanUnresolve: boolean;
+  viewerCanReply: boolean;
+}
+
+export type PrDiffRef =
+  | { kind: 'pr' }
+  | { kind: 'commit'; oid: string; abbreviatedOid: string }
+  | { kind: 'range'; beforeOid: string; afterOid: string; label: string };
+
+export type PrFileStatus =
+  | 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+
+export interface PrDiffFile {
+  path: string;
+  previousPath: string | null;
+  status: PrFileStatus;
+  additions: number;
+  deletions: number;
+  /** Absent for binary files and files past GitHub's size ceiling. */
+  patch: string | null;
+  /** Only meaningful in full-PR mode; see ambiguity 27. */
+  viewed: boolean;
+}
+
+export interface PrDiff {
+  files: PrDiffFile[];
+  /** True when GitHub returned fewer files than the pull request actually has. */
+  truncated: boolean;
+  /** The commit a new review comment must be anchored to. */
+  headOid: string;
+}
+
+export interface PrDetail {
+  summary: PrSummary;
+  commits: PrCommit[];
+  forcePushes: PrForcePush[];
+  timeline: PrTimelineRow[];
+  threads: PrReviewThread[];
+  /** True when a connection hit the page cap and the history is incomplete. */
+  historyTruncated: boolean;
+}
+
+export type PrReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+
+export interface PrCommentAnchor {
+  path: string;
+  line: number;
+  side: 'LEFT' | 'RIGHT';
+  startLine: number | null;
+  startSide: 'LEFT' | 'RIGHT' | null;
+}

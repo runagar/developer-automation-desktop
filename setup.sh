@@ -10,6 +10,7 @@
 #
 # Prerequisites installed:
 #   - tmux          (session persistence)
+#   - gh            (GitHub CLI, for the Pull My Finger tab)
 #   - build-essential, python3  (native Node module compilation)
 #   - fnm           (Fast Node Manager)
 #   - Node.js LTS   (via fnm)
@@ -157,7 +158,53 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# 6. Shell integration hint
+# 6. GitHub CLI
+# ---------------------------------------------------------------------------
+echo "── GitHub CLI ────────────────────────────────────────────"
+
+# Installed in its own step, not in the shared apt batch: `gh` only entered the
+# Ubuntu archive in 23.04, so on a 22.04 WSL distro `apt-get install gh` fails
+# and, under `set -e`, would abort the script before tmux and the build tools
+# were installed.
+if command -v gh >/dev/null 2>&1; then
+  info "gh already installed ($(gh --version 2>&1 | head -1))"
+else
+  warn "Installing gh..."
+  if ! sudo apt-get install -y -qq gh 2>/dev/null; then
+    warn "gh is not in this distro's archive. Adding the official apt source..."
+    if sudo mkdir -p -m 755 /etc/apt/keyrings \
+      && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null \
+      && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+      && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null \
+      && sudo apt-get update -qq \
+      && sudo apt-get install -y -qq gh; then
+      info "gh installed"
+    else
+      # Not fatal: everything except the Pull My Finger tab works without it.
+      warn "Could not install gh automatically — see https://github.com/cli/cli#installation"
+    fi
+  else
+    info "gh installed"
+  fi
+fi
+
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  info "gh already authenticated ($(gh api user --jq .login 2>/dev/null))"
+else
+  # DAD never stores a GitHub token — gh owns the credential, so the Pull My
+  # Finger tab cannot work until this is done.
+  warn "gh is not authenticated. The Pull My Finger tab needs it. Run:"
+  echo ""
+  echo "    gh auth login"
+  echo ""
+fi
+
+echo ""
+
+# ---------------------------------------------------------------------------
+# 7. Shell integration hint
 # ---------------------------------------------------------------------------
 echo "── Shell integration ─────────────────────────────────────"
 echo ""

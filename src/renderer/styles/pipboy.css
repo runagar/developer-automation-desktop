@@ -19,11 +19,60 @@
   --c-panel-hover:  #001a00;
   --c-active:       #002200;
   --c-bg:           #000000;
-  --c-amber:        #ffcc00;
-  --c-red:          #ff4444;
-  --c-inline-code:  #0055dd;
+  /* ---- Semantic state colours ----------------------------------------
+     Named for what they MEAN, not what hue they are. These are primary;
+     `--c-amber` and `--c-red` below are legacy aliases kept so existing
+     components keep working until they are migrated (see feature-overview.md).
+
+     --c-ok is cyan rather than green **because** the UI is green: a green
+     success chip is indistinguishable from ordinary bright text, so the hue
+     has to leave the phosphor entirely to carry meaning.
+
+     --c-warn sits between checking and danger, which is also where it sits
+     semantically.
+
+     --c-abort and --c-error share a value today but are deliberately separate
+     names: backing out of something the user started (DISCARD, CANCEL a
+     running action) is not the same event as something having failed, and the
+     two may want to diverge. */
+  --c-ok:           #00d5d5;
+  --c-warn:         #ff8a4c;
+  --c-checking:     #ffcc00;
+  --c-abort:        #ff4444;
+  --c-error:        #ff4444;
+
+  /* ---- Legacy hue-named aliases ---------------------------------------
+     Aliases rather than copies, so the two can never drift apart while the
+     migration is in progress. Note this couples decorative amber (the
+     StateIndicator pulse, --glow-amber, LoginButton) to the *checking* state;
+     breaking that coupling is part of the refactor. */
+  --c-amber:        var(--c-checking);
+  --c-red:          var(--c-error);
   --c-blockquote:   #cc7f16;
   --c-md-marker:    #0055dd;
+
+  /* Code presentation — the app-wide standard, owned here.
+     Deliberately NOT derived from the Notes editor's highlight palette: that
+     palette exists to configure CodeMirror's third-party tag scheme, and
+     letting it define how code looks everywhere would invert the dependency.
+     These are primary; the Notes editor consumes them.
+
+     Neutral grey rather than a phosphor tint, matching how the Copilot CLI
+     renders code in the terminal panel — the same treatment the user already
+     sees inside DAD. A tinted wash is nearly invisible against --c-bg and
+     competes with the theme colour the surrounding prose is already using.
+     Expressed as white alphas so both themes work from one definition. */
+  --c-code-fg:       #e6e6e6;
+  --c-code-bg:       rgba(255, 255, 255, 0.15);
+  --c-code-block-bg: rgba(255, 255, 255, 0.15);
+
+  /* Diff tints. Phosphor green is itself the "added" colour, so an added line
+     is marked by a wash rather than by hue; deletions borrow the red already
+     used for destructive actions. */
+  --c-diff-add:     #00ff00;
+  --c-diff-add-bg:  #00ff0014;
+  --c-diff-del:     #ff6b6b;
+  --c-diff-del-bg:  #ff444414;
 
   --glow:         0 0 6px var(--c-bright), 0 0 12px var(--c-dim);
   --glow-sm:      0 0 4px var(--c-bright);
@@ -46,10 +95,28 @@
   --c-panel-hover:  #150b00;
   --c-active:       #1f1000;
   --c-bg:           #000000;
-  --c-amber:        #ffe082;
-  --c-inline-code:  #0055dd;
+  /* Lightened for the amber theme: this palette is brighter overall, and the
+     green-theme values read as muddy against it. --c-warn in particular must
+     stay clear of both the UI orange (#ff9f1c) and the error red.
+
+     --c-abort and --c-error are restated at the same value the green theme
+     uses. They were previously inherited by omission, which read as an
+     oversight rather than as the deliberate choice it is: danger means the
+     same thing in both themes. */
+  --c-checking:     #ffe082;
+  --c-ok:           #4dd9e0;
+  --c-warn:         #ff7a59;
+  --c-abort:        #ff4444;
+  --c-error:        #ff4444;
   --c-blockquote:   #00cc00;
   --c-md-marker:    #0055dd;
+
+  /* Amber has no green in its palette, so an added line can use one without
+     colliding with the theme's own hue. */
+  --c-diff-add:     #7ddc6b;
+  --c-diff-add-bg:  #7ddc6b1f;
+  --c-diff-del:     #ff6b6b;
+  --c-diff-del-bg:  #ff444414;
 }
 
 /* --- CRT effect: subtle phosphor center glow --- */
@@ -187,6 +254,71 @@
   color: var(--c-bright);
   border-color: var(--c-bright);
 }
+/* Raises a button out of the --c-mid resting state for primary actions that
+   sit in a row of secondary ones. Declared after --micro so it wins at equal
+   specificity. */
+.btn--accent {
+  color: var(--c-bright);
+  border-color: var(--c-bright);
+}
+
+.btn--accent:disabled {
+  color: var(--c-bright);
+}
+
+/* Semantic button modifiers. Declared after --micro so they win at equal
+   specificity; --micro sets its own colour and border-color and is emitted
+   first. */
+.btn--ok {
+  color: var(--c-ok);
+  border-color: var(--c-ok);
+}
+
+.btn--ok:hover {
+  color: var(--c-ok);
+  box-shadow: 0 0 4px var(--c-ok);
+}
+
+/* `.btn:disabled` sets `color` at specificity (0,2,0) and so beats the bare
+   modifier, but it sets no `border-color` — leaving --c-mid text inside a
+   dimmed coloured border. These restate the hue at matching specificity so a
+   disabled button dims as one piece, by opacity alone. */
+.btn--ok:disabled {
+  color: var(--c-ok);
+}
+
+.btn--warn {
+  color: var(--c-warn);
+  border-color: var(--c-warn);
+}
+
+.btn--warn:hover {
+  color: var(--c-warn);
+  box-shadow: 0 0 4px var(--c-warn);
+}
+
+.btn--warn:disabled {
+  color: var(--c-warn);
+}
+
+/* Backing out of something the user started. Distinct from --danger, which is
+   for irreversible destruction of someone else's data; abandoning your own
+   unsent draft does not deserve the same alarm, so it carries no background
+   flash. */
+.btn--abort {
+  color: var(--c-abort);
+  border-color: var(--c-abort);
+}
+
+.btn--abort:hover {
+  color: var(--c-abort);
+  box-shadow: 0 0 4px var(--c-abort);
+}
+
+.btn--abort:disabled {
+  color: var(--c-abort);
+}
+
 .btn--danger {
   color: var(--c-red);
   border-color: #660000;
@@ -196,6 +328,12 @@
   border-color: var(--c-red);
   box-shadow: 0 0 4px var(--c-red);
   background: #110000;
+}
+
+/* Same mismatch as the semantic modifiers above — `--danger` predates them and
+   had the bug latent. */
+.btn--danger:disabled {
+  color: var(--c-red);
 }
 
 /* --- Panel decoration --- */
@@ -282,4 +420,256 @@
 
 .tab__close:hover {
   color: var(--c-red);
+}
+
+/* --------------------------------------------------------------------------
+   Panel sub-tabs
+
+   A strip of tabs *inside* a panel body, as opposed to `.tab` (the notes file
+   tabs) or the tool tab bar. Shared rather than duplicated per component: the
+   REST Crafter and the PR Viewer render an identical strip.
+   -------------------------------------------------------------------------- */
+
+.panel-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--c-dim);
+  flex-shrink: 0;
+}
+
+.panel-subtabs__tab {
+  padding: 5px 12px;
+  font-family: var(--font);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.panel-subtabs__tab:hover {
+  color: var(--c-bright);
+}
+
+.panel-subtabs__tab--active {
+  color: var(--c-bright);
+  border-bottom-color: var(--c-bright);
+}
+
+/* --------------------------------------------------------------------------
+   Inline panel error
+
+   For a panel that failed to load remote data. Deliberately NOT `.app-empty`,
+   which is a full-height centred container — an error in a panel that already
+   has content must appear above that content, not replace the whole panel.
+   -------------------------------------------------------------------------- */
+
+.panel-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  font-size: 0.66rem;
+  line-height: 1.5;
+  color: var(--c-red);
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-red);
+  white-space: pre-wrap;
+}
+
+.panel-error__retry {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   State chips
+
+   Filled status markers — "CHECKS OK", "Conflicts!", "BEHIND BASE".
+
+   Deliberately the inverse of a button: a button is dark-filled with a
+   coloured border and coloured text, so a chip built that way reads as
+   clickable. These fill with the state colour and knock the text out in the
+   panel background instead, which cannot be confused with a control.
+
+   Shared because the PR list and the PR viewer render the same markers; the
+   neutral variant keeps the outlined look for chips that carry information
+   rather than state (labels, assignees, milestone).
+   -------------------------------------------------------------------------- */
+
+.state-chip {
+  padding: 0 5px;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  line-height: 1.6;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.state-chip--ok {
+  color: var(--c-bg);
+  background: var(--c-ok);
+  border-color: var(--c-ok);
+}
+
+.state-chip--warn {
+  color: var(--c-bg);
+  background: var(--c-warn);
+  border-color: var(--c-warn);
+}
+
+.state-chip--checking {
+  color: var(--c-bg);
+  background: var(--c-checking);
+  border-color: var(--c-checking);
+}
+
+.state-chip--error {
+  color: var(--c-bg);
+  background: var(--c-error);
+  border-color: var(--c-error);
+}
+
+/* Not a state: stays outlined so the filled chips keep their salience. */
+.state-chip--neutral {
+  color: var(--c-mid);
+  background: none;
+  border-color: var(--c-dim);
+}
+
+/* --------------------------------------------------------------------------
+   Inline code
+
+   The single source of truth for how a code span looks. Use this class
+   anywhere code is rendered outside markdown (labels, tables, help text);
+   `.markdown-body code` applies the same declarations to generated markup,
+   and the Notes editor's CodeMirror `.cm-monospace` consumes the same tokens.
+   Never restyle a code span locally — change the tokens instead.
+   -------------------------------------------------------------------------- */
+
+.inline-code {
+  font-family: var(--font);
+  background: var(--c-code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.95em;
+  color: var(--c-code-fg);
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   Rendered markdown
+
+   Shared by every pane that renders react-markdown output (Jira issue
+   descriptions, PR comments and review threads). Font size is deliberately
+   NOT set here: each consumer sizes its own container and the markdown
+   inherits, so a comment and an issue description can differ.
+   -------------------------------------------------------------------------- */
+
+.markdown-body {
+  line-height: 1.5;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  color: var(--c-bright);
+  margin: 0.8em 0 0.4em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.markdown-body h1 { font-size: 1rem; }
+.markdown-body h2 { font-size: 0.9rem; }
+.markdown-body h3 { font-size: 0.82rem; }
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { font-size: 0.78rem; }
+.markdown-body p {
+  margin: 0.4em 0;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li {
+  margin: 0.15em 0;
+  list-style: inherit;
+}
+.markdown-body code {
+  /* Presentation lives in `.inline-code`; this only applies it to markdown
+     output, where the <code> elements are generated and cannot carry a class. */
+  font-family: var(--font);
+  background: var(--c-code-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  /* Relative, so inline code tracks the size of whatever renders it rather
+     than jumping to one pane's size inside a smaller container. */
+  font-size: 0.95em;
+  color: var(--c-code-fg);
+  overflow-wrap: anywhere;
+}
+.markdown-body pre {
+  background: var(--c-code-block-bg);
+  border-radius: 3px;
+  padding: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+  color: var(--c-code-fg);
+}
+.markdown-body pre code {
+  /* A fenced block is already a box; the inline chrome would double it up. */
+  background: none;
+  padding: 0;
+  font-size: 0.95em;
+  overflow-wrap: normal;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--c-dark);
+  padding: 4px 8px;
+  text-align: left;
+  font-size: 0.95em;
+}
+.markdown-body th {
+  background: var(--c-panel);
+  color: var(--c-bright);
+  font-weight: 700;
+}
+.markdown-body a {
+  color: var(--c-bright);
+  text-decoration: underline;
+}
+.markdown-body a:hover {
+  color: var(--c-amber);
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--c-dim);
+  margin: 0.5em 0;
+  padding: 0.25em 0.75em;
+  color: var(--c-mid);
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--c-dark);
+  margin: 0.8em 0;
 }

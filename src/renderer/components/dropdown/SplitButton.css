@@ -1,0 +1,110 @@
+/* =========================================================
+   SPLIT BUTTON
+
+   A default action plus a menu: one outline around both halves, split by a
+   divider, each half highlighting on its own hover.
+   ========================================================= */
+
+.split-button {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+/* One outline around the pair, divided by a single rule: the default drops its
+   right border and the caret draws the divider as its left. Each half then
+   highlights on its own hover, so it is always obvious which action a click
+   will run.
+
+   Chained with `.btn` deliberately. `.btn` sets the `border` shorthand, which
+   re-applies all four sides, and it is emitted from pipboy.css *after* this
+   file in the bundle — at equal specificity the later rule wins, so a bare
+   `.split-button__default` would be silently overridden. */
+.btn.split-button__default {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.btn.split-button__caret {
+  padding-left: 5px;
+  padding-right: 5px;
+  /* currentColor, so the divider tracks whatever colour the halves are —
+     --c-mid at rest, --c-bright when accented. */
+  border-left: 1px solid currentColor;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* Size to the widest row.
+   `min-width` must be reset, not set to a percentage: `.dropdown` is promoted
+   into the top layer by `useTopLayer`, so its containing block is the
+   viewport — `min-width: 100%` means the whole window, not the button. The
+   base 170px floor is meant for menus with section headers and is far wider
+   than a two-verdict list. */
+.split-button__menu {
+  min-width: 0;
+  width: max-content;
+}
+
+.split-button__row {
+  display: flex;
+  align-items: center;
+}
+
+.split-button__row:hover {
+  background: var(--c-panel-hover);
+}
+
+.split-button__check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* Sized well above the row's 0.7rem label: these glyphs are thin outlines,
+     and at label size the checked and unchecked states are hard to tell apart
+     at standard zoom. */
+  width: 1.2rem;
+  padding: 0 2px 0 8px;
+  font-family: var(--font);
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.split-button__check:hover,
+.split-button__check[aria-pressed='true'] {
+  color: var(--c-bright);
+}
+
+.split-button__option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px 6px 4px;
+  white-space: nowrap;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-align: left;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.split-button__option:disabled {
+  color: var(--c-mid);
+  cursor: not-allowed;
+}
+
+.split-button__hint {
+  margin-left: auto;
+  font-size: 0.62rem;
+  color: var(--c-mid);
+}

@@ -254,6 +254,10 @@ async function checkDependencies(): Promise<void> {
     missing.push('• GitHub Copilot CLI — AI coding assistant\n    Install: npm install -g @github/copilot');
   }
 
+  if (!await checkCommand('gh', ['--version'])) {
+    missing.push('• GitHub CLI — pull request tooling\n    Install: sudo apt-get install gh');
+  }
+
   if (missing.length === 0) return;
 
   const message = [

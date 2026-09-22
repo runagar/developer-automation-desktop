@@ -10,12 +10,23 @@ import { useNotesStore, NotesTabState } from '../stores/notesStore';
 import { Dropdown, DropdownItem, DropdownSection } from './dropdown';
 import './NotesPane.css';
 
-// Markdown inline rendering highlight style
-// CSS var() doesn't work in CM6 HighlightStyle — it generates inline style modules
-// that don't resolve vars. We read theme colours from DOM at creation time instead.
+/**
+ * Read a theme colour from the DOM.
+ *
+ * `var()` does not work inside a CM6 `HighlightStyle` — it generates inline
+ * style modules that never resolve custom properties — so colours are read at
+ * editor-creation time instead.
+ *
+ * A custom property that is itself defined as `var(--other)` is substituted at
+ * computed-value time, so this resolves `--c-code-fg` to a real colour. The
+ * `var(` guard is belt and braces: if a browser ever returned the unsubstituted
+ * token, CodeMirror would silently render the text with no colour at all.
+ */
 function getThemeColour(varName: string, fallback: string): string {
   try {
-    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
+    const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    if (!value || value.startsWith('var(')) return fallback;
+    return value;
   } catch {
     return fallback;
   }
@@ -25,7 +36,11 @@ function createMarkdownHighlight(): HighlightStyle {
   const bright = getThemeColour('--c-bright', '#00ff00');
   const mid = getThemeColour('--c-mid', '#00cc00');
   const dim = getThemeColour('--c-dim', '#006600');
-  const inlineCode = getThemeColour('--c-inline-code', '#0055dd');
+  // CodeMirror owns its own DOM and highlights through Lezer tags, so it can
+  // reuse neither `.inline-code` nor `.markdown-body code`. Sharing the token
+  // is the most that can be shared — the background and border halves of the
+  // same treatment live in `.cm-monospace` in NotesPane.css.
+  const inlineCode = getThemeColour('--c-code-fg', '#00ff00');
   const blockquote = getThemeColour('--c-blockquote', '#cc7f16');
   const mdMarker = getThemeColour('--c-md-marker', '#0055dd');
 

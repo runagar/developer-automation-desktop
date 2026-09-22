@@ -16,8 +16,20 @@ export interface AppSettings {
   notes: {
     rootPath: string;
   };
+  github: {
+    /**
+     * Orgs the PR lists are scoped to.
+     *
+     * Read once at startup — `loadSettings` caches for the process lifetime,
+     * so a change here needs a restart.
+     */
+    orgs: string[];
+  };
   firstLaunchComplete: boolean;
 }
+
+/** The org the team's work lives in; overridable in `settings.json`. */
+const DEFAULT_GITHUB_ORGS = ['Nykredit'];
 
 function defaultSettings(): AppSettings {
   return {
@@ -29,6 +41,9 @@ function defaultSettings(): AppSettings {
     },
     notes: {
       rootPath: '',
+    },
+    github: {
+      orgs: [...DEFAULT_GITHUB_ORGS],
     },
     firstLaunchComplete: false,
   };
@@ -47,6 +62,20 @@ let cachedDataDir: string | null = null;
 
 function settingsPath(dataDir: string): string {
   return path.join(dataDir, 'settings.json');
+}
+
+/**
+ * Accept only a list of non-empty strings.
+ *
+ * A malformed value here would be interpolated straight into a GitHub search
+ * query, where it fails as a confusing API error rather than as a settings
+ * problem — so it degrades to the default instead.
+ */
+function parseOrgs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_GITHUB_ORGS];
+  const orgs = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim());
+  return orgs.length > 0 ? orgs : [...DEFAULT_GITHUB_ORGS];
 }
 
 export function loadSettings(dataDir: string): AppSettings {
@@ -81,6 +110,9 @@ export function loadSettings(dataDir: string): AppSettings {
         notes: {
           rootPath: parsed?.notes?.rootPath || dataDirDefaults.notesRootPath,
         },
+        github: {
+          orgs: parseOrgs(parsed?.github?.orgs),
+        },
         firstLaunchComplete: parsed?.firstLaunchComplete === true,
       };
 
@@ -101,8 +133,7 @@ export function loadSettings(dataDir: string): AppSettings {
   return settings;
 }
 
-export function saveSettings(dataDir: string, settings: AppSettings): void {
-  const filePath = settingsPath(dataDir);
+export function saveSettings(dataDir: string, settings: AppSettings): void {  const filePath = settingsPath(dataDir);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
   cachedSettings = settings;
@@ -143,8 +174,18 @@ export function setNotesRootPath(dataDir: string, rootPath: string): void {
   saveSettings(dataDir, settings);
 }
 
-export function isFirstLaunch(dataDir: string): boolean {
-  return !loadSettings(dataDir).firstLaunchComplete;
+/**
+ * Orgs the pull request lists are scoped to.
+ *
+ * Read-only by design: there is no setter and no Settings dialog, because
+ * `loadSettings` caches for the process lifetime and a live edit would not be
+ * seen. Changing it means editing `settings.json` and restarting.
+ */
+export function getGitHubOrgs(dataDir: string): string[] {
+  return loadSettings(dataDir).github.orgs;
+}
+
+export function isFirstLaunch(dataDir: string): boolean {  return !loadSettings(dataDir).firstLaunchComplete;
 }
 
 export function markFirstLaunchComplete(dataDir: string): void {

@@ -176,7 +176,7 @@ export const JiraPane = forwardRef<JiraPaneHandle, JiraPaneProps>(function JiraP
             {issue.description && (
               <div className="jira-pane__section">
                 <div className="jira-pane__section-label">Description</div>
-                <div className="jira-pane__markdown">
+                <div className="jira-pane__markdown markdown-body">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={markdownComponents}

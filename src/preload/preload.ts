@@ -192,6 +192,32 @@ const api: IpcApi = {
   restToken: (environmentKey) => ipcRenderer.invoke('rest:token', environmentKey),
   restSend: (request) => ipcRenderer.invoke('rest:send', request),
 
+  // Pull My Finger (GIT1)
+  githubListPullRequests: () => ipcRenderer.invoke('github:listPullRequests'),
+  githubGetPullRequest: (ref) => ipcRenderer.invoke('github:getPullRequest', ref),
+  githubGetDiff: (ref, diffRef, changedFiles) =>
+    ipcRenderer.invoke('github:getDiff', ref, diffRef, changedFiles),
+  githubSubmitReview: (pullRequestId, reviewId, event, body) =>
+    ipcRenderer.invoke('github:submitReview', pullRequestId, reviewId, event, body),
+  githubDiscardReview: (reviewId) => ipcRenderer.invoke('github:discardReview', reviewId),
+  githubAddReviewComment: (pullRequestId, reviewId, anchor, body) =>
+    ipcRenderer.invoke('github:addReviewComment', pullRequestId, reviewId, anchor, body),
+  githubReplyThread: (threadId, reviewId, body) =>
+    ipcRenderer.invoke('github:replyThread', threadId, reviewId, body),
+  githubAddComment: (subjectId, body) => ipcRenderer.invoke('github:addComment', subjectId, body),
+  githubDeleteComment: (id, kind) => ipcRenderer.invoke('github:deleteComment', id, kind),
+  githubSetThreadResolved: (threadId, resolved) =>
+    ipcRenderer.invoke('github:setThreadResolved', threadId, resolved),
+  githubSetFileViewed: (pullRequestId, path, viewed) =>
+    ipcRenderer.invoke('github:setFileViewed', pullRequestId, path, viewed),
+  githubMerge: (pullRequestId, options) => ipcRenderer.invoke('github:merge', pullRequestId, options),
+  githubSetAutoMerge: (pullRequestId, enabled, options) =>
+    ipcRenderer.invoke('github:setAutoMerge', pullRequestId, enabled, options),
+  githubSetDraft: (pullRequestId, draft) => ipcRenderer.invoke('github:setDraft', pullRequestId, draft),
+  githubClose: (pullRequestId) => ipcRenderer.invoke('github:close', pullRequestId),
+  githubSetReviewers: (pullRequestId, userLogins, teamLogins) =>
+    ipcRenderer.invoke('github:setReviewers', pullRequestId, userLogins, teamLogins),
+
   // Auto-updater
   onUpdaterStatus: (cb) => {
     const handler = (_event: Electron.IpcRendererEvent, status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => cb(status);

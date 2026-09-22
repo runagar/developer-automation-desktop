@@ -15,6 +15,7 @@ import { registerWindowHandlers, getRegisteredStatePoller, stopRegisteredStatePo
 import { registerCredentialHandlers } from './ipc/credentials';
 import { registerAuthHandlers } from './ipc/auth';
 import { registerRestHandlers } from './ipc/rest';
+import { registerGitHubHandlers } from './ipc/github';
 
 export { getRegisteredStatePoller, stopRegisteredStatePoller };
 
@@ -41,4 +42,5 @@ export function registerIpcHandlers(
   registerCredentialHandlers(ipcMain, dataDir);
   registerAuthHandlers(ipcMain, getWindow, dataDir);
   registerRestHandlers(ipcMain, dataDir);
+  registerGitHubHandlers(ipcMain, dataDir);
 }

@@ -9,7 +9,7 @@ Developer Automation Desktop (DAD) is a multi-tool desktop environment for devel
 ### Tool tab system
 The app supports **tool tabs** — each tab hosts its own tool with its own panel layout. The tab bar sits between the title bar and the workspace area.
 
-- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). `agent-smith` and `rest-room` exist; the union type `ToolTabId` grows as tools are added.
+- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). `agent-smith`, `rest-room` and `pull-my-finger` exist; the union type `ToolTabId` grows as tools are added.
 - Each `ToolTabDef` is the tab's complete definition: `id`, `label`, the `PanelType`s it may host (`panelTypes`), and the layout it boots with (`defaultInstances`). Adding a tab is a one-object change.
 - `panelTypes` is **enforced**, not advisory: `spawnPanel` and `spawnGlobalPanel` reject a type the active tab does not allow, `validateState` drops disallowed types on load, and the Panel menu is generated from it.
 - **Only one tab is active** at a time. Clicking a tab switches which workspace is visible.
@@ -112,6 +112,56 @@ The third functional Rest Room panel (R4). Every executed call gets its own clos
 **Expand-all and collapse-all** are two separate buttons, not one toggle — with the tree opening part-expanded, a single button's next action is not predictable from a glance. Expand-all reaches every level and refuses above 10,000 visible rows rather than hanging the renderer (there is no virtualisation); collapse-all writes an explicit empty set, so a deliberately collapsed tab does not spring back to the opening expansion. Icons mirror `ApiPickerPane`'s. Expansion state is owned by `RestResponsePane` (a map keyed by tab id) rather than by the tree, because the controls live in the pane header; the map entry is dropped when a tab closes.
 
 **Also shown:** a collapsible response-headers section, collapsed by default (`X-Log-Token` is the correlation id used for log lookups across this estate), and a copy button using the existing `window.dad.clipboardWrite`.
+
+### Pull My Finger tab
+The pull request tab (GIT1). Session-unbound like Rest Room, hosting two singleton panels plus Notes:
+
+| Panel | Type | Default placement |
+|---|---|---|
+| Your Pull Requests | `pull-requests` | `x0 y0 w6 h24` |
+| PR Viewer | `pr-viewer` | `x6 y0 w18 h24` |
+
+**Transport.** Everything goes through the `gh` binary (`src/main/github.ts`), so DAD never holds a GitHub token and never issues an HTTP request to github.com itself — the renderer↔main rule from `apidocs.ts` holds unchanged. `gh` joins tmux and the Copilot CLI in the startup dependency check.
+
+**REST vs GraphQL is part constraint, part choice.** Resolve/unresolve threads, viewed state, force-push boundary SHAs and pending reviews exist **only** in GraphQL. Conversely the unified patch text exists **only** in REST: `PullRequestChangedFile` has no patch field, while `GET /pulls/{n}/files` returns `patch`. So GraphQL handles everything structural and every mutation, REST supplies patch text alone.
+
+**Pagination is explicit, never implicit.** `gh api --paginate` emits one JSON document *per page*, which `JSON.parse` rejects. Array endpoints use `--paginate --slurp`; object endpoints whose payload *nests* the paginated array (`/commits/{sha}`, `/compare/{a}...{b}`, both paginating `files` while repeating the commit metadata) are walked page by page and merged, terminating on a short page rather than on a caller-supplied total. GraphQL connections cap at 100 and are walked with cursors behind a 20-page cap; hitting it surfaces as a visible "history truncated" footer rather than a silently short list.
+
+**Errors** are typed (`GitHubUnavailableError`, `GitHubAuthError`, `GitHubRateLimitError`, `GitHubError`) and mapped to wording at the IPC edge, exactly as `ipc/rest.ts` does for auth. **A 403 is not assumed to be rate limiting** — it is also SSO enforcement, an archived repo and a protected branch — so it maps to rate-limit only when the body says so *and* a reactive `gh api rate_limit` call (itself exempt) confirms `remaining === 0`. GraphQL reports partial failure with **exit code 0**, so a non-empty `errors[]` throws regardless of exit status.
+
+### Your Pull Requests panel
+Three lists — `CREATED`, `REVIEWING`, `LISTENING` — across the orgs in `settings.json` (`github.orgs`, default `["Nykredit"]`, **restart-required**: `loadSettings` caches for the process lifetime, so there is deliberately no setter).
+
+- **Four searches, not three.** `review-requested:@me` matches only *outstanding* requests — submitting a review fulfils the request and the pull request drops out — so Reviewing is the union of that and `reviewed-by:@me`. Without it a reviewed PR reappears under Listening, where the user is least likely to look for their own work.
+- **GitHub has no `subscribed:` qualifier** (an unrecognised qualifier is not an error, it silently matches nothing), so Listening is `involves:@me` minus the other two.
+- All orgs are OR-ed into one query (`org:A org:B`), so the request count stays at four regardless of org count.
+- A pull request appears **once**, precedence Created > Reviewing > Listening.
+- **`more` is measured against what the search returned**, not against the list after precedence — subtracting the post-precedence length counts every PR that moved to another list as "missing", which showed "≈2 more" under Listening when nothing was hidden.
+- Open PRs only, drafts badged, sorted updated-descending, capped at 50 **after** merge and precedence.
+- Refresh on first mount, on window focus when older than 5 minutes, and on demand; one in-flight guard stops focus storms stacking requests. Nothing is persisted.
+
+### PR Viewer panel
+Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
+
+**Status row.** Refresh, title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
+
+**The Checks chip carries the full rollup on hover**, required checks first and marked. The rollup is a union of `CheckRun` (Actions: `name` + separate `status`/`conclusion`) and `StatusContext` (Snyk/SonarQube: `context` + single `state`), normalised by `toCheck`. A run that has not completed is `PENDING` (its `conclusion` is null until then), `SKIPPED` stays distinct from `SUCCESS`, and `NEUTRAL` counts as success. `isRequired` takes a pull request argument because requiredness is branch-protection-dependent.
+
+**Reviews are a deliberate two-step.** A diff comment is *never* published alone: `addPullRequestReviewThread` always writes into a review, creating a PENDING one implicitly when none exists, and DAD arms the session against its id so later comments join the same review. `SUBMIT REVIEW` is always available and submits COMMENT / APPROVE / REQUEST CHANGES in one dialog, creating the review if there is none. COMMENT and REQUEST CHANGES disable without a body or a pending comment — GitHub rejects the first with an **empty** error message and the second with "You need to leave a comment indicating the requested changes". A **thread reply**, unlike a new thread, is published outright and comes back already `SUBMITTED`, so submission is gated on the review actually being `PENDING`; submitting an already-published one fails with "Could not comment pull request review".
+
+**Overview comments are issue comments** and GitHub cannot defer them — there is no pending state and no mutation to hold one back, matching github.com where the Conversation box posts instantly during a review. So the Overview offers QUOTE REPLY rather than pretending to batch.
+
+**Timeline.** `PullRequestTimelineItemsItemType` has 82 members; 27 are rendered. The `itemTypes` filter argument takes **enum** names (`REVIEW_REQUESTED_EVENT`) while the response carries **object type** names (`ReviewRequestedEvent`) — matching a response against the enum spelling silently discards every node, which shipped once as an empty Overview. Both spellings live in one map in `githubTimeline.ts` so they cannot drift. A review that requests changes commonly has an **empty body** and says everything in its inline comments, so reviews carry their comments into the Overview with a click-through to the file.
+
+**Diff.** File tree with base names only (full path on hover), single-directory chains compressed, comment counts per file, and viewed checkmarks — synced to GitHub in full-PR mode, tracked locally per commit otherwise (`viewerViewedState` is defined against the full PR diff only). Comments are opened by a `[+]` that appears on line hover; **mousedown starts a drag**, so a click and a drag are one gesture and clicking the diff text never spawns a composer. Drags are clamped to one hunk and one side, which GitHub requires anyway. Inline threads and composers render beneath their line, in the right-hand column in split view. `toSplitRows` puts the **same `DiffLine` object** on both sides of a context row, so anything collected per side must be de-duplicated or every thread on an unchanged line appears twice.
+
+**Drafts survive.** Composer text is kept in local state while typing — writing each keystroke to the store would re-run every selector — and handed over on unmount, which is what a subtab switch does. Diff drafts need their line *selection* persisted too, or the restored text has no composer to render into. Cancel and Escape discard.
+
+**IPC channels:** `github:listPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
+
+**Reviewer edits are replace-set.** `requestReviewsByLogin` takes `userLogins` and **`teamSlugs`** (not `teamLogins`), and a team must be the **`org/team-slug`** form — the bare slug is rejected — so reviewers carry a `requestKey` alongside their display name. Only reviewers with an *outstanding request* belong in the submitted set: including past reviewers would re-request everyone and invalidate their approvals. Bots are excluded; the mutation rejects the whole call when given one.
+
+**Not built (deferred):** merge queue (removed — no repo here uses it), applying a suggested change (**GitHub exposes no API**; the "Commit suggestion" button is web-UI-only), syntax highlighting in diffs, and `gh pr checkout` into a DAD session.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:

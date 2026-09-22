@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useEscape } from '../hooks/useEscape';
 import './ConfirmDialog.css';
 
 interface Props {
@@ -25,14 +26,10 @@ export default function ConfirmDialog({
     cancelRef.current?.focus();
   }, []);
 
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onCancel]);
+  // Escape cancels. Shared so every dialog and popover consumes the key the
+  // same way; this one previously listened in the bubble phase and let it
+  // through to whatever was behind the modal.
+  useEscape(true, onCancel);
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>

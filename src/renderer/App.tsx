@@ -9,6 +9,9 @@ import NotesPanelInstance from './components/NotesPanelInstance';
 import ApiPickerPanelInstance from './components/ApiPickerPanelInstance';
 import RestCrafterPanelInstance from './components/RestCrafterPanelInstance';
 import RestResponsePanelInstance from './components/RestResponsePanelInstance';
+import PullRequestListPanelInstance from './components/PullRequestListPanelInstance';
+import PrViewerPanelInstance from './components/PrViewerPanelInstance';
+import PrViewerPanelTitle from './components/PrViewerPanelTitle';
 import { JiraPaneHandle } from './components/JiraPane';
 import Workspace from './components/Workspace';
 import PanelMenu from './components/PanelMenu';
@@ -385,6 +388,10 @@ export default function App(): React.ReactElement {
         return <RestCrafterPanelInstance instance={instance} />;
       case 'rest-response':
         return <RestResponsePanelInstance instance={instance} />;
+      case 'pull-requests':
+        return <PullRequestListPanelInstance instance={instance} />;
+      case 'pr-viewer':
+        return <PrViewerPanelInstance instance={instance} />;
       default:
         return null;
     }
@@ -408,6 +415,10 @@ export default function App(): React.ReactElement {
         </>
       );
     }
+
+    // Carries the open pull request in the panel chrome, so the pane needs no
+    // header of its own.
+    if (instance.type === 'pr-viewer') return <PrViewerPanelTitle />;
 
     return (
       <>

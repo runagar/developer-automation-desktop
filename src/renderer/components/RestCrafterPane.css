@@ -162,35 +162,8 @@
 
 /* --- tab bar --- */
 
-.rest-crafter-pane__tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--c-dim);
-  flex-shrink: 0;
-}
-
-.rest-crafter-pane__tab {
-  padding: 5px 12px;
-  font-family: var(--font);
-  font-size: 0.66rem;
-  letter-spacing: 0.1em;
-  color: var(--c-mid);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-}
-
-.rest-crafter-pane__tab:hover {
-  color: var(--c-bright);
-}
-
-.rest-crafter-pane__tab--active {
-  color: var(--c-bright);
-  border-bottom-color: var(--c-bright);
-}
+/* Tab strip moved to `.panel-subtabs` in pipboy.css — the PR Viewer renders
+   the same strip, and the rule is that a second consumer means extract. */
 
 /* --- tab content --- */
 

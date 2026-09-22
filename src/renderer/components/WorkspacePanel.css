@@ -37,7 +37,9 @@
   justify-content: space-between;
   gap: 6px;
   padding: 4px 8px;
-  height: 24px;
+  /* Grown with the title below; 24px clipped a 0.9rem cap-height plus its
+     leading. */
+  height: 28px;
   flex-shrink: 0;
   background: var(--c-panel);
   border-bottom: 1px solid var(--c-dark);
@@ -45,11 +47,18 @@
   user-select: none;
 }
 
+/*
+ * The outermost label in the hierarchy, so it is the largest: above any
+ * in-panel section heading (the PR list's CREATED/REVIEWING/LISTENING sit at
+ * 0.82rem). Uniform across every panel, since it is the panel chrome rather
+ * than anything a panel owns.
+ */
 .workspace-panel__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.1;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--c-bright);
@@ -64,8 +73,10 @@
   flex-shrink: 0;
 }
 
+/* Relative, so it stays subordinate to the title rather than needing a second
+   edit every time the title size changes. */
 .workspace-panel__title-sub {
-  font-size: 0.5rem;
+  font-size: 0.7em;
   color: var(--c-mid);
   letter-spacing: 0.08em;
   overflow: hidden;

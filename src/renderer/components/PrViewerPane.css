@@ -1,0 +1,991 @@
+.pr-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--c-bg);
+}
+
+.pr-viewer__loading,
+.pr-diff__placeholder,
+.pr-commits__none {
+  padding: 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.15em;
+  color: var(--c-mid);
+}
+
+.pr-viewer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* --- header --- */
+
+.pr-viewer__header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--c-dim);
+}
+
+.pr-viewer__status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+/* The repository reference in the panel chrome. Keeps the amber it had as a
+   `terminal-pane__project` label, rather than recolouring the shared
+   `workspace-panel__title-sub` class for one panel's sake.
+
+   Chained, because that shared class also sets `color` and is emitted later
+   in the bundle — at equal specificity it would win. */
+.workspace-panel__title-sub.pr-viewer__chrome-ref {
+  color: var(--c-amber);
+}
+
+.pr-viewer__refresh {
+  display: flex;
+  align-items: center;
+}
+
+/* Pushed to the right end of the subtab strip. */
+.pr-viewer__tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 3px 0;
+}
+
+/* Contains the reviewers popover, which would otherwise anchor to the whole
+   status row and point at empty space. `margin-left: auto` takes over the
+   spacing the title used to provide by growing, so the controls stay at the
+   right edge. */
+.pr-viewer__reviewers-anchor {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+/* Shrinks but never grows, so the state chip sits against the title instead
+   of being pushed to the far edge by a growing flex item. */
+.pr-viewer__title {
+  flex: 0 1 auto;
+  min-width: 3ch;
+  font-size: 0.78rem;
+  color: var(--c-bright);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-viewer__title:hover {
+  text-decoration: underline;
+}
+
+.pr-viewer__number {
+  margin-right: 5px;
+  color: var(--c-mid);
+}
+
+/* --- overview --- */
+
+.pr-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+
+.pr-overview__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 0.7rem;
+  color: var(--c-mid);
+}
+
+.pr-overview__icon {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--c-mid);
+}
+
+.pr-overview__actor {
+  color: var(--c-bright);
+}
+
+.pr-overview__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-overview__time,
+.pr-thread__time {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--c-mid);
+}
+
+.pr-overview__hash,
+.pr-commits__hash {
+  padding: 0 3px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-bright);
+  background: var(--c-panel);
+  border: 1px solid var(--c-dim);
+  cursor: pointer;
+}
+
+.pr-overview__hash:hover,
+.pr-commits__hash:hover {
+  background: var(--c-active);
+}
+
+.pr-overview__hash--dead {
+  color: var(--c-mid);
+  cursor: not-allowed;
+}
+
+.pr-overview__comment {
+  padding: 5px 6px;
+  border: 1px solid var(--c-dark);
+  background: var(--c-panel);
+}
+
+.pr-overview__comment--outdated {
+  opacity: 0.75;
+}
+
+/* A verdict is worth seeing at a glance in a long history. */
+.pr-overview__comment--changes_requested {
+  border-left: 2px solid var(--c-red);
+}
+
+.pr-overview__comment--approved {
+  border-left: 2px solid var(--c-bright);
+}
+
+.pr-overview__review-comment {
+  margin-top: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--c-dim);
+}
+
+.pr-overview__quote {
+  margin-left: auto;
+  padding: 0;
+  font-family: var(--font);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-overview__quote:hover {
+  color: var(--c-bright);
+}
+
+.pr-overview__delete,
+.pr-thread__delete {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-overview__delete:hover,
+.pr-thread__delete:hover {
+  color: var(--c-error);
+}
+
+.pr-thread__delete {
+  margin-left: auto;
+}
+
+.pr-overview__file-link {
+  padding: 0;
+  font-family: var(--font);
+  font-size: 0.65rem;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-overview__file-link:hover {
+  color: var(--c-bright);
+  text-decoration: underline;
+}
+
+.pr-overview__review-more {
+  margin-top: 3px;
+  font-size: 0.65rem;
+  color: var(--c-mid);
+}
+
+.pr-overview__comment-meta,
+.pr-thread__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 0.66rem;
+}
+
+.pr-overview__review-state {
+  color: var(--c-mid);
+}
+
+.pr-overview__comment-body,
+.pr-thread__body {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--c-mid);
+  overflow-wrap: anywhere;
+}
+
+
+.pr-overview__truncated,
+.pr-diff__thread-notice,
+.pr-diff__files-status {
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  /* Truncated history and hidden threads are incomplete data, not work in
+     progress — the user is being told something is missing. */
+  color: var(--c-warn);
+}
+
+.pr-overview__pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 0.68rem;
+  color: var(--c-amber);
+  border: 1px solid var(--c-amber);
+}
+
+.pr-overview__start {
+  align-self: flex-start;
+}
+
+/* Sits directly above the composer, left-aligned with the timeline and the
+   composer's own edge — where the eye already is, rather than out at the
+   right margin. */
+.pr-overview__draft-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+/* --- composer --- */
+
+.pr-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.pr-composer__input,
+.pr-merge-dialog__input,
+.pr-merge-dialog__textarea,
+.pr-reviewers__input {
+  width: 100%;
+  padding: 4px 6px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--c-bright);
+  background: var(--c-bg);
+  border: 1px solid var(--c-dim);
+  resize: vertical;
+}
+
+.pr-composer__input:focus,
+.pr-merge-dialog__input:focus,
+.pr-merge-dialog__textarea:focus,
+.pr-reviewers__input:focus {
+  outline: none;
+  border-color: var(--c-bright);
+}
+
+.pr-composer__buttons,
+.pr-merge-dialog__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* Separates "back out" from the committing actions, so the destructive end of
+   the row cannot be hit by aiming for cancel. */
+.pr-merge-dialog__cancel {
+  margin-right: auto;
+}
+
+/* --- commits --- */
+
+.pr-commits {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.pr-commits__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 4px;
+  border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-commits__copy,
+.pr-diff__viewed {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 3px;
+  font-family: var(--font);
+  font-size: 0.78rem;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-commits__copy:hover,
+.pr-diff__viewed:hover {
+  color: var(--c-bright);
+}
+
+.pr-diff__viewed--on {
+  color: var(--c-bright);
+}
+
+.pr-commits__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-commits__headline {
+  font-size: 0.72rem;
+  color: var(--c-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-commits__byline {
+  font-size: 0.65rem;
+  color: var(--c-mid);
+}
+
+/* --- diff --- */
+
+.pr-diff {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.pr-diff__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  /* No horizontal padding: the picker's percentage width must resolve against
+     the same box as the file list's, or the toolbar's own inset pushes the
+     picker's right edge past the column it is meant to line up with. The
+     right-hand inset is carried by the mode buttons instead. */
+  padding: 4px 0;
+  border-bottom: 1px solid var(--c-dark);
+}
+
+/* Exactly the file list's width, so the picker and the column it labels line
+   up and the mode buttons sit immediately beside it rather than at the far
+   right of the panel. Values mirror `.pr-diff__files`. */
+.pr-diff__ref {
+  position: relative;
+  width: 30%;
+  min-width: 140px;
+  max-width: 340px;
+  flex-shrink: 0;
+}
+
+.pr-diff__ref-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 4px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-align: left;
+  color: var(--c-bright);
+  background: var(--c-bg);
+  border: 1px solid var(--c-dim);
+  cursor: pointer;
+}
+
+.pr-diff__ref-trigger:hover {
+  border-color: var(--c-bright);
+}
+
+.pr-diff__ref-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-diff__ref-caret {
+  flex-shrink: 0;
+  color: var(--c-mid);
+}
+
+/* `anchor-size()` matches the trigger exactly; the max-width is the fallback
+   and is the file list's own ceiling, so the menu can never outgrow it. */
+.pr-diff__ref-menu {
+  width: anchor-size(width);
+  min-width: 0;
+  max-width: 340px;
+}
+
+.pr-diff__ref-option {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-align: left;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* Long commit subjects clip rather than widen the menu; the full text is on
+     the row's tooltip. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-diff__ref-option:hover {
+  background: var(--c-panel-hover);
+}
+
+.pr-diff__ref-option--active {
+  background: var(--c-active);
+}
+
+.pr-diff__ref-option:disabled {
+  color: var(--c-mid);
+  cursor: not-allowed;
+}
+
+.pr-diff__ref-option:disabled:hover {
+  background: none;
+}
+
+.pr-diff__modes {
+  display: flex;
+  gap: 3px;
+  /* Stands in for the toolbar's removed right padding. */
+  padding-right: 6px;
+}
+
+.pr-diff__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pr-diff__files {
+  display: flex;
+  flex-direction: column;
+  width: 30%;
+  min-width: 140px;
+  max-width: 340px;
+  overflow-y: auto;
+  border-right: 1px solid var(--c-dim);
+}
+
+.pr-diff__file-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 3px;
+}
+
+
+
+/* Files are what the list exists to reach, so they sit at --c-bright while
+   the folders around them stay at --c-mid as structure. */
+.pr-diff__file-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-align: left;
+  color: var(--c-bright);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-diff__file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- file tree --- */
+
+.pr-diff__tree-toggle {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  margin: 2px 0 2px 3px;
+}
+
+.pr-diff__dir {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 2px 3px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-align: left;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-diff__dir:hover {
+  color: var(--c-bright);
+}
+
+/* --------------------------------------------------------------------------
+   File tree row backgrounds
+
+   Declared last and chained, in that order of precedence: stripe, then hover,
+   then selection. Both `.pr-diff__dir` and `.pr-diff__file-row` set their own
+   background, and at equal specificity the later rule wins — a bare
+   `.pr-diff__row--alt` earlier in the file is silently overridden and folders
+   show no stripe at all.
+
+   --c-active rather than --c-panel for the same reason as the REST Response
+   tree: the panel body is --c-bg (#000000) and --c-panel differs from it too
+   little to see.
+   -------------------------------------------------------------------------- */
+
+.pr-diff__dir.pr-diff__row--alt,
+.pr-diff__file-row.pr-diff__row--alt {
+  background: var(--c-active);
+}
+
+.pr-diff__dir:hover,
+.pr-diff__file-row:hover,
+.pr-diff__dir.pr-diff__row--alt:hover,
+.pr-diff__file-row.pr-diff__row--alt:hover {
+  background: var(--c-dark);
+}
+
+/* Brighter than the stripe, plus an edge, so a selected row is unmistakable
+   whichever half of the alternation it lands on. */
+.pr-diff__file-row--active,
+.pr-diff__file-row--active.pr-diff__row--alt {
+  background: var(--c-dark);
+  box-shadow: inset 2px 0 0 var(--c-bright);
+}
+
+.pr-diff__dir-caret {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pr-diff__dir-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-diff__file-stat {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 0.68rem;
+}
+
+/* Faint: a hint that discussion exists, not a number to read first. */
+.pr-diff__file-comments {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--c-mid);
+}
+
+.pr-diff__adds {
+  color: var(--c-diff-add);
+}
+
+.pr-diff__dels {
+  color: var(--c-diff-del);
+}
+
+.pr-diff__viewer {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.pr-diff__hunk-header {
+  padding: 2px 6px;
+  font-size: 0.66rem;
+  color: var(--c-mid);
+  background: var(--c-panel);
+  border-top: 1px solid var(--c-dark);
+  border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-diff__line {
+  display: flex;
+  position: relative;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--c-mid);
+  white-space: pre;
+}
+
+.pr-diff__line--add {
+  color: var(--c-diff-add);
+  background: var(--c-diff-add-bg);
+}
+
+.pr-diff__line--del {
+  color: var(--c-diff-del);
+  background: var(--c-diff-del-bg);
+}
+
+/*
+ * The selection is shown by filling the line-number column, not by outlining
+ * each row: a per-row box stacks into a ladder of separate rectangles, which
+ * reads as several selections rather than one range. Filling the gutter on
+ * adjacent rows produces a single continuous bar instead, and leaves the diff
+ * text itself untouched.
+ */
+.pr-diff__line--selected .pr-diff__gutter {
+  color: var(--c-bg);
+  background: var(--c-bright);
+}
+
+/* --- comment affordance --- */
+
+/*
+ * Sits immediately right of the line numbers and overlaps the diff text,
+ * rather than taking a column of its own: a dedicated column would cost
+ * horizontal space on every line to serve the one line being hovered.
+ *
+ * Hidden until its row is hovered, so the diff reads cleanly at rest.
+ */
+.pr-diff__add-comment {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  color: var(--c-bg);
+  background: var(--c-bright);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.pr-diff__line .pr-diff__add-comment {
+  /* Immediately past both 46px gutters, overlapping the marker and text. */
+  left: 92px;
+}
+
+.pr-diff__split-cell .pr-diff__add-comment {
+  /* One gutter only in split view. */
+  left: 46px;
+}
+
+.pr-diff__line:hover .pr-diff__add-comment,
+.pr-diff__split-cell:hover .pr-diff__add-comment {
+  display: flex;
+}
+
+/* While dragging, every row in range keeps its button visible so the range
+   reads as one continuous selection rather than a hover artefact. */
+.pr-diff__file--dragging .pr-diff__line--selected .pr-diff__add-comment,
+.pr-diff__file--dragging .pr-diff__split-cell.pr-diff__line--selected .pr-diff__add-comment {
+  display: flex;
+}
+
+/* A drag must not also sweep-select the diff text under the pointer. */
+.pr-diff__file--dragging {
+  user-select: none;
+  cursor: ns-resize;
+}
+
+.pr-diff__gutter {
+  flex-shrink: 0;
+  width: 46px;
+  padding-right: 6px;
+  text-align: right;
+  color: var(--c-mid);
+  user-select: none;
+}
+
+.pr-diff__marker {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  user-select: none;
+}
+
+.pr-diff__content {
+  flex: 1;
+  min-width: 0;
+  padding-right: 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.pr-diff__split-row {
+  display: flex;
+}
+
+.pr-diff__split-cell {
+  display: flex;
+  position: relative;
+  width: 50%;
+  min-width: 0;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--c-mid);
+}
+
+.pr-diff__split-cell + .pr-diff__split-cell {
+  border-left: 1px solid var(--c-dark);
+}
+
+/*
+ * Inline threads and composers.
+ *
+ * Indented past the gutters so they read as attached to the code above rather
+ * than as another diff line.
+ */
+.pr-diff__inline-row {
+  display: flex;
+  background: var(--c-panel);
+}
+
+.pr-diff__inline-body {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 3px 92px;
+}
+
+/* Split view puts the post-image on the right, which is where a comment's
+   anchor lives, so the body occupies that half and the left stays empty. */
+.pr-diff__inline-row--split .pr-diff__inline-body {
+  margin-left: 50%;
+  padding-left: 46px;
+  border-left: 1px solid var(--c-dark);
+}
+
+/* --- threads --- */
+
+.pr-thread {
+  margin: 3px 0;
+  border: 1px solid var(--c-dim);
+  background: var(--c-panel);
+}
+
+.pr-thread--resolved {
+  opacity: 0.7;
+}
+
+.pr-thread__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 5px;
+  border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-thread__toggle {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 0.66rem;
+  text-align: left;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.pr-thread__toggle:hover {
+  color: var(--c-bright);
+}
+
+.pr-thread__range {
+  color: var(--c-mid);
+}
+
+.pr-thread__comment {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-thread__author {
+  color: var(--c-bright);
+}
+
+.pr-thread__pending {
+  padding: 0 3px;
+  font-size: 0.6rem;
+  color: var(--c-amber);
+  border: 1px solid var(--c-amber);
+}
+
+.pr-thread__reply {
+  margin: 4px 6px;
+}
+
+/* --- merge dialog --- */
+
+.pr-merge-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(520px, 90vw);
+  padding: 10px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow-sm);
+}
+
+.pr-merge-dialog__title {
+  font-size: 0.78rem;
+  letter-spacing: 0.15em;
+  color: var(--c-bright);
+}
+
+.pr-merge-dialog__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pr-merge-dialog__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.15em;
+  color: var(--c-mid);
+}
+
+.pr-merge-dialog__select {
+  flex: 1;
+  padding: 3px 4px;
+  font-family: var(--font);
+  font-size: 0.68rem;
+  color: var(--c-bright);
+  background: var(--c-bg);
+  border: 1px solid var(--c-dim);
+}
+
+.pr-merge-dialog__note {
+  font-size: 0.68rem;
+  color: var(--c-mid);
+}
+
+/* --- reviewers popover --- */
+
+.pr-reviewers {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: min(300px, 90vw);
+  padding: 6px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow-sm);
+}
+
+.pr-reviewers__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  letter-spacing: 0.15em;
+  color: var(--c-bright);
+}
+
+.pr-reviewers__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+}
+
+.pr-reviewers__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-reviewers__state,
+.pr-reviewers__none,
+.pr-reviewers__suggest-label {
+  font-size: 0.62rem;
+  color: var(--c-mid);
+}
+
+.pr-reviewers__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}

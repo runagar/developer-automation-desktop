@@ -6,7 +6,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { ChevronDown, RotateCcw, X } from 'lucide-react';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
-import { useTopLayer } from './dropdown';
+import { useDismiss, useTopLayer } from './dropdown';
 import { sendsBody } from '../../main/restMethods';
 import { useRestStore, REST_METHODS, effectiveMethod } from '../stores/restStore';
 import {
@@ -17,28 +17,6 @@ import './RestCrafterPane.css';
 
 /** Shown for a field the contract documents no default for; never sent. */
 const EMPTY_PLACEHOLDER = '...';
-
-/**
- * Close an open dropdown when the pointer goes down anywhere outside it.
- *
- * Shared by the three dropdowns in this pane so they cannot drift apart; a
- * click inside must not close it, or picking a value would never fire.
- */
-function useDismissOnOutsideClick(
-  open: boolean, wrapRef: React.RefObject<HTMLElement>, close: () => void
-): void {
-  const closeRef = useRef(close);
-  closeRef.current = close;
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) closeRef.current();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open, wrapRef]);
-}
 
 /**
  * A menu list raised into the top layer so it paints above every panel.
@@ -82,7 +60,7 @@ function ValueField({
   const wrapRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
-  useDismissOnOutsideClick(open, wrapRef, () => setOpen(false));
+  useDismiss(wrapRef, open, () => setOpen(false));
 
   return (
     <div className="rest-crafter-pane__field" ref={wrapRef}>
@@ -168,8 +146,8 @@ export default function RestCrafterPane(): React.ReactElement {
     void resetAuth();
   }, [selection, authManual, authValue, resetAuth]);
 
-  useDismissOnOutsideClick(envOpen, envRef, () => setEnvOpen(false));
-  useDismissOnOutsideClick(methodOpen, methodRef, () => setMethodOpen(false));
+  useDismiss(envRef, envOpen, () => setEnvOpen(false));
+  useDismiss(methodRef, methodOpen, () => setMethodOpen(false));
 
   const headerRows = useMemo(
     () => defaultHeaderRows(selection, customHeaders), [selection, customHeaders]
@@ -465,13 +443,13 @@ export default function RestCrafterPane(): React.ReactElement {
         </div>
       )}
 
-      <div className="rest-crafter-pane__tabs">
+      <div className="panel-subtabs">
         {(['headers', 'parameters', 'body'] as const).map((tab) => (
           <button
             key={tab}
             className={
-              'rest-crafter-pane__tab'
-              + (activeTab === tab ? ' rest-crafter-pane__tab--active' : '')
+              'panel-subtabs__tab'
+              + (activeTab === tab ? ' panel-subtabs__tab--active' : '')
             }
             onClick={() => setActiveTab(tab)}
           >

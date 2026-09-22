@@ -10,7 +10,8 @@ import { nanoid } from 'nanoid';
 
 export type PanelType =
   | 'sessions' | 'terminal' | 'jira' | 'shell' | 'notes'
-  | 'api-picker' | 'rest-crafter' | 'rest-response';
+  | 'api-picker' | 'rest-crafter' | 'rest-response'
+  | 'pull-requests' | 'pr-viewer';
 
 export type PanelMode = 'singleton' | 'default' | 'linked';
 
@@ -23,11 +24,14 @@ export const PANEL_LABELS: Record<PanelType, string> = {
   'api-picker': 'API Picker',
   'rest-crafter': 'REST Crafter',
   'rest-response': 'REST Response',
+  'pull-requests': 'Your Pull Requests',
+  'pr-viewer': 'PR Viewer',
 };
 
 /** Types that only allow a single instance (toggle show/hide, never destroyed). */
 export const SINGLETON_TYPES: Set<PanelType> = new Set([
   'sessions', 'api-picker', 'rest-crafter', 'rest-response',
+  'pull-requests', 'pr-viewer',
 ]);
 
 /** Types that can be spawned as global (session-unbound) panels. */
@@ -37,7 +41,7 @@ export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
 // Tool tabs
 // ---------------------------------------------------------------------------
 
-export type ToolTabId = 'agent-smith' | 'rest-room'; // union grows as tools are added
+export type ToolTabId = 'agent-smith' | 'rest-room' | 'pull-my-finger'; // union grows as tools are added
 
 export interface ToolTabDef {
   id: ToolTabId;
@@ -206,6 +210,22 @@ export const REST_ROOM_INSTANCES: PanelInstance[] = [
   },
 ];
 
+export const PULL_MY_FINGER_INSTANCES: PanelInstance[] = [
+  {
+    id: 'pull-requests',
+    type: 'pull-requests',
+    placement: { x: 0, y: 0, w: 6, h: 24, visible: true, z: 1 },
+    mode: 'singleton',
+  },
+  {
+    id: 'pr-viewer',
+    type: 'pr-viewer',
+    // The diff viewer needs the width; 18 columns is what is left.
+    placement: { x: 6, y: 0, w: 18, h: 24, visible: true, z: 1 },
+    mode: 'singleton',
+  },
+];
+
 export const TOOL_TABS: ToolTabDef[] = [
   {
     id: 'agent-smith',
@@ -218,6 +238,12 @@ export const TOOL_TABS: ToolTabDef[] = [
     label: 'REST ROOM',
     panelTypes: ['api-picker', 'rest-crafter', 'rest-response', 'notes'],
     defaultInstances: REST_ROOM_INSTANCES,
+  },
+  {
+    id: 'pull-my-finger',
+    label: 'PULL MY FINGER',
+    panelTypes: ['pull-requests', 'pr-viewer', 'notes'],
+    defaultInstances: PULL_MY_FINGER_INSTANCES,
   },
 ];
 

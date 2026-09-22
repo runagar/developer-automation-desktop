@@ -165,7 +165,9 @@
   font-style: italic;
 }
 .notes-pane__editor .cm-content .cm-monospace {
-  background: color-mix(in srgb, var(--c-inline-code) 40%, transparent);
+  /* Same tokens as `.inline-code` in pipboy.css — CodeMirror decorates its
+     own spans, so the declarations cannot simply be the shared class. */
+  background: var(--c-code-bg);
   padding: 1px 4px;
   border-radius: 3px;
 }
