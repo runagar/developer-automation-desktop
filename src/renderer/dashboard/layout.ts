@@ -41,7 +41,7 @@ export const GLOBAL_CAPABLE_TYPES: Set<PanelType> = new Set(['notes']);
 // Tool tabs
 // ---------------------------------------------------------------------------
 
-export type ToolTabId = 'agent-smith' | 'rest-room' | 'pull-my-finger'; // union grows as tools are added
+export type ToolTabId = 'agent-smith' | 'rest-room' | 'tab-pull-request'; // union grows as tools are added
 
 export interface ToolTabDef {
   id: ToolTabId;
@@ -210,7 +210,7 @@ export const REST_ROOM_INSTANCES: PanelInstance[] = [
   },
 ];
 
-export const PULL_MY_FINGER_INSTANCES: PanelInstance[] = [
+export const PULL_REQUEST_INSTANCES: PanelInstance[] = [
   {
     id: 'pull-requests',
     type: 'pull-requests',
@@ -240,10 +240,10 @@ export const TOOL_TABS: ToolTabDef[] = [
     defaultInstances: REST_ROOM_INSTANCES,
   },
   {
-    id: 'pull-my-finger',
-    label: 'PULL MY FINGER',
+    id: 'tab-pull-request',
+    label: 'PULL!',
     panelTypes: ['pull-requests', 'pr-viewer', 'notes'],
-    defaultInstances: PULL_MY_FINGER_INSTANCES,
+    defaultInstances: PULL_REQUEST_INSTANCES,
   },
 ];
 

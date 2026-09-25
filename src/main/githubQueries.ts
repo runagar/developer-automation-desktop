@@ -588,6 +588,22 @@ mutation MergePr($pullRequestId: ID!, $method: PullRequestMergeMethod!, $headlin
 }
 `;
 
+export const UPDATE_BRANCH_MUTATION = `
+mutation UpdatePrBranch(
+  $pullRequestId: ID!
+  $expectedHeadOid: GitObjectID
+  $method: PullRequestBranchUpdateMethod!
+) {
+  updatePullRequestBranch(input: {
+    pullRequestId: $pullRequestId
+    expectedHeadOid: $expectedHeadOid
+    updateMethod: $method
+  }) {
+    pullRequest { id headRefOid }
+  }
+}
+`;
+
 export const ENABLE_AUTO_MERGE_MUTATION = `
 mutation EnableAutoMerge($pullRequestId: ID!, $method: PullRequestMergeMethod!, $headline: String, $body: String) {
   enablePullRequestAutoMerge(input: {

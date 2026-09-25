@@ -9,7 +9,7 @@ Developer Automation Desktop (DAD) is a multi-tool desktop environment for devel
 ### Tool tab system
 The app supports **tool tabs** — each tab hosts its own tool with its own panel layout. The tab bar sits between the title bar and the workspace area.
 
-- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). `agent-smith`, `rest-room` and `pull-my-finger` exist; the union type `ToolTabId` grows as tools are added.
+- **Tab types** are defined in `TOOL_TABS` (in `layout.ts`). `agent-smith`, `rest-room` and `tab-pull-request` exist; the union type `ToolTabId` grows as tools are added.
 - Each `ToolTabDef` is the tab's complete definition: `id`, `label`, the `PanelType`s it may host (`panelTypes`), and the layout it boots with (`defaultInstances`). Adding a tab is a one-object change.
 - `panelTypes` is **enforced**, not advisory: `spawnPanel` and `spawnGlobalPanel` reject a type the active tab does not allow, `validateState` drops disallowed types on load, and the Panel menu is generated from it.
 - **Only one tab is active** at a time. Clicking a tab switches which workspace is visible.
@@ -113,8 +113,8 @@ The third functional Rest Room panel (R4). Every executed call gets its own clos
 
 **Also shown:** a collapsible response-headers section, collapsed by default (`X-Log-Token` is the correlation id used for log lookups across this estate), and a copy button using the existing `window.dad.clipboardWrite`.
 
-### Pull My Finger tab
-The pull request tab (GIT1). Session-unbound like Rest Room, hosting two singleton panels plus Notes:
+### PULL! tab
+The pull request tab (GIT1), labelled `PULL!` and identified as `tab-pull-request`. Session-unbound like Rest Room, hosting two singleton panels plus Notes:
 
 | Panel | Type | Default placement |
 |---|---|---|
@@ -143,7 +143,11 @@ Three lists — `CREATED`, `REVIEWING`, `LISTENING` — across the orgs in `sett
 ### PR Viewer panel
 Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
 
-**Status row.** Refresh, title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
+**Status row.** Refresh, title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, the `UPDATE BRANCH` split button, `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
+
+**UPDATE BRANCH is gated on `compare.behindBy`, not on `mergeStateStatus` (GIT2).** `BEHIND` only ever appears when branch protection *requires* an up-to-date branch, so a branch 12 commits behind an unprotected base reports `CLEAN`; gating on it would hide the button precisely where the user chooses to update voluntarily. `compare` is also what renders the `↓y` beside it, so button and count cannot disagree, and a null `compare` (still loading, or the compare request failed) hides the button rather than offering an update that may not be needed. It is hidden outright on a merged or closed PR — `behindBy` can still be non-zero there — and shown **disabled with the reason in `title`** when the branch conflicts or `viewerCanUpdate` is false. Its own success removes it: the post-mutation reload drops `behindBy` to 0.
+
+**Updating is not merging.** It runs `updatePullRequestBranch`, whose `PullRequestBranchUpdateMethod` accepts only `MERGE` and `REBASE` — hence `PrBranchUpdateMethod` rather than reusing `PrMergeMethod`, which includes `SQUASH`. REST's `PUT /pulls/{n}/update-branch` supports merge alone and so cannot serve the rebase option at all. The rebase option is deliberately **not** gated on `allowedMergeMethods.rebase`: that setting governs how a PR may be *merged*, which is a different permission. `expectedHeadOid` is sent as the summary's `headRefOid`, making the update a compare-and-swap — a push landing since the last load is refused into `actionError` rather than silently updating a head the user never saw. Both strategies confirm through `ConfirmDialog` first, the rebase one warning that it rewrites history and force-pushes. The chosen strategy persists to `dad-git-update-branch-action`, defaulting to `MERGE` as GitHub's own button does.
 
 **The Checks chip carries the full rollup on hover**, required checks first and marked. The rollup is a union of `CheckRun` (Actions: `name` + separate `status`/`conclusion`) and `StatusContext` (Snyk/SonarQube: `context` + single `state`), normalised by `toCheck`. A run that has not completed is `PENDING` (its `conclusion` is null until then), `SKIPPED` stays distinct from `SUCCESS`, and `NEUTRAL` counts as success. `isRequired` takes a pull request argument because requiredness is branch-protection-dependent.
 

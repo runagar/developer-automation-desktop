@@ -18,12 +18,13 @@ import {
   READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION,
   SET_REVIEWERS_MUTATION, SUBMIT_REVIEW_MUTATION,
   SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNRESOLVE_THREAD_MUTATION,
+  UPDATE_BRANCH_MUTATION,
 } from './githubQueries';
 import { TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline } from './githubTimeline';
 import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState } from './githubPrs';
 import {
-  PrAutoMerge, PrCommentAnchor, PrCommit, PrDetail, PrDiff, PrDiffFile, PrDiffRef,
-  PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef, PrReviewEvent,
+  PrAutoMerge, PrBranchUpdateMethod, PrCommentAnchor, PrCommit, PrDetail, PrDiff, PrDiffFile,
+  PrDiffRef, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef, PrReviewEvent,
   PrReviewThread, PrSummary, PrThreadComment, PrThreadState,
 } from './types';
 
@@ -504,6 +505,24 @@ export async function mergePullRequest(pullRequestId: string, options: PrMergeOp
     headline: options.method === 'REBASE' ? null : (options.commitHeadline || null),
     body: options.method === 'REBASE' ? null : (options.commitBody || null),
   });
+}
+
+/**
+ * Bring the head branch up to date with its base.
+ *
+ * `expectedHeadOid` makes this a compare-and-swap: if someone pushed since the
+ * viewer last loaded, GitHub refuses rather than updating a head the user
+ * never saw. Returns the branch's new head so the caller need not guess.
+ */
+export async function updatePullRequestBranch(
+  pullRequestId: string, expectedHeadOid: string | null, method: PrBranchUpdateMethod
+): Promise<string | null> {
+  const data = await ghGraphql<any>(UPDATE_BRANCH_MUTATION, {
+    pullRequestId,
+    expectedHeadOid,
+    method,
+  });
+  return data?.updatePullRequestBranch?.pullRequest?.headRefOid ?? null;
 }
 
 export async function setAutoMerge(

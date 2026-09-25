@@ -4,10 +4,10 @@ import { listPullRequests } from '../githubPrs';
 import {
   addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, getDiff,
   getPullRequest, mergePullRequest, replyToThread, setAutoMerge, setDraft, setFileViewed,
-  setReviewers, setThreadResolved, submitReview,
+  setReviewers, setThreadResolved, submitReview, updatePullRequestBranch,
 } from '../githubPr';
 import {
-  PrCommentAnchor, PrDiffRef, PrMergeOptions, PrRef, PrReviewEvent,
+  PrBranchUpdateMethod, PrCommentAnchor, PrDiffRef, PrMergeOptions, PrRef, PrReviewEvent,
 } from '../types';
 
 /**
@@ -96,6 +96,12 @@ export function registerGitHubHandlers(ipcMain: IpcMain, dataDir: string): void 
   ipcMain.handle(
     'github:merge',
     handled((_e, pullRequestId: string, options: PrMergeOptions) => mergePullRequest(pullRequestId, options))
+  );
+
+  ipcMain.handle(
+    'github:updateBranch',
+    handled((_e, pullRequestId: string, expectedHeadOid: string | null, method: PrBranchUpdateMethod) =>
+      updatePullRequestBranch(pullRequestId, expectedHeadOid, method))
   );
 
   ipcMain.handle(

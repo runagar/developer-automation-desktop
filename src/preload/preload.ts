@@ -192,7 +192,7 @@ const api: IpcApi = {
   restToken: (environmentKey) => ipcRenderer.invoke('rest:token', environmentKey),
   restSend: (request) => ipcRenderer.invoke('rest:send', request),
 
-  // Pull My Finger (GIT1)
+  // Pull Requests (GIT1)
   githubListPullRequests: () => ipcRenderer.invoke('github:listPullRequests'),
   githubGetPullRequest: (ref) => ipcRenderer.invoke('github:getPullRequest', ref),
   githubGetDiff: (ref, diffRef, changedFiles) =>
@@ -211,6 +211,8 @@ const api: IpcApi = {
   githubSetFileViewed: (pullRequestId, path, viewed) =>
     ipcRenderer.invoke('github:setFileViewed', pullRequestId, path, viewed),
   githubMerge: (pullRequestId, options) => ipcRenderer.invoke('github:merge', pullRequestId, options),
+  githubUpdateBranch: (pullRequestId, expectedHeadOid, method) =>
+    ipcRenderer.invoke('github:updateBranch', pullRequestId, expectedHeadOid, method),
   githubSetAutoMerge: (pullRequestId, enabled, options) =>
     ipcRenderer.invoke('github:setAutoMerge', pullRequestId, enabled, options),
   githubSetDraft: (pullRequestId, draft) => ipcRenderer.invoke('github:setDraft', pullRequestId, draft),

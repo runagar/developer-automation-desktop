@@ -185,7 +185,7 @@ export interface IpcApi {
   restToken: (environmentKey: string) => Promise<string>;
   restSend: (request: RestRequestSpec) => Promise<RestResultInfo>;
 
-  // Pull My Finger (GIT1)
+  // Pull Requests (GIT1)
   githubListPullRequests: () => Promise<PrLists>;
   githubGetPullRequest: (ref: PrRef) => Promise<PrDetail>;
   githubGetDiff: (ref: PrRef, diffRef: PrDiffRef, changedFiles: number) => Promise<PrDiff>;
@@ -204,6 +204,10 @@ export interface IpcApi {
   githubDeleteComment: (id: string, kind: 'review' | 'issue') => Promise<void>;
   githubSetFileViewed: (pullRequestId: string, path: string, viewed: boolean) => Promise<void>;
   githubMerge: (pullRequestId: string, options: PrMergeOptions) => Promise<void>;
+  /** Resolves to the branch's new head, or null if GitHub did not report one. */
+  githubUpdateBranch: (
+    pullRequestId: string, expectedHeadOid: string | null, method: PrBranchUpdateMethod
+  ) => Promise<string | null>;
   githubSetAutoMerge: (
     pullRequestId: string, enabled: boolean, options?: PrMergeOptions
   ) => Promise<PrAutoMerge | null>;
@@ -377,7 +381,7 @@ export interface DiscoveredWorkspace {
 export const DEFAULT_DISCOVERY_GROUP = 'Default Group';
 
 // ---------------------------------------------------------------------------
-// GitHub (GIT1 — Pull My Finger)
+// GitHub (GIT1 — Pull Requests)
 // ---------------------------------------------------------------------------
 
 export type PrCheckState = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'NONE';
@@ -499,6 +503,14 @@ export interface PrAutoMerge {
 }
 
 export type PrMergeMethod = 'MERGE' | 'SQUASH' | 'REBASE';
+
+/**
+ * Updating a branch is not merging it.
+ *
+ * Deliberately not `PrMergeMethod`: that union includes `SQUASH`, which
+ * GitHub's `PullRequestBranchUpdateMethod` does not accept.
+ */
+export type PrBranchUpdateMethod = 'MERGE' | 'REBASE';
 
 export interface PrAllowedMergeMethods {
   merge: boolean;

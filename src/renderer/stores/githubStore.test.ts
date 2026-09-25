@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import {
   STALE_MS, diffRefKey, diffRefOptions, formatRef, isFileViewed, nextSelectedPath,
   commentCountsByFile, parseRef, sameRef, threadsForFile, useGitHubStore,
@@ -511,5 +511,50 @@ describe('syncListRow', () => {
     const before = useGitHubStore.getState().lists;
     useGitHubStore.getState().syncListRow(summaryFor('PR_UNKNOWN'));
     expect(useGitHubStore.getState().lists).toBe(before);
+  });
+});
+
+describe('update-branch preference', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useGitHubStore.setState({ updateBranchAction: 'MERGE' });
+  });
+
+  it('persists the chosen strategy', () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => { store[k] = v; },
+    });
+
+    useGitHubStore.getState().setUpdateBranchAction('REBASE');
+
+    expect(store['dad-git-update-branch-action']).toBe('REBASE');
+    expect(useGitHubStore.getState().updateBranchAction).toBe('REBASE');
+  });
+
+  it('still switches strategy when storage refuses the write', () => {
+    // A full quota must cost the preference, not the action the user just chose.
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => { throw new Error('quota exceeded'); },
+    });
+
+    expect(() => useGitHubStore.getState().setUpdateBranchAction('REBASE')).not.toThrow();
+    expect(useGitHubStore.getState().updateBranchAction).toBe('REBASE');
+  });
+
+  it('falls back to MERGE for a stored value that is not a branch update method', async () => {
+    // SQUASH is a real merge method but not a real *update* method, so it is
+    // exactly the value a shared key or a hand-edit could leave behind.
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (k === 'dad-git-update-branch-action' ? 'SQUASH' : null),
+      setItem: () => undefined,
+    });
+    vi.resetModules();
+
+    const fresh = await import('./githubStore');
+
+    expect(fresh.useGitHubStore.getState().updateBranchAction).toBe('MERGE');
   });
 });

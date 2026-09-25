@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { PrSummary } from '../../main/types';
+import { PrBranchUpdateMethod, PrSummary } from '../../main/types';
 import { useGitHubStore } from '../stores/githubStore';
-import { useDismiss } from './dropdown';
+import { SplitButton, SplitButtonOption, useDismiss } from './dropdown';
+import ConfirmDialog from './ConfirmDialog';
 import ReviewersMenu from './ReviewersMenu';
 
 interface Props {
@@ -64,24 +65,95 @@ function checkTone(state: PrSummary['checks']): 'ok' | 'warn' | 'checking' | 'ne
         : 'neutral';
 }
 
+const UPDATE_METHOD_LABEL: Record<PrBranchUpdateMethod, string> = {
+  MERGE: 'UPDATE WITH MERGE',
+  REBASE: 'UPDATE WITH REBASE',
+};
+
 /**
- * Read-only status, plus the one control that edits it.
+ * Why a branch update is unavailable, for the control's tooltip.
  *
- * Labels, assignees and milestone are deliberately read-only; only reviewers
- * are editable. Submit/merge/close live in the subtab strip instead, so this
- * stays a single line.
+ * Same shape as `mergeBlockers` in `PrActions`: a disabled control that does
+ * not say why is worse than no control at all.
+ */
+function updateBlockers(summary: PrSummary): string[] {
+  const reasons: string[] = [];
+  if (summary.mergeable === 'CONFLICTING') {
+    reasons.push(`Conflicts with ${summary.baseRefName} that must be resolved locally`);
+  }
+  if (!summary.viewerCanUpdate) {
+    reasons.push('You do not have permission to update this branch');
+  }
+  return reasons;
+}
+
+/**
+ * Read-only status, plus the two controls that edit it.
+ *
+ * Labels, assignees and milestone are deliberately read-only; reviewers and
+ * the branch update are not. Submit/merge/close live in the subtab strip
+ * instead, so this stays a single line. UPDATE BRANCH is the exception that
+ * belongs here rather than there: it acts on the `↓` divergence count
+ * rendered immediately to its left, and it only appears when that count is
+ * non-zero.
  */
 export default function PrHeader({ summary }: Props): React.ReactElement {
   const busy = useGitHubStore((s) => s.busy);
   const detailLoading = useGitHubStore((s) => s.detailLoading);
   const reloadDetail = useGitHubStore((s) => s.reloadDetail);
+  const run = useGitHubStore((s) => s.run);
+  const updateBranchAction = useGitHubStore((s) => s.updateBranchAction);
+  const setUpdateBranchAction = useGitHubStore((s) => s.setUpdateBranchAction);
   const [reviewersOpen, setReviewersOpen] = useState(false);
+  // One piece of state for both strategies, so the two confirmations can
+  // never be open at once.
+  const [confirmUpdate, setConfirmUpdate] = useState<PrBranchUpdateMethod | null>(null);
   const reviewersRef = useRef<HTMLSpanElement>(null);
 
   // The ref wraps the button *and* the popover: watching the popover alone
   // would let mousedown on the button close it and the button's own click
   // reopen it, so it would never appear to close.
   useDismiss(reviewersRef, reviewersOpen, () => setReviewersOpen(false));
+
+  // `compare` is null while the detail loads and if the compare request
+  // failed, so an unknown divergence hides the control rather than offering
+  // an update that may not be needed. It is also the number rendered as `↓y`
+  // in the chip beside it, so the two can never disagree.
+  const behind = summary.compare !== null && summary.compare.behindBy > 0;
+  const closed = summary.merged || summary.state === 'CLOSED';
+  const updateBlocked = updateBlockers(summary);
+  const updateTitle = updateBlocked.length > 0
+    ? `Cannot update branch:\n${updateBlocked.map((r) => `• ${r}`).join('\n')}`
+    : `Update this branch with ${summary.baseRefName}`;
+
+  const updateOptions: SplitButtonOption[] = (['MERGE', 'REBASE'] as PrBranchUpdateMethod[])
+    .map((method) => ({
+      id: method,
+      label: UPDATE_METHOD_LABEL[method],
+      // Not gated on `allowedMergeMethods.rebase`: that setting governs how a
+      // pull request may be *merged*, which is a different permission from
+      // how its branch may be updated.
+      disabled: updateBlocked.length > 0,
+      onSelect: () => setConfirmUpdate(method),
+    }));
+
+  /**
+   * Close the confirmation first, then do the work.
+   *
+   * The `MergeDialog` pattern, for its reasons: the mutation plus a full
+   * detail reload is several paginated round trips, and awaiting them before
+   * closing makes the app look hung. Failures are not swallowed — `run`
+   * publishes to `actionError`, and the reload restores the true state either
+   * way. The reload is also what removes this control: once `behindBy` is
+   * back to 0, it no longer renders.
+   */
+  const doUpdate = (method: PrBranchUpdateMethod): void => {
+    setConfirmUpdate(null);
+    void (async () => {
+      await run(() => window.dad.githubUpdateBranch(summary.id, summary.headRefOid, method));
+      await reloadDetail();
+    })();
+  };
 
   return (
     <div className="pr-viewer__header">
@@ -114,6 +186,21 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
           {summary.isDraft ? 'DRAFT' : summary.state}
           {summary.compare && ` ↑${summary.compare.aheadBy} ↓${summary.compare.behindBy}`}
         </span>
+
+        {/* Only while the branch is actually behind, and never once the pull
+            request is closed or merged — `behindBy` can still be non-zero
+            then, but there is nothing left to update. Blocked cases stay
+            visible but disabled, so the reason is readable in `title`. */}
+        {behind && !closed && (
+          <SplitButton
+            options={updateOptions}
+            defaultId={updateBranchAction}
+            onDefaultChange={(id) => setUpdateBranchAction(id as PrBranchUpdateMethod)}
+            buttonClassName="btn--accent"
+            title={updateTitle}
+            disabled={busy}
+          />
+        )}
 
         {/* Anchored so its popover hangs off the button rather than the row. */}
         <span className="pr-viewer__reviewers-anchor" ref={reviewersRef}>
@@ -171,6 +258,19 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
           <span className={chipClass('neutral')}>◇ {summary.milestone}</span>
         )}
       </div>
+
+      {confirmUpdate && (
+        <ConfirmDialog
+          message={`Update ${summary.headRefName} with ${summary.baseRefName}?`}
+          detail={confirmUpdate === 'MERGE'
+            ? `Merges ${summary.baseRefName} into the pull request branch, adding a merge commit.`
+            : `Rebases the pull request branch onto ${summary.baseRefName}. This rewrites its `
+              + 'history and force-pushes it: any local checkout must be reset.'}
+          confirmLabel={UPDATE_METHOD_LABEL[confirmUpdate]}
+          onConfirm={() => doUpdate(confirmUpdate)}
+          onCancel={() => setConfirmUpdate(null)}
+        />
+      )}
     </div>
   );
 }

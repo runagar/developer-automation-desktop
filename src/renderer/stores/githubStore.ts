@@ -1,5 +1,5 @@
 /**
- * Pull My Finger (GIT1) renderer state.
+ * Pull Requests (GIT1) renderer state.
  *
  * Modelled on `restStore.ts`: own localStorage keys with validators that
  * degrade to a default, and no persistence of anything that can go stale.
@@ -17,8 +17,8 @@
 
 import { create } from 'zustand';
 import {
-  PrCommentAnchor, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrListId, PrLists, PrMergeMethod,
-  PrMergeOptions, PrRef, PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment,
+  PrBranchUpdateMethod, PrCommentAnchor, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrListId, PrLists,
+  PrMergeMethod, PrMergeOptions, PrRef, PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment,
   PrTimelineRow,
 } from '../../main/types';
 import { emptyLists } from '../../main/githubPrLists';
@@ -26,6 +26,7 @@ import { emptyLists } from '../../main/githubPrLists';
 const SELECTION_KEY = 'dad-git-selection';
 const DIFF_MODE_KEY = 'dad-git-diff-mode';
 const MERGE_ACTION_KEY = 'dad-git-merge-action';
+const UPDATE_BRANCH_ACTION_KEY = 'dad-git-update-branch-action';
 
 /** Lists older than this are refetched on focus or on returning to the tab. */
 export const STALE_MS = 5 * 60_000;
@@ -43,6 +44,8 @@ export interface DiffLineSelection {
 export type MergeAction = PrMergeMethod | 'AUTO';
 
 const MERGE_ACTIONS: MergeAction[] = ['MERGE', 'SQUASH', 'REBASE', 'AUTO'];
+
+const UPDATE_BRANCH_ACTIONS: PrBranchUpdateMethod[] = ['MERGE', 'REBASE'];
 export type DiffViewMode = 'unified' | 'split';
 
 /** Stable key for a diff ref, used to scope locally-tracked viewed files. */
@@ -90,6 +93,19 @@ function loadMergeAction(): MergeAction {
   }
 }
 
+function loadUpdateBranchAction(): PrBranchUpdateMethod {
+  try {
+    const raw = localStorage.getItem(UPDATE_BRANCH_ACTION_KEY);
+    // Merge is the initial default, matching GitHub's own button; anything
+    // unrecognised resolves to it rather than to a rewrite of the branch.
+    return UPDATE_BRANCH_ACTIONS.includes(raw as PrBranchUpdateMethod)
+      ? (raw as PrBranchUpdateMethod)
+      : 'MERGE';
+  } catch {
+    return 'MERGE';
+  }
+}
+
 function loadDiffMode(): DiffViewMode {
   try {
     // Unified is the default: the panel is often narrow, and split inside 18
@@ -122,6 +138,8 @@ interface GitHubStore {
   selectedPath: string | null;
   viewMode: DiffViewMode;
   mergeAction: MergeAction;
+  /** What the header's UPDATE BRANCH split button runs by default. */
+  updateBranchAction: PrBranchUpdateMethod;
   /**
    * Viewed files for commit- and range-scoped diffs, keyed by diff ref.
    *
@@ -167,6 +185,7 @@ interface GitHubStore {
   setSelectedPath: (path: string) => void;
   setViewMode: (mode: DiffViewMode) => void;
   setMergeAction: (action: MergeAction) => void;
+  setUpdateBranchAction: (action: PrBranchUpdateMethod) => void;
   toggleViewed: (path: string, viewed: boolean) => Promise<void>;
   setActionError: (message: string | null) => void;
   setDraft: (key: string, body: string) => void;
@@ -214,6 +233,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   selectedPath: null,
   viewMode: loadDiffMode(),
   mergeAction: loadMergeAction(),
+  updateBranchAction: loadUpdateBranchAction(),
   localViewed: new Map(),
 
   actionError: null,
@@ -362,6 +382,15 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
       // A full quota only costs the preference, not the action itself.
     }
     set({ mergeAction: action });
+  },
+
+  setUpdateBranchAction(action) {
+    try {
+      localStorage.setItem(UPDATE_BRANCH_ACTION_KEY, action);
+    } catch {
+      // A full quota only costs the preference, not the action itself.
+    }
+    set({ updateBranchAction: action });
   },
 
   async toggleViewed(path, viewed) {
