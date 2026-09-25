@@ -51,15 +51,24 @@ export default function DiffFileTree({
 
   return (
     <>
-      {dirPaths.length > 0 && (
-        <button
-          className="btn btn--micro pr-diff__tree-toggle"
-          title={allCollapsed ? 'Expand all folders' : 'Collapse all folders'}
-          onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(dirPaths))}
-        >
-          {allCollapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
-        </button>
-      )}
+      {/* The toggle and the count share a row: the count labels the list the
+          toggle acts on, and giving it a line of its own cost a band of empty
+          space above every diff. The toggle is absent when the tree is flat,
+          so the count must not depend on it being there. */}
+      <div className="pr-diff__tree-header">
+        {dirPaths.length > 0 && (
+          <button
+            className="btn btn--micro pr-diff__tree-toggle"
+            title={allCollapsed ? 'Expand all folders' : 'Collapse all folders'}
+            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(dirPaths))}
+          >
+            {allCollapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
+          </button>
+        )}
+        <span className="pr-diff__tree-count">
+          {files.length} {files.length === 1 ? 'file' : 'files'}
+        </span>
+      </div>
 
       {rows.map(({ node, depth }, index) => {
         const alt = index % 2 === 1 && 'pr-diff__row--alt';

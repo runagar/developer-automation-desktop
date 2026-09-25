@@ -563,11 +563,27 @@
 
 /* --- file tree --- */
 
+.pr-diff__tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 3px;
+  /* The list scrolls; without this the header is squeezed by the rows below
+     it once the file count grows. */
+  flex: none;
+}
+
 .pr-diff__tree-toggle {
   display: flex;
   align-items: center;
-  align-self: flex-start;
-  margin: 2px 0 2px 3px;
+}
+
+/* Structural context, not content: --c-mid, the same weight the folder rows
+   below it carry. */
+.pr-diff__tree-count {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--c-mid);
 }
 
 .pr-diff__dir {
