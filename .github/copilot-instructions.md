@@ -141,6 +141,9 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 
 These guidelines exist to keep the codebase lean, avoid accidental duplication, and maintain a consistent architecture. Follow them strictly.
 
+- Features are tracked in `/features/feature-overview.md`. Do not edit specific feature files unless instructed to.
+- User's screenshots are always saved to `/Screenshots/`
+
 ### Before writing new code — check for reuse
 
 1. **Search before you create.** Before writing a new function, component, helper, or CSS class, search the codebase for existing implementations:
