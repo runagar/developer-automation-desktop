@@ -293,6 +293,16 @@ DAD creates every tmux session **detached** and defers PTY attachment to the ren
 
 **The palette is published from `preload.ts`, before `renderer:ready`.** That event triggers `restoreSessions()`, which creates tmux sessions whose copilot asks immediately; publishing from React would race it and resolve every restored session against the default theme instead of the user's. Both are `ipcRenderer.send`, so ordering is guaranteed. `SettingsMenu` re-publishes on theme change, which applies to **subsequently created** sessions only — copilot queries once at startup, so existing sessions keep the theme they resolved and only reappear correctly after a relaunch.
 
+**Stale copilot in-use locks (`src/main/copilotLocks.ts`).** Copilot CLI claims a session by writing `inuse.<pid>.lock` into `<COPILOT_HOME|~/.copilot>/session-state/<session-id>/`, and releases it on a clean shutdown. On startup it sweeps those files, keeps the ones whose pid is still running, and if any survive it blocks on a **"Session in use — this session was last active … and appears to be in use by another CLI or application"** prompt.
+
+DAD never shuts copilot down cleanly — tmux outlives the app by design, and a host reboot kills it outright — so locks are routinely left behind. After a reboot the pid space restarts from the low numbers, so a leftover pid is likely to be held by an unrelated live process (often another copilot DAD launched moments earlier in the same restore batch), and copilot mistakes it for a live client. This is why the prompt appears **only on the first launch after an OS restart**, and why the "last active" age it reports is arbitrary — that age is the session's own modified time, not the lock's.
+
+`createTmuxSession` therefore calls `sweepStaleCopilotLocks(sessionId)` before launching copilot. A lock is removed only when it is **provably** stale:
+- its pid is gone, or
+- the process now holding that pid started **after** the lock was written — a lock is always written by an already-running process, so that ordering only occurs on pid reuse.
+
+Staleness is derived from `/proc/<pid>`, so the sweep is a no-op off Linux. It is scoped to the one session being launched; locks belonging to other sessions (including copilot CLI instances the user runs outside DAD) are never touched.
+
 **Session lifecycle:**
 1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot. PTY attachment is deferred to the renderer.
 2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
@@ -307,6 +317,7 @@ DAD creates every tmux session **detached** and defers PTY attachment to the ren
 - `archived_at` is a DB column (ISO timestamp, `NULL` for rows archived by older versions — treated as expired). `Session.warm` is **runtime-only** and is never persisted.
 - Warmth is **reconciled against live tmux** (`listSmithSessions()`) at startup and on every reap — never inferred from bookkeeping, since a copilot process can exit on its own or survive a crash. The reconciled set is pushed to the renderer via `sessions:warmthChanged`; the renderer treats a no-op update as a no-op so it can be re-sent every tick.
 - All session lifecycle operations (unarchive, revive, destroy, reap, quit-eviction) are serialised per session id through `SessionManager.withSessionLock()`, and re-check eligibility **inside** the lock. Without this the reaper can kill a tmux session that a concurrent restore has just recreated. Any new lifecycle operation must use it.
+- `ensureTmuxSession()` de-duplicates **concurrent** creations for the same session through its own `tmuxCreating` map, not `withSessionLock()` — it is called from inside that lock (unarchive, revive) and would deadlock. Startup races it against itself: `restoreSessions()` walks the live rows while renderer-driven `ptyAttach()` calls arrive, both pass the has-session check, and the loser gets tmux's `duplicate session` error — which the error path would record as `dead = 1` on a perfectly healthy session.
 - `handleUnarchiveSession()` in the renderer must **await the unarchive IPC before** flipping `archived` in the store — a cold session has no tmux yet, so un-archiving first lets the panel attach to a session that does not exist.
 - The demotion decision is a pure function, `selectDemotionCandidates()` in `src/main/archivePolicy.ts`, unit tested in `archivePolicy.test.ts`. Keep it free of DB/tmux/Electron dependencies.
 

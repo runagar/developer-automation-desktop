@@ -25,6 +25,11 @@ export class SessionManager {
   // skips these to avoid a race where the poller marks a session dead before
   // its tmux session finishes spawning.
   private pendingTmuxIds = new Set<string>();
+  // Per-session in-flight tmux creations. `restoreSessions` and renderer-driven
+  // `ptyAttach` calls race on startup; without this both pass the has-session
+  // check, the loser gets tmux's "duplicate session" error, and a perfectly
+  // healthy session is marked dead.
+  private tmuxCreating = new Map<string, Promise<void>>();
   // IDs of archived sessions whose copilot tmux is still alive ("warm").
   // Runtime only — reconciled against real tmux state, never persisted.
   private warmIds = new Set<string>();
@@ -156,8 +161,23 @@ export class SessionManager {
   /**
    * Ensure the tmux session exists for a given app session. Creates it if needed.
    * Does NOT attach a PTY — the renderer drives attachment via ptyAttach.
+   *
+   * Concurrent calls for the same session share a single creation attempt.
    */
   private async ensureTmuxSession(id: string, workingDir: string): Promise<void> {
+    const inFlight = this.tmuxCreating.get(id);
+    if (inFlight) return inFlight;
+
+    const creation = this.createTmuxSessionOnce(id, workingDir);
+    this.tmuxCreating.set(id, creation);
+    try {
+      await creation;
+    } finally {
+      if (this.tmuxCreating.get(id) === creation) this.tmuxCreating.delete(id);
+    }
+  }
+
+  private async createTmuxSessionOnce(id: string, workingDir: string): Promise<void> {
     const tmuxName = tmuxSessionName(id);
     if (!await hasTmuxSession(tmuxName)) {
       try {

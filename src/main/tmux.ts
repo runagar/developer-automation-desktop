@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { spawnColorResponder } from './termColors';
+import { sweepStaleCopilotLocks } from './copilotLocks';
 
 export const ANSI_RE = /\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|.)/g;
 
@@ -52,6 +53,12 @@ export async function createTmuxSession(sessionId: string, workingDir: string): 
   }
 
   console.log(`[tmux] Creating session ${name} for copilot --session-id ${sessionId}`);
+
+  // A previous run's copilot was killed without releasing its in-use lock (app
+  // quit leaves tmux running, a reboot kills it outright). Drop the locks that
+  // cannot belong to a live client, or copilot greets the restored session with
+  // its "in use by another CLI or application" prompt.
+  await sweepStaleCopilotLocks(sessionId);
 
   // Wrap copilot in the user's login-interactive shell so that PATH additions
   // from shell config files (.zshrc, .bashrc, etc.) are available — e.g. SDKMAN
