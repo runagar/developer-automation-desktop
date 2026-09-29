@@ -23,10 +23,12 @@ export default function PrViewerPane(): React.ReactElement {
   const loading = useGitHubStore((s) => s.detailLoading);
   const error = useGitHubStore((s) => s.detailError);
   const actionError = useGitHubStore((s) => s.actionError);
+  const diffNotice = useGitHubStore((s) => s.diffNotice);
   const subtab = useGitHubStore((s) => s.subtab);
   const setSubtab = useGitHubStore((s) => s.setSubtab);
   const reloadDetail = useGitHubStore((s) => s.reloadDetail);
   const setActionError = useGitHubStore((s) => s.setActionError);
+  const setDiffNotice = useGitHubStore((s) => s.setDiffNotice);
 
   // A selection restored from localStorage arrives with no detail and nothing
   // to trigger a fetch — `select()` is the only other caller and it is not
@@ -60,6 +62,17 @@ export default function PrViewerPane(): React.ReactElement {
         <div className="panel-error">
           {actionError}
           <button className="btn btn--micro panel-error__retry" onClick={() => setActionError(null)}>
+            DISMISS
+          </button>
+        </div>
+      )}
+
+      {/* A refresh took the open file out of the diff and an unsent comment on
+          it could not be kept. Worth interrupting for — it is lost work. */}
+      {diffNotice && (
+        <div className="panel-error">
+          {diffNotice}
+          <button className="btn btn--micro panel-error__retry" onClick={() => setDiffNotice(null)}>
             DISMISS
           </button>
         </div>

@@ -28,7 +28,15 @@ const DIFF_MODE_KEY = 'dad-git-diff-mode';
 const MERGE_ACTION_KEY = 'dad-git-merge-action';
 const UPDATE_BRANCH_ACTION_KEY = 'dad-git-update-branch-action';
 
-/** Lists older than this are refetched on focus or on returning to the tab. */
+/**
+ * The single cadence for keeping the tab current.
+ *
+ * Doubles as the automatic poll interval while the `PULL!` tab is active and
+ * as the "has it been long enough" gate applied when the tab is activated or
+ * the window regains focus. One constant rather than two, because a poll
+ * interval shorter than the staleness gate would spend most ticks doing
+ * nothing, and a longer one would make the gate unreachable.
+ */
 export const STALE_MS = 5 * 60_000;
 
 export type PrSubtab = 'overview' | 'commits' | 'diff';
@@ -106,6 +114,21 @@ function loadUpdateBranchAction(): PrBranchUpdateMethod {
   }
 }
 
+/** The path a diff-comment draft key belongs to, or `null` for other drafts. */
+function diffDraftPath(key: string): string | null {
+  if (!key.startsWith('diff:')) return null;
+  // `diff:<path>:<side>:<startLine>:<line>` — the path is everything before
+  // the final three segments, so a path containing a colon still resolves.
+  const parts = key.slice('diff:'.length).split(':');
+  if (parts.length < 4) return null;
+  return parts.slice(0, -3).join(':');
+}
+
+function vanishedFileNotice(path: string): string {
+  return `${path} is no longer part of this diff — it was changed or removed by a new push. `
+    + 'Your unsent comment on it could not be kept.';
+}
+
 function loadDiffMode(): DiffViewMode {
   try {
     // Unified is the default: the panel is often narrow, and split inside 18
@@ -127,6 +150,7 @@ interface GitHubStore {
   selection: PrRef | null;
   detail: PrDetail | null;
   detailLoading: boolean;
+  detailLoadedAt: number | null;
   detailError: string | null;
 
   // --- viewer ------------------------------------------------------------
@@ -153,6 +177,16 @@ interface GitHubStore {
   busy: boolean;
 
   /**
+   * Explains that the selected file left the diff and that an unsent comment
+   * on it was discarded.
+   *
+   * Separate from `actionError` despite rendering identically: that field is
+   * owned by `run()`, so sharing it would let a merge failure and this notice
+   * overwrite one another.
+   */
+  diffNotice: string | null;
+
+  /**
    * Unsent composer text, keyed per composer.
    *
    * Deliberately **not** subscribed to by any component: composers keep their
@@ -174,10 +208,13 @@ interface GitHubStore {
   diffSelections: Record<string, DiffLineSelection>;
 
   // --- actions -----------------------------------------------------------
-  refreshLists: (force?: boolean) => Promise<void>;
-  maybeRefreshLists: () => void;
+  refreshLists: (force?: boolean, background?: boolean) => Promise<void>;
   select: (ref: PrRef | null) => void;
-  reloadDetail: () => Promise<void>;
+  reloadDetail: (background?: boolean) => Promise<void>;
+  /** Unconditional background pass, driven by the poll interval. */
+  pollTick: () => void;
+  /** Staleness-gated background pass, driven by tab activation and focus. */
+  maybePollTick: () => void;
   setSubtab: (tab: PrSubtab) => void;
   setDiffRef: (ref: PrDiffRef) => void;
   openDiffFor: (ref: PrDiffRef) => void;
@@ -188,6 +225,7 @@ interface GitHubStore {
   setUpdateBranchAction: (action: PrBranchUpdateMethod) => void;
   toggleViewed: (path: string, viewed: boolean) => Promise<void>;
   setActionError: (message: string | null) => void;
+  setDiffNotice: (message: string | null) => void;
   setDraft: (key: string, body: string) => void;
   setDiffSelection: (path: string, selection: DiffLineSelection | null) => void;
 
@@ -214,6 +252,17 @@ let detailGeneration = 0;
 let diffGeneration = 0;
 let listInFlight = false;
 
+/**
+ * Bumped by every mutation.
+ *
+ * A background read that was already in flight when a mutation landed carries
+ * a pre-mutation snapshot, and committing it would silently undo the
+ * optimistic patch the mutation applied — a just-posted review comment would
+ * disappear until the next poll five minutes later. The `busy` guard cannot
+ * catch this: the read started while `busy` was still false.
+ */
+let mutationEpoch = 0;
+
 export const useGitHubStore = create<GitHubStore>((set, get) => ({
   lists: emptyLists(),
   listsLoading: false,
@@ -223,6 +272,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   selection: loadSelection(),
   detail: null,
   detailLoading: false,
+  detailLoadedAt: null,
   detailError: null,
 
   subtab: 'overview',
@@ -238,6 +288,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
 
   actionError: null,
   busy: false,
+  diffNotice: null,
   drafts: {},
   diffSelections: {},
 
@@ -245,30 +296,84 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   // Lists
   // -------------------------------------------------------------------------
 
-  async refreshLists(force = false) {
+  /**
+   * @param force       bypass the in-flight guard (the manual REFRESH button).
+   * @param background  refresh silently: no spinner, and a failure keeps the
+   *                    last good lists rather than replacing the panel with an
+   *                    error banner the user never asked for.
+   */
+  async refreshLists(force = false, background = false) {
     // A focus storm must not stack requests; same shape as
     // `tokenRequestInFlight` in restStore.
     if (listInFlight && !force) return;
     listInFlight = true;
     const generation = ++listGeneration;
-    set({ listsLoading: true, listsError: null });
+    const epoch = mutationEpoch;
+    if (!background) set({ listsLoading: true, listsError: null });
     try {
       const lists = await window.dad.githubListPullRequests();
       if (generation !== listGeneration) return;
-      set({ lists, listsLoadedAt: Date.now(), listsLoading: false });
+      if (background && epoch !== mutationEpoch) return;
+      set(background
+        ? { lists, listsLoadedAt: Date.now() }
+        : { lists, listsLoadedAt: Date.now(), listsLoading: false });
     } catch (err) {
       if (generation !== listGeneration) return;
-      set({ listsError: (err as Error).message, listsLoading: false });
+      // A background failure is swallowed deliberately: the next tick retries,
+      // and the manual REFRESH button remains the way to see the real error.
+      if (!background) set({ listsError: (err as Error).message, listsLoading: false });
     } finally {
       listInFlight = false;
     }
   },
 
-  maybeRefreshLists() {
-    const { listsLoadedAt, listsLoading } = get();
-    if (listsLoading) return;
-    if (listsLoadedAt !== null && Date.now() - listsLoadedAt < STALE_MS) return;
-    void get().refreshLists();
+  /**
+   * The poll interval's pass: refresh everything on screen, silently.
+   *
+   * Deliberately **not** staleness-gated. The gate would be the same
+   * `STALE_MS` as the interval, and `listsLoadedAt` is stamped when the
+   * response *lands* — a second or two after the tick that asked for it — so
+   * every tick would find the data a fraction too fresh and skip, silently
+   * halving the real polling rate to 600s.
+   */
+  pollTick() {
+    // A mutation is in flight. Its optimistic patches (`patchSummary`,
+    // `addThread`, `bumpPendingCount`) would be overwritten by a snapshot
+    // taken before it landed, so sit this one out and retry on the next tick.
+    if (get().busy) return;
+
+    const { listsLoadedAt, selection, detail, detailLoading } = get();
+    void get().refreshLists(false, listsLoadedAt !== null);
+    // Never supersede a foreground reload. It owns `detailLoading`, and the
+    // generation guard would discard its response before it could clear the
+    // flag — leaving the header's refresh button disabled for good.
+    if (selection && !detailLoading) void get().reloadDetail(detail !== null);
+  },
+
+  /**
+   * The tab-activation and window-focus pass.
+   *
+   * Lists and detail are gated **separately** on their own `loadedAt`, so
+   * pressing REFRESH and immediately switching tabs does not refetch what was
+   * just fetched. A `null` timestamp means nothing has ever loaded, which is
+   * also the one case that refreshes in the foreground — there is no data on
+   * screen yet to keep, so the user should see `LOADING…`.
+   */
+  maybePollTick() {
+    if (get().busy) return;
+
+    const { listsLoadedAt, detailLoadedAt, selection, detail, detailLoading } = get();
+    const now = Date.now();
+
+    if (listsLoadedAt === null || now - listsLoadedAt >= STALE_MS) {
+      void get().refreshLists(false, listsLoadedAt !== null);
+    }
+    // `detailLoading` also covers the first activation: the viewer's own
+    // bootstrap effect may already have started this exact request.
+    if (selection && !detailLoading
+      && (detailLoadedAt === null || now - detailLoadedAt >= STALE_MS)) {
+      void get().reloadDetail(detail !== null);
+    }
   },
 
   // -------------------------------------------------------------------------
@@ -290,6 +395,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     set({
       selection: ref,
       detail: null,
+      detailLoadedAt: null,
       detailError: null,
       diff: null,
       diffError: null,
@@ -297,6 +403,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
       selectedPath: null,
       subtab: 'overview',
       actionError: null,
+      diffNotice: null,
       // Locally-tracked viewed files belong to the pull request that was open.
       localViewed: new Map(),
       // As do unsent drafts and the selections they hang off.
@@ -307,24 +414,50 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     if (ref) void get().reloadDetail();
   },
 
-  async reloadDetail() {
+  /**
+   * @param background  reload silently, and re-fetch the diff only if it can
+   *                    actually have changed (see below).
+   */
+  async reloadDetail(background = false) {
     const ref = get().selection;
     if (!ref) return;
+    const previous = get().detail;
     const generation = ++detailGeneration;
-    set({ detailLoading: true, detailError: null });
+    const epoch = mutationEpoch;
+    if (!background) set({ detailLoading: true, detailError: null });
     try {
       const detail = await window.dad.githubGetPullRequest(ref);
       // Discard a response for a pull request that is no longer selected.
       if (generation !== detailGeneration || !sameRef(get().selection, ref)) return;
-      set({ detail, detailLoading: false });
+      // …or one taken before a mutation that has since patched the detail.
+      if (background && epoch !== mutationEpoch) return;
+      set(background
+        ? { detail, detailLoadedAt: Date.now() }
+        : { detail, detailLoadedAt: Date.now(), detailLoading: false });
       // The list shows a subset of the same facts, so every action that
       // reloads the detail — approving, editing reviewers, toggling draft —
       // keeps its row in step without each one remembering to.
       get().syncListRow(detail.summary);
-      void loadDiff(set, get, get().diffRef);
+
+      if (!background) {
+        void loadDiff(set, get, get().diffRef);
+        return;
+      }
+
+      // A background pass refetches the diff only when it can have changed.
+      // A commit- or range-scoped diff is immutable, and a full-PR diff only
+      // moves when the head does — so without this the poll would re-download
+      // every file's patch every 5 minutes to produce identical bytes.
+      const diffRef = get().diffRef;
+      const headMoved = previous?.summary.headRefOid !== detail.summary.headRefOid;
+      // `diffLoading` means a foreground load owns the flag; see `pollTick`.
+      if (diffRef.kind === 'pr' && headMoved && !get().diffLoading) {
+        void loadDiff(set, get, diffRef, true);
+      }
     } catch (err) {
       if (generation !== detailGeneration || !sameRef(get().selection, ref)) return;
-      set({ detailError: (err as Error).message, detailLoading: false });
+      // Swallowed in background mode for the same reason as `refreshLists`.
+      if (!background) set({ detailError: (err as Error).message, detailLoading: false });
     }
   },
 
@@ -340,7 +473,10 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     if (diffRefKey(ref) === diffRefKey(get().diffRef)) return;
     // Hunk and line indices only mean something against the diff they were
     // taken from, so a pending selection cannot survive the switch.
-    set({ diffRef: ref, diff: null, selectedPath: null, diffError: null, diffSelections: {} });
+    set({
+      diffRef: ref, diff: null, selectedPath: null, diffError: null,
+      diffSelections: {}, diffNotice: null,
+    });
     void loadDiff(set, get, ref);
   },
 
@@ -426,6 +562,10 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     set({ actionError: message });
   },
 
+  setDiffNotice(message) {
+    set({ diffNotice: message });
+  },
+
   setDiffSelection(path, selection) {
     const next = { ...get().diffSelections };
     if (selection) next[path] = selection;
@@ -435,10 +575,24 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
 
   /** Empty text removes the entry, so the map cannot grow without bound. */
   setDraft(key, body) {
-    const drafts = { ...get().drafts };
-    if (body) drafts[key] = body;
-    else delete drafts[key];
-    set({ drafts });
+    const { diff, drafts } = get();
+    const path = diffDraftPath(key);
+
+    // A composer hands its text over on unmount — which is exactly what a
+    // refresh that dropped this file triggers. Storing it would resurrect a
+    // draft with nowhere left to render, and contradict the notice that has
+    // just told the user it could not be kept. `diff === null` means a diff
+    // ref switch is in progress, where the old path legitimately has nothing
+    // to match against.
+    if (path !== null && diff !== null && !diff.files.some((f) => f.path === path)) {
+      if (body) set({ diffNotice: vanishedFileNotice(path) });
+      return;
+    }
+
+    const next = { ...drafts };
+    if (body) next[key] = body;
+    else delete next[key];
+    set({ drafts: next });
   },
 
   // -------------------------------------------------------------------------
@@ -447,6 +601,8 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
 
   /** Run a mutation with a busy flag and a single error surface. */
   async run(fn) {
+    // Invalidate every background read already in flight — see `mutationEpoch`.
+    mutationEpoch += 1;
     set({ busy: true, actionError: null });
     try {
       return await fn();
@@ -607,25 +763,75 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
 type SetState = (partial: Partial<GitHubStore>) => void;
 type GetState = () => GitHubStore;
 
-async function loadDiff(set: SetState, get: GetState, ref: PrDiffRef): Promise<void> {
+/**
+ * Drop the unsent work attached to a file that is no longer in the diff.
+ *
+ * Returns the state patch, or `null` when the file had nothing hanging off it.
+ * The notice is only raised when there was real draft *text* — an open but
+ * empty composer is not lost work, and saying so would be noise.
+ */
+function discardWorkForPath(
+  path: string, drafts: Record<string, string>, diffSelections: Record<string, DiffLineSelection>
+): Partial<GitHubStore> | null {
+  const prefix = `diff:${path}:`;
+  const keys = Object.keys(drafts).filter((key) => key.startsWith(prefix));
+  const hadSelection = diffSelections[path] !== undefined;
+  if (keys.length === 0 && !hadSelection) return null;
+
+  const nextDrafts = { ...drafts };
+  for (const key of keys) delete nextDrafts[key];
+  const nextSelections = { ...diffSelections };
+  delete nextSelections[path];
+
+  const lostText = keys.some((key) => drafts[key] !== '');
+
+  return {
+    drafts: nextDrafts,
+    diffSelections: nextSelections,
+    ...(lostText ? { diffNotice: vanishedFileNotice(path) } : {}),
+  };
+}
+
+/**
+ * @param background  load silently: no spinner, and a failure keeps the diff
+ *                    that is already on screen.
+ */
+async function loadDiff(
+  set: SetState, get: GetState, ref: PrDiffRef, background = false
+): Promise<void> {
   const selection = get().selection;
   const detail = get().detail;
   if (!selection || !detail) return;
 
   const generation = ++diffGeneration;
   const requestedKey = diffRefKey(ref);
-  set({ diffLoading: true, diffError: null });
+  const epoch = mutationEpoch;
+  if (!background) set({ diffLoading: true, diffError: null });
 
   try {
     const diff = await window.dad.githubGetDiff(selection, ref, detail.summary.changedFiles);
     // Two guards: a newer diff request, and a different pull request entirely.
     if (generation !== diffGeneration) return;
     if (!sameRef(get().selection, selection) || diffRefKey(get().diffRef) !== requestedKey) return;
-    set({ diff, diffLoading: false, selectedPath: nextSelectedPath(get().selectedPath, diff.files) });
+    if (background && epoch !== mutationEpoch) return;
+
+    const { selectedPath, drafts, diffSelections } = get();
+    // A path that vanished from a *refresh* of the same diff ref. Switching
+    // ref cannot land here: `setDiffRef` nulls `selectedPath` before calling.
+    const vanished = selectedPath !== null && !diff.files.some((f) => f.path === selectedPath)
+      ? discardWorkForPath(selectedPath, drafts, diffSelections)
+      : null;
+
+    set({
+      diff,
+      selectedPath: nextSelectedPath(selectedPath, diff.files),
+      ...(background ? {} : { diffLoading: false }),
+      ...(vanished ?? {}),
+    });
   } catch (err) {
     if (generation !== diffGeneration) return;
     if (!sameRef(get().selection, selection) || diffRefKey(get().diffRef) !== requestedKey) return;
-    set({ diffError: (err as Error).message, diffLoading: false });
+    if (!background) set({ diffError: (err as Error).message, diffLoading: false });
   }
 }
 

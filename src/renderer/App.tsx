@@ -27,6 +27,8 @@ import { initCrtEffects } from './components/crtEffects';
 import { useJiraStore, initJiraStore } from './stores/jiraStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { useWorkspaceStore } from './stores/workspaceStore';
+import { STALE_MS, useGitHubStore } from './stores/githubStore';
+import { useTabPolling } from './hooks/useTabPolling';
 import {
   initSessionStore,
   registerSessionListeners,
@@ -54,6 +56,16 @@ export default function App(): React.ReactElement {
   useEffect(() => {
     setMountedTabs((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
   }, [activeTab]);
+
+  // Keep the PULL! tab current while the user is on it. Driven from here
+  // rather than from either PR panel, so it is unaffected by which panels that
+  // tab happens to have open.
+  const pollTick = useGitHubStore((s) => s.pollTick);
+  const maybePollTick = useGitHubStore((s) => s.maybePollTick);
+  useTabPolling('tab-pull-request', STALE_MS, (reason) => {
+    if (reason === 'activate') maybePollTick();
+    else pollTick();
+  });
 
   // Requirement 6.5: re-acquire a token on startup. Fired async and never
   // awaited, so an unreachable security host cannot stall the first paint.

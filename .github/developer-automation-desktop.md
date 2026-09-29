@@ -138,7 +138,7 @@ Three lists — `CREATED`, `REVIEWING`, `LISTENING` — across the orgs in `sett
 - A pull request appears **once**, precedence Created > Reviewing > Listening.
 - **`more` is measured against what the search returned**, not against the list after precedence — subtracting the post-precedence length counts every PR that moved to another list as "missing", which showed "≈2 more" under Listening when nothing was hidden.
 - Open PRs only, drafts badged, sorted updated-descending, capped at 50 **after** merge and precedence.
-- Refresh on first mount, on window focus when older than 5 minutes, and on demand; one in-flight guard stops focus storms stacking requests. Nothing is persisted.
+- Refreshed by the auto-refresh loop below, and on demand; one in-flight guard stops focus storms stacking requests. Nothing is persisted.
 
 ### PR Viewer panel
 Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
@@ -160,6 +160,28 @@ Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that appl
 **Diff.** File tree with base names only (full path on hover), single-directory chains compressed, comment counts per file, and viewed checkmarks — synced to GitHub in full-PR mode, tracked locally per commit otherwise (`viewerViewedState` is defined against the full PR diff only). Comments are opened by a `[+]` that appears on line hover; **mousedown starts a drag**, so a click and a drag are one gesture and clicking the diff text never spawns a composer. Drags are clamped to one hunk and one side, which GitHub requires anyway. Inline threads and composers render beneath their line, in the right-hand column in split view. `toSplitRows` puts the **same `DiffLine` object** on both sides of a context row, so anything collected per side must be de-duplicated or every thread on an unchanged line appears twice.
 
 **Drafts survive.** Composer text is kept in local state while typing — writing each keystroke to the store would re-run every selector — and handed over on unmount, which is what a subtab switch does. Diff drafts need their line *selection* persisted too, or the restored text has no composer to render into. Cancel and Escape discard.
+
+### PR auto-refresh (GIT3)
+While the `PULL!` tab is the active tab **and** the window has focus, `useTabPolling` refreshes the lists and the open pull request every `STALE_MS` (5 minutes), plus once on activation. Both conditions matter: tool tabs never unmount their panels, so a panel-owned timer would keep polling on every other tab, and polling behind another window spends rate limit on data nobody is reading. Clearing the timer on blur also means a machine that slept for hours performs exactly one catch-up tick rather than a backlog.
+
+**It is driven from `App.tsx`, not from either PR panel** — panels can be closed, hidden or replaced within the tab, and the store should stay current regardless of which are open.
+
+**All policy lives in the store; the hook only reports whether the tab is active.** There is no jsdom environment configured, so anything placed in a React hook is untestable — staleness, the `busy` guard, background-vs-foreground and the head-commit comparison are therefore all `githubStore` actions with unit tests.
+
+- **`pollTick()` (interval) is deliberately not staleness-gated.** The gate would be the same `STALE_MS` as the interval, and `listsLoadedAt` is stamped when the response *lands* — a second or two after the tick that asked for it — so every tick would find the data a fraction too fresh and skip, silently halving the real rate to 10 minutes.
+- **`maybePollTick()` (activation/focus) gates lists and detail separately**, each on its own `loadedAt`, so pressing REFRESH and switching tabs does not refetch what was just fetched.
+- **`STALE_MS` is one constant doing both jobs** — poll interval and staleness gate. A shorter interval would spend most ticks doing nothing; a longer one would make the gate unreachable.
+- **A background pass writes none of the `*Loading` or `*Error` flags**, and swallows failures: the panel keeps the last good data and the next tick retries. Surfacing a transient blip every 5 minutes would pop an error banner over whatever the user is reading. The manual REFRESH buttons keep their visible, reporting behaviour.
+- **The first load of anything is still foreground** (`listsLoadedAt === null`, `detail === null`), so `LOADING…` still appears. Silence is only correct once there is data on screen worth keeping.
+- **A background detail reload refetches the diff only when it can have changed** — full-PR mode *and* a moved `headRefOid`. A commit- or range-scoped diff is immutable, so without this the poll would re-download every file's patch to produce identical bytes.
+
+Three ordering hazards the guards exist for, each covered by a test:
+
+- **`busy` alone cannot protect optimistic patches.** A background read that started *before* a mutation set `busy` carries a pre-mutation snapshot; committing it would undo the patch and make a just-posted review comment vanish until the next tick. `run()` therefore bumps a module-level **`mutationEpoch`**, and background reads discard any response whose epoch moved while they were in flight.
+- **A background pass must never supersede an in-flight foreground request.** It would bump the generation counter, the foreground response would be discarded by its own guard, and `detailLoading` would never clear — disabling the header's refresh button permanently. `pollTick`/`maybePollTick` skip the detail while `detailLoading`, and the background diff refetch skips while `diffLoading`.
+- **A discarded draft can resurrect itself.** When a refresh drops the open file, `selectedPath` moves, which unmounts the composer — and its unmount cleanup writes its local text straight back into `drafts`, contradicting the notice that just said it could not be kept. `setDraft` therefore rejects any `diff:` draft whose path is absent from the current diff, raising the notice instead. This also catches text that was *only* ever in local state, which would otherwise be lost silently.
+
+When the selected file leaves the diff, `nextSelectedPath` falls back to `files[0]` as before, the file's drafts and line selection are dropped, and **`diffNotice`** explains why. It renders as a third dismissible `panel-error` banner beside `error` and `actionError` — a separate field rather than reusing `actionError`, which `run()` owns and would overwrite. The notice fires on manual refresh too, not just background: silently dropping a draft is equally bad either way. It cannot misfire on a diff-ref *switch*, because `setDiffRef` nulls `selectedPath` before loading.
 
 **IPC channels:** `github:listPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
 
@@ -676,9 +698,11 @@ Renderer process
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
 │   ├── restStore.ts     API Picker navigation + favorites + REST Crafter state, method override, selection carry-over, draft
 │   ├── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
+│   ├── githubStore.ts   PR lists/detail/diff, generation-guarded reads, background refresh + poll ticks, drafts
 │   └── responseTree.ts  pure JSON tree flattening + content-type classification for the Response panel
 ├── hooks/
-│   └── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
+│   ├── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
+│   └── useTabPolling.ts interval + on-activation ticks, gated on activeTab AND window focus (GIT3 auto-refresh)
 ├── dashboard/           grid layout system (framework-agnostic)
 │   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTabDef (panelTypes + defaultInstances), spawn placement algorithm
 │   ├── layout.test.ts   unit tests for tab definitions, defaultState and validateState

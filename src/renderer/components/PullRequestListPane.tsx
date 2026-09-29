@@ -141,20 +141,10 @@ export default function PullRequestListPane(): React.ReactElement {
   const selection = useGitHubStore((s) => s.selection);
   const detail = useGitHubStore((s) => s.detail);
   const refreshLists = useGitHubStore((s) => s.refreshLists);
-  const maybeRefreshLists = useGitHubStore((s) => s.maybeRefreshLists);
   const select = useGitHubStore((s) => s.select);
   const reloadDetail = useGitHubStore((s) => s.reloadDetail);
 
   const [confirmSwitch, setConfirmSwitch] = useState<PrListItem | null>(null);
-
-  // A tab mounts lazily on first activation and is never unmounted, so mount
-  // *is* "first tab activation".
-  useEffect(() => {
-    maybeRefreshLists();
-    const onFocus = (): void => maybeRefreshLists();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [maybeRefreshLists]);
 
   const handleSelect = useCallback((item: PrListItem) => {
     const target = { owner: item.owner, repo: item.repo, number: item.number };

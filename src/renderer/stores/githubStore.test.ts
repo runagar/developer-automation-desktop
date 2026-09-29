@@ -169,7 +169,12 @@ describe('list refresh', () => {
   let dad: Record<string, unknown>;
 
   beforeEach(() => {
-    useGitHubStore.setState({ listsLoadedAt: null, listsLoading: false, listsError: null });
+    useGitHubStore.setState({
+      listsLoadedAt: null, listsLoading: false, listsError: null,
+      // `maybePollTick` also refreshes the open pull request; these tests are
+      // about the lists, so leave nothing selected.
+      selection: null, detail: null, detailLoadedAt: null, busy: false,
+    });
     dad = {};
     // Same stubbing convention as restStore.test.ts — there is no jsdom
     // environment configured for this project.
@@ -180,7 +185,7 @@ describe('list refresh', () => {
     const spy = vi.fn();
     dad.githubListPullRequests = spy;
     useGitHubStore.setState({ listsLoadedAt: Date.now() });
-    useGitHubStore.getState().maybeRefreshLists();
+    useGitHubStore.getState().maybePollTick();
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -188,7 +193,7 @@ describe('list refresh', () => {
     const spy = vi.fn().mockResolvedValue(lists);
     dad.githubListPullRequests = spy;
     useGitHubStore.setState({ listsLoadedAt: Date.now() - STALE_MS - 1 });
-    useGitHubStore.getState().maybeRefreshLists();
+    useGitHubStore.getState().maybePollTick();
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
@@ -200,8 +205,8 @@ describe('list refresh', () => {
     dad.githubListPullRequests = spy;
 
     const first = useGitHubStore.getState().refreshLists();
-    useGitHubStore.getState().maybeRefreshLists();
-    useGitHubStore.getState().maybeRefreshLists();
+    useGitHubStore.getState().maybePollTick();
+    useGitHubStore.getState().maybePollTick();
     expect(spy).toHaveBeenCalledTimes(1);
 
     resolve(lists);
@@ -220,6 +225,279 @@ describe('list refresh', () => {
     useGitHubStore.setState({ listsLoadedAt: Date.now() });
     useGitHubStore.getState().invalidateLists();
     expect(useGitHubStore.getState().listsLoadedAt).toBeNull();
+  });
+});
+
+describe('background refresh', () => {
+  const lists = {
+    created: { items: [], more: 0, moreIsApproximate: false },
+    reviewing: { items: [], more: 0, moreIsApproximate: false },
+    listening: { items: [], more: 0, moreIsApproximate: false },
+  };
+
+  function summary(over: Partial<PrSummary> = {}): PrSummary {
+    return { id: 'PR1', headRefOid: 'oid-1', changedFiles: 1, ...over } as PrSummary;
+  }
+
+  let dad: Record<string, unknown>;
+
+  beforeEach(() => {
+    dad = {};
+    vi.stubGlobal('window', { dad });
+    useGitHubStore.setState({
+      lists, listsLoading: false, listsError: null, listsLoadedAt: Date.now() - STALE_MS - 1,
+      selection: { owner: 'o', repo: 'r', number: 1 },
+      detail: detail({ summary: summary() }),
+      detailLoading: false, detailError: null, detailLoadedAt: Date.now() - STALE_MS - 1,
+      diff: null, diffLoading: false, diffError: null, diffNotice: null,
+      diffRef: { kind: 'pr' }, selectedPath: null,
+      drafts: {}, diffSelections: {}, busy: false,
+    });
+  });
+
+  it('raises no spinner and records when the lists last loaded', async () => {
+    dad.githubListPullRequests = vi.fn().mockResolvedValue(lists);
+    const before = Date.now();
+    await useGitHubStore.getState().refreshLists(false, true);
+
+    expect(useGitHubStore.getState().listsLoading).toBe(false);
+    expect(useGitHubStore.getState().listsLoadedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it('swallows a background list failure and keeps the last good data', async () => {
+    // A transient blip once every five minutes must not replace what the user
+    // is reading with an error banner.
+    dad.githubListPullRequests = vi.fn().mockRejectedValue(new Error('rate limited'));
+    const previous = useGitHubStore.getState().lists;
+
+    await useGitHubStore.getState().refreshLists(false, true);
+
+    expect(useGitHubStore.getState().listsError).toBeNull();
+    expect(useGitHubStore.getState().lists).toBe(previous);
+  });
+
+  it('swallows a background detail failure without disturbing the viewer', async () => {
+    dad.githubGetPullRequest = vi.fn().mockRejectedValue(new Error('offline'));
+    const previous = useGitHubStore.getState().detail;
+
+    await useGitHubStore.getState().reloadDetail(true);
+
+    expect(useGitHubStore.getState().detailError).toBeNull();
+    expect(useGitHubStore.getState().detailLoading).toBe(false);
+    expect(useGitHubStore.getState().detail).toBe(previous);
+  });
+
+  it('skips a tick entirely while a mutation is in flight', () => {
+    // A response taken before the mutation landed would undo its optimistic
+    // patch, e.g. showing a just-approved pull request as unapproved.
+    const listSpy = vi.fn().mockResolvedValue(lists);
+    const detailSpy = vi.fn();
+    dad.githubListPullRequests = listSpy;
+    dad.githubGetPullRequest = detailSpy;
+    useGitHubStore.setState({ busy: true });
+
+    useGitHubStore.getState().pollTick();
+    useGitHubStore.getState().maybePollTick();
+
+    expect(listSpy).not.toHaveBeenCalled();
+    expect(detailSpy).not.toHaveBeenCalled();
+  });
+
+  it('polls on the interval regardless of how fresh the data is', () => {
+    // The gate is the same 5 minutes as the interval, and `loadedAt` is
+    // stamped when the response lands — so a gated interval would skip every
+    // tick and silently halve the real polling rate.
+    const listSpy = vi.fn().mockResolvedValue(lists);
+    dad.githubListPullRequests = listSpy;
+    dad.githubGetPullRequest = vi.fn(() => new Promise(() => undefined));
+    useGitHubStore.setState({ listsLoadedAt: Date.now(), detailLoadedAt: Date.now() });
+
+    useGitHubStore.getState().pollTick();
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('gates lists and detail separately on activation', () => {
+    // Pressing REFRESH on the lists and switching tabs must not drag the
+    // detail along with it, nor refetch the lists that were just fetched.
+    const listSpy = vi.fn().mockResolvedValue(lists);
+    const detailSpy = vi.fn(() => new Promise(() => undefined));
+    dad.githubListPullRequests = listSpy;
+    dad.githubGetPullRequest = detailSpy;
+    useGitHubStore.setState({ listsLoadedAt: Date.now(), detailLoadedAt: Date.now() - STALE_MS - 1 });
+
+    useGitHubStore.getState().maybePollTick();
+
+    expect(listSpy).not.toHaveBeenCalled();
+    expect(detailSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads in the foreground while there is nothing on screen to keep', () => {
+    // The very first load still shows LOADING… — silence is only right once
+    // there is already data the refresh is replacing.
+    dad.githubListPullRequests = vi.fn(() => new Promise(() => undefined));
+    useGitHubStore.setState({ listsLoadedAt: null, selection: null });
+
+    useGitHubStore.getState().maybePollTick();
+
+    expect(useGitHubStore.getState().listsLoading).toBe(true);
+  });
+
+  it('refetches the diff on a background pass only when the head moved', async () => {
+    const diffSpy = vi.fn().mockResolvedValue({ files: [], truncated: false });
+    dad.githubGetDiff = diffSpy;
+    dad.githubGetPullRequest = vi.fn().mockResolvedValue(detail({ summary: summary() }));
+
+    await useGitHubStore.getState().reloadDetail(true);
+    expect(diffSpy).not.toHaveBeenCalled();
+
+    dad.githubGetPullRequest = vi.fn().mockResolvedValue(
+      detail({ summary: summary({ headRefOid: 'oid-2' }) })
+    );
+    await useGitHubStore.getState().reloadDetail(true);
+    expect(diffSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('never refetches a commit-scoped diff, whose content cannot change', async () => {
+    const diffSpy = vi.fn().mockResolvedValue({ files: [], truncated: false });
+    dad.githubGetDiff = diffSpy;
+    dad.githubGetPullRequest = vi.fn().mockResolvedValue(
+      detail({ summary: summary({ headRefOid: 'oid-2' }) })
+    );
+    useGitHubStore.setState({ diffRef: { kind: 'commit', oid: 'abc' } as PrDiffRef });
+
+    await useGitHubStore.getState().reloadDetail(true);
+
+    expect(diffSpy).not.toHaveBeenCalled();
+  });
+
+  it('leaves draft comments alone across a background reload', async () => {
+    // Requirement 4. Drafts are cleared by `select()` — changing pull request
+    // — and must survive any number of refreshes of the same one.
+    const drafts = { 'overview:PR1': 'half a thought', 'diff:a.ts:RIGHT:3:3': 'nit' };
+    const diffSelections = { 'a.ts': { hunkIndex: 0, from: 3, to: 3 } };
+    useGitHubStore.setState({ drafts, diffSelections });
+    dad.githubGetPullRequest = vi.fn().mockResolvedValue(detail({ summary: summary() }));
+
+    await useGitHubStore.getState().reloadDetail(true);
+
+    expect(useGitHubStore.getState().drafts).toEqual(drafts);
+    expect(useGitHubStore.getState().diffSelections).toEqual(diffSelections);
+  });
+
+  it('discards a response taken before a mutation patched the same detail', async () => {
+    // `busy` cannot catch this: the read started while it was still false.
+    // Committing the stale snapshot would undo the optimistic patch and make
+    // a just-posted review comment vanish until the next poll.
+    let resolve: (v: unknown) => void = () => undefined;
+    dad.githubGetPullRequest = vi.fn(() => new Promise((r) => { resolve = r; }));
+
+    const inFlight = useGitHubStore.getState().reloadDetail(true);
+
+    await useGitHubStore.getState().run(async () => 'done');
+    useGitHubStore.getState().addThread(thread({ id: 'optimistic' }));
+
+    resolve(detail({ summary: summary(), threads: [] }));
+    await inFlight;
+
+    expect(useGitHubStore.getState().detail?.threads.map((t) => t.id)).toEqual(['optimistic']);
+  });
+
+  it('never supersedes a foreground reload, which owns the loading flag', async () => {
+    // The generation guard would discard the foreground response before it
+    // could clear `detailLoading`, disabling the refresh button permanently.
+    dad.githubGetPullRequest = vi.fn(() => new Promise(() => undefined));
+    void useGitHubStore.getState().reloadDetail();
+    expect(useGitHubStore.getState().detailLoading).toBe(true);
+
+    const callsBefore = (dad.githubGetPullRequest as ReturnType<typeof vi.fn>).mock.calls.length;
+    useGitHubStore.getState().pollTick();
+    useGitHubStore.getState().maybePollTick();
+
+    expect((dad.githubGetPullRequest as ReturnType<typeof vi.fn>).mock.calls.length)
+      .toBe(callsBefore);
+  });
+});
+
+describe('a file that leaves the diff', () => {
+  let dad: Record<string, unknown>;
+
+  beforeEach(() => {
+    dad = {};
+    vi.stubGlobal('window', { dad });
+    useGitHubStore.setState({
+      selection: { owner: 'o', repo: 'r', number: 1 },
+      detail: detail({ summary: { id: 'PR1', changedFiles: 2 } as PrSummary }),
+      diffRef: { kind: 'pr' }, selectedPath: 'gone.ts', diffNotice: null,
+      drafts: { 'diff:gone.ts:RIGHT:3:3': 'unsent', 'diff:kept.ts:RIGHT:1:1': 'safe' },
+      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3 } },
+    });
+    dad.githubGetPullRequest = vi.fn().mockResolvedValue(
+      detail({ summary: { id: 'PR1', changedFiles: 2 } as PrSummary })
+    );
+    // The refreshed diff has dropped `gone.ts`, as a force push would.
+    dad.githubGetDiff = vi.fn().mockResolvedValue({ files: [file('kept.ts')], truncated: false });
+  });
+
+  it('discards only that file\'s draft and explains why', async () => {
+    await useGitHubStore.getState().reloadDetail();
+
+    // `reloadDetail` starts the diff load without awaiting it, so that the
+    // detail can render before the much larger diff arrives.
+    await vi.waitFor(() => expect(useGitHubStore.getState().selectedPath).toBe('kept.ts'));
+
+    const state = useGitHubStore.getState();
+    expect(state.drafts['diff:gone.ts:RIGHT:3:3']).toBeUndefined();
+    expect(state.drafts['diff:kept.ts:RIGHT:1:1']).toBe('safe');
+    expect(state.diffSelections['gone.ts']).toBeUndefined();
+    expect(state.diffNotice).toContain('gone.ts');
+  });
+
+  it('says nothing when there was no unsent work to lose', async () => {
+    // The user was merely looking at the file, or had an empty composer open.
+    // Interrupting them to report that nothing was lost is just noise.
+    useGitHubStore.setState({
+      drafts: { 'diff:gone.ts:RIGHT:3:3': '' },
+      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3 } },
+    });
+
+    await useGitHubStore.getState().reloadDetail();
+    await vi.waitFor(() => expect(useGitHubStore.getState().selectedPath).toBe('kept.ts'));
+
+    expect(useGitHubStore.getState().diffNotice).toBeNull();
+    // The stale selection is still cleaned up, quietly.
+    expect(useGitHubStore.getState().diffSelections['gone.ts']).toBeUndefined();
+  });
+
+  it('catches text the composer was still holding when the file vanished', async () => {
+    // The composer keeps its body in local state and only hands it over when
+    // it unmounts — which is what changing the selected file does. Without
+    // this the text would be filed back under a path that no longer exists,
+    // silently and with no notice.
+    useGitHubStore.setState({ drafts: {}, diffSelections: {} });
+
+    await useGitHubStore.getState().reloadDetail();
+    await vi.waitFor(() => expect(useGitHubStore.getState().selectedPath).toBe('kept.ts'));
+
+    // Stands in for CommentComposer's unmount cleanup.
+    useGitHubStore.getState().setDraft('diff:gone.ts:RIGHT:3:3', 'typed but never sent');
+
+    expect(useGitHubStore.getState().drafts['diff:gone.ts:RIGHT:3:3']).toBeUndefined();
+    expect(useGitHubStore.getState().diffNotice).toContain('gone.ts');
+  });
+
+  it('still accepts drafts for files that are in the diff', () => {
+    useGitHubStore.setState({
+      diff: { files: [file('kept.ts')], truncated: false } as never,
+      drafts: {}, diffNotice: null,
+    });
+
+    useGitHubStore.getState().setDraft('diff:kept.ts:RIGHT:1:1', 'fine');
+    useGitHubStore.getState().setDraft('overview:PR1', 'also fine');
+
+    expect(useGitHubStore.getState().drafts['diff:kept.ts:RIGHT:1:1']).toBe('fine');
+    expect(useGitHubStore.getState().drafts['overview:PR1']).toBe('also fine');
+    expect(useGitHubStore.getState().diffNotice).toBeNull();
   });
 });
 
