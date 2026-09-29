@@ -137,6 +137,42 @@ describe('diffRefOptions', () => {
     expect(options[1].label).toContain('no longer available');
   });
 
+  it('offers a dismissal commit the pull request no longer lists', () => {
+    // A rebase leaves the dismissal pointing at a pre-rebase commit that the
+    // repository still serves. Without an entry the Overview's hash would
+    // open that diff while the dropdown still read "Full diff".
+    const options = diffRefOptions(detail({
+      commits: [{ oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'kept', committedDate: '', author: null }],
+      timeline: [{
+        kind: 'dismissal', id: 'd1', at: '', actor: 'RULU_NYK', reviewer: 'Y68D_NYK', message: null,
+        commit: { oid: 'old1', abbreviatedOid: 'old1', messageHeadline: 'rebased away', committedDate: '', author: null },
+      }],
+    }));
+    expect(options.map((o) => o.key)).toEqual(['pr', 'c-c1', 'c-old1']);
+    expect(options[2].label).toContain('dismissed a review');
+  });
+
+  it('does not duplicate a dismissal commit that is already listed', () => {
+    const commit = { oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'one', committedDate: '', author: null };
+    const options = diffRefOptions(detail({
+      commits: [commit],
+      timeline: [{
+        kind: 'dismissal', id: 'd1', at: '', actor: null, reviewer: null, message: null, commit,
+      }],
+    }));
+    expect(options.map((o) => o.key)).toEqual(['pr', 'c-c1']);
+  });
+
+  it('ignores a manual dismissal, which names no commit', () => {
+    const options = diffRefOptions(detail({
+      timeline: [{
+        kind: 'dismissal', id: 'd1', at: '', actor: null, reviewer: 'Y68D_NYK',
+        message: 'resolved conflicts', commit: null,
+      }],
+    }));
+    expect(options.map((o) => o.key)).toEqual(['pr']);
+  });
+
   it('still offers the full PR diff with no detail loaded', () => {
     expect(diffRefOptions(null)).toHaveLength(1);
   });

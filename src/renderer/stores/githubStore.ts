@@ -907,6 +907,23 @@ export function diffRefOptions(detail: PrDetail | null): DiffRefOption[] {
     });
   }
 
+  // A commit that dismissed a review is usually already listed above. It is
+  // not when the branch has since been rebased: the dismissal still points at
+  // the pre-rebase commit, which the repository still serves but the pull
+  // request no longer lists. Opening it from the Overview would then leave the
+  // dropdown reading "Full diff" while showing that commit's diff, so give it
+  // an entry of its own — as force-push ranges already get.
+  const listed = new Set(detail.commits.map((c) => c.oid));
+  for (const row of detail.timeline) {
+    if (row.kind !== 'dismissal' || !row.commit || listed.has(row.commit.oid)) continue;
+    listed.add(row.commit.oid);
+    options.push({
+      key: `c-${row.commit.oid}`,
+      label: `${row.commit.abbreviatedOid}  ${row.commit.messageHeadline} (dismissed a review)`,
+      ref: { kind: 'commit', oid: row.commit.oid, abbreviatedOid: row.commit.abbreviatedOid },
+    });
+  }
+
   return options;
 }
 

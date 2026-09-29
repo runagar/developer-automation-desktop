@@ -292,7 +292,22 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
               nodes { id createdAt body author { login } }
             }
           }
-          ... on ReviewDismissedEvent { id createdAt actor { login } dismissalMessage }
+          ... on ReviewDismissedEvent {
+            id
+            createdAt
+            actor { login }
+            dismissalMessage
+            review { author { login } }
+            pullRequestCommit {
+              commit {
+                oid
+                abbreviatedOid
+                messageHeadline
+                committedDate
+                author { name user { login } }
+              }
+            }
+          }
           ... on ReviewRequestedEvent {
             id
             createdAt

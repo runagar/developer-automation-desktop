@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TIMELINE_ITEM_TYPES, TIMELINE_TYPENAMES, mergePages, normalizeTimeline } from './githubTimeline';
+import { PrTimelineRow } from './types';
 
 function commitNode(oid: string, at = '2026-09-01T10:00:00Z') {
   return {
@@ -70,7 +71,7 @@ describe('TIMELINE_ITEM_TYPES', () => {
 
     const { rows } = normalizeTimeline(recorded);
     expect(rows).toHaveLength(4);
-    expect(rows.map((r) => r.kind)).toEqual(['event', 'force-push', 'event', 'comment']);
+    expect(rows.map((r) => r.kind)).toEqual(['event', 'force-push', 'dismissal', 'comment']);
   });
 
   it('excludes the noisy types the feature plan rejected', () => {
@@ -226,6 +227,74 @@ describe('normalizeTimeline', () => {
   it('dates a commit row by its commit date, not the node', () => {
     const { rows } = normalizeTimeline([commitNode('ccccccc1', '2026-08-01T00:00:00Z')]);
     expect(rows[0].at).toBe('2026-08-01T00:00:00Z');
+  });
+});
+
+describe('dismissed reviews', () => {
+  function dismissal(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      __typename: 'ReviewDismissedEvent',
+      id: 'RDE_1',
+      createdAt: '2026-09-10T11:00:00Z',
+      actor: { login: 'RULU_NYK' },
+      dismissalMessage: null,
+      review: { author: { login: 'Y68D_NYK' } },
+      pullRequestCommit: null,
+      ...over,
+    };
+  }
+
+  function rowOf(node: Record<string, unknown>): Extract<PrTimelineRow, { kind: 'dismissal' }> {
+    const row = normalizeTimeline([node]).rows[0];
+    if (row.kind !== 'dismissal') throw new Error(`expected a dismissal row, got ${row.kind}`);
+    return row;
+  }
+
+  const commit = {
+    oid: '497cd233c0d7e82b3806c97ec17d67dc5627ed07',
+    abbreviatedOid: '497cd23',
+    messageHeadline: 'NRPMG-307: Read activated securities',
+    committedDate: '2026-09-10T10:00:00Z',
+    author: { name: 'Rune', user: { login: 'RULU_NYK' } },
+  };
+
+  it('carries the reviewer and the commit that invalidated the review', () => {
+    // Renders as "RULU_NYK dismissed Y68D_NYK's stale review via 497cd23",
+    // with the hash opening that commit's diff.
+    const row = rowOf(dismissal({ pullRequestCommit: { commit } }));
+    expect(row.actor).toBe('RULU_NYK');
+    expect(row.reviewer).toBe('Y68D_NYK');
+    expect(row.commit?.oid).toBe(commit.oid);
+    expect(row.commit?.abbreviatedOid).toBe('497cd23');
+    // Needed for the diff dropdown's label when the commit is no longer listed.
+    expect(row.commit?.messageHeadline).toBe('NRPMG-307: Read activated securities');
+    expect(row.message).toBeNull();
+  });
+
+  it('abbreviates the commit itself when GitHub did not', () => {
+    const row = rowOf(dismissal({
+      pullRequestCommit: { commit: { oid: 'abcdef1234567890'.padEnd(40, '0') } },
+    }));
+    expect(row.commit?.abbreviatedOid).toBe('abcdef1');
+  });
+
+  it('carries the message and no commit for a manual dismissal', () => {
+    // No commit means a person dismissed it deliberately, so the row renders
+    // "dismissed Y68D_NYK's review: resolved conflicts" with nothing to open.
+    const row = rowOf(dismissal({ dismissalMessage: 'resolved conflicts' }));
+    expect(row.commit).toBeNull();
+    expect(row.message).toBe('resolved conflicts');
+  });
+
+  it('treats a blank message as none, so no empty reason is rendered', () => {
+    expect(rowOf(dismissal({ dismissalMessage: '   ' })).message).toBeNull();
+  });
+
+  it('leaves the reviewer null when it cannot be resolved', () => {
+    // A deleted account, or a review the token may not read; the row falls
+    // back to "dismissed a review".
+    expect(rowOf(dismissal({ review: null })).reviewer).toBeNull();
+    expect(rowOf(dismissal({ review: { author: null } })).reviewer).toBeNull();
   });
 });
 

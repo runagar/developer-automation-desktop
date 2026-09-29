@@ -255,6 +255,24 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
         break;
       }
 
+      case 'ReviewDismissedEvent': {
+        // Structured rather than a sentence, so the renderer can make the
+        // commit clickable — the same reason force-pushes are their own row.
+        const message = typeof node.dismissalMessage === 'string'
+          ? node.dismissalMessage.trim()
+          : '';
+        rows.push({
+          kind: 'dismissal',
+          id,
+          at,
+          actor,
+          reviewer: login((node.review as { author?: unknown } | null)?.author),
+          commit: commitFromNode((node.pullRequestCommit as { commit?: unknown } | null)?.commit),
+          message: message || null,
+        });
+        break;
+      }
+
       default:
         rows.push({ kind: 'event', id, at, actor, text: eventText(type, node) });
         break;
@@ -276,10 +294,6 @@ function eventText(type: string, node: RawNode): string {
       return `requested a review from ${reviewerName(node.requestedReviewer)}`;
     case 'ReviewRequestRemovedEvent':
       return `removed the review request for ${reviewerName(node.requestedReviewer)}`;
-    case 'ReviewDismissedEvent':
-      return node.dismissalMessage
-        ? `dismissed a review: ${node.dismissalMessage}`
-        : 'dismissed a review';
     case 'AssignedEvent':
       return `assigned ${reviewerName(node.assignee)}`;
     case 'UnassignedEvent':

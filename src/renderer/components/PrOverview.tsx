@@ -41,7 +41,7 @@ function ForcePushRow({ row }: { row: Extract<PrTimelineRow, { kind: 'force-push
     <div className="pr-overview__row">
       <span className="pr-overview__icon">⟲</span>
       <span className="pr-overview__actor">{row.actor ?? 'someone'}</span>
-      <span className="pr-overview__text">force-pushed</span>
+      <span className="pr-overview__text pr-overview__text--label">force-pushed</span>
       {usable ? (
         <button
           className="pr-overview__hash"
@@ -60,6 +60,50 @@ function ForcePushRow({ row }: { row: Extract<PrTimelineRow, { kind: 'force-push
         // fetched. Hiding the event would hide that history was rewritten.
         <span className="pr-overview__hash pr-overview__hash--dead" title="Before-commit no longer available">
           …{force.afterAbbrev}
+        </span>
+      )}
+      <span className="pr-overview__time">{relativeTime(row.at)}</span>
+    </div>
+  );
+}
+
+/**
+ * A dismissed review.
+ *
+ * Structured like a force-push row rather than a plain event, because the two
+ * cases read differently and the stale one names a commit worth opening:
+ *
+ *  - **Stale** — a push invalidated the review under a branch-protection rule.
+ *    Nobody decided anything; the useful fact is which push did it.
+ *  - **Manual** — someone dismissed it deliberately, and said why.
+ */
+function DismissalRow({ row }: { row: Extract<PrTimelineRow, { kind: 'dismissal' }> }): React.ReactElement {
+  const openDiffFor = useGitHubStore((s) => s.openDiffFor);
+  const { commit } = row;
+  // GitHub says "dismissed Y's review"; fall back when the reviewer cannot be
+  // resolved, e.g. a deleted account.
+  const whose = row.reviewer ? `${row.reviewer}'s` : 'a';
+
+  return (
+    <div className="pr-overview__row">
+      <span className="pr-overview__icon">•</span>
+      <span className="pr-overview__actor">{row.actor ?? 'someone'}</span>
+      {commit ? (
+        <>
+          <span className="pr-overview__text pr-overview__text--label">dismissed {whose} stale review via</span>
+          <button
+            className="pr-overview__hash"
+            title="Show the commit that invalidated this review"
+            onClick={() => openDiffFor({
+              kind: 'commit', oid: commit.oid, abbreviatedOid: commit.abbreviatedOid,
+            })}
+          >
+            {commit.abbreviatedOid}
+          </button>
+        </>
+      ) : (
+        <span className="pr-overview__text">
+          dismissed {whose} review{row.message ? `: ${row.message}` : ''}
         </span>
       )}
       <span className="pr-overview__time">{relativeTime(row.at)}</span>
@@ -173,6 +217,9 @@ function Row({
 
     case 'force-push':
       return <ForcePushRow row={row} />;
+
+    case 'dismissal':
+      return <DismissalRow row={row} />;
 
     case 'comment':
       return (

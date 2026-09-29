@@ -128,11 +128,28 @@
   white-space: nowrap;
 }
 
+/* Shrinks but never grows, so a hash that follows the text sits against it
+   rather than being pushed to the far edge — the same treatment
+   `.pr-viewer__title` gets beside its state chip. Truncation still works,
+   because the item may still shrink. */
+.pr-overview__text--label {
+  flex: 0 1 auto;
+}
+
 .pr-overview__time,
 .pr-thread__time {
   flex-shrink: 0;
   font-size: 0.65rem;
   color: var(--c-mid);
+}
+
+/* Holds the timestamp at the right edge of a timeline row, now that the text
+   beside it does not always grow to fill the row.
+   Scoped to `__row` deliberately: in `__comment-meta` the auto margin belongs
+   to QUOTE REPLY, and an earlier one on the timestamp would absorb the free
+   space before it ever reached the button. */
+.pr-overview__row .pr-overview__time {
+  margin-left: auto;
 }
 
 .pr-overview__hash,

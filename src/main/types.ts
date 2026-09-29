@@ -627,6 +627,18 @@ export type PrTimelineRow =
     kind: 'outdated-thread'; id: string; at: string; author: string | null; path: string;
     body: string; isResolved: boolean;
   }
+  | {
+    kind: 'dismissal'; id: string; at: string; actor: string | null;
+    /** Whose review was dismissed. */
+    reviewer: string | null;
+    /**
+     * The push that invalidated the review, making this a *stale* dismissal.
+     * Null when a person dismissed the review deliberately.
+     */
+    commit: PrCommit | null;
+    /** Why it was dismissed, when someone chose to. */
+    message: string | null;
+  }
   | { kind: 'event'; id: string; at: string; actor: string | null; text: string };
 
 export interface PrThreadComment {
