@@ -462,6 +462,8 @@ export interface PrListItem {
   repo: string;
   /** `owner/repo`, shown as the dim second line. */
   nameWithOwner: string;
+  baseRefName: string;
+  headRefName: string;
   isDraft: boolean;
   mergeable: PrMergeableState;
   mergeState: PrMergeStateStatus;

@@ -5,6 +5,7 @@ import { useGitHubStore } from '../stores/githubStore';
 import { SplitButton, SplitButtonOption, useDismiss } from './dropdown';
 import ConfirmDialog from './ConfirmDialog';
 import ReviewersMenu from './ReviewersMenu';
+import BranchPair from './BranchPair';
 
 interface Props {
   summary: PrSummary;
@@ -201,6 +202,12 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
             disabled={busy}
           />
         )}
+
+        <BranchPair
+          head={summary.headRefName}
+          base={summary.baseRefName}
+          className="pr-viewer__branches"
+        />
 
         {/* Anchored so its popover hangs off the button rather than the row. */}
         <span className="pr-viewer__reviewers-anchor" ref={reviewersRef}>

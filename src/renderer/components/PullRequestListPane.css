@@ -148,6 +148,14 @@
   flex-shrink: 0;
 }
 
+/* Its own line between the repository reference and the badges: the branch
+   pair is the widest thing in the row and must not squeeze either. */
+.pull-request-list__branches {
+  display: block;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+}
+
 .pull-request-list__meta,
 .pull-request-list__reviewers {
   display: flex;

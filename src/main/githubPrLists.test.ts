@@ -11,6 +11,8 @@ function item(id: string): PrListItem {
     owner: 'Nykredit',
     repo: 'repo',
     nameWithOwner: 'Nykredit/repo',
+    baseRefName: 'develop',
+    headRefName: `feature/${id}`,
     isDraft: false,
     mergeable: 'MERGEABLE',
     mergeState: 'CLEAN',

@@ -92,6 +92,13 @@
   color: var(--c-mid);
 }
 
+/* Beside the state chip in the status row; smaller than the title so the two
+   read as title-then-context rather than competing. */
+.pr-viewer__branches {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+}
+
 /* --- overview --- */
 
 .pr-overview {

@@ -774,6 +774,8 @@ describe('syncListRow', () => {
     owner: 'o',
     repo: 'r',
     nameWithOwner: 'o/r',
+    baseRefName: 'main',
+    headRefName: 'feature/old',
     isDraft: true,
     mergeable: 'UNKNOWN',
     mergeState: 'UNKNOWN',
@@ -791,6 +793,8 @@ describe('syncListRow', () => {
     mergeState: 'CLEAN',
     checks: 'SUCCESS',
     updatedAt: '2026-09-22T00:00:00Z',
+    baseRefName: 'develop',
+    headRefName: 'feature/new',
     reviewers: [{ name: 'ada', requestKey: 'ada', isTeam: false, isBot: false, state: 'APPROVED', requested: false }],
   });
 
@@ -809,6 +813,7 @@ describe('syncListRow', () => {
     const item = useGitHubStore.getState().lists.created.items[0];
     expect(item).toMatchObject({
       title: 'new title', isDraft: false, mergeable: 'MERGEABLE', checks: 'SUCCESS',
+      baseRefName: 'develop', headRefName: 'feature/new',
     });
     expect(item.reviewers.map((r) => r.state)).toEqual(['APPROVED']);
   });

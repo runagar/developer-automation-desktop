@@ -43,6 +43,8 @@ const PR_BADGE_FIELDS = `
   mergeStateStatus
   reviewDecision
   updatedAt
+  baseRefName
+  headRefName
   repository { nameWithOwner owner { login } name }
   commits(last: 1) {
     nodes { commit { statusCheckRollup { state } } }

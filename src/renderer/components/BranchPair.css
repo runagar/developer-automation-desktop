@@ -1,0 +1,10 @@
+/* Branch names are long and the panels are narrow, so the pair shrinks and
+   ellipsises rather than pushing its neighbours out of the row. */
+.branch-pair {
+  flex: 0 1 auto;
+  min-width: 3ch;
+  color: var(--c-mid);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

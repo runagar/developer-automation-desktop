@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { PrList, PrListId, PrListItem, PrReviewer } from '../../main/types';
 import { useGitHubStore, sameRef } from '../stores/githubStore';
 import ConfirmDialog from './ConfirmDialog';
+import BranchPair from './BranchPair';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import './PullRequestListPane.css';
@@ -86,6 +87,11 @@ const Row = React.memo(function Row({ item, active, onSelect }: RowProps): React
         {item.nameWithOwner}
         <span className="pull-request-list__updated">{relativeTime(item.updatedAt)}</span>
       </span>
+      <BranchPair
+        head={item.headRefName}
+        base={item.baseRefName}
+        className="pull-request-list__branches"
+      />
       <span className="pull-request-list__meta">
         <Badges item={item} />
       </span>

@@ -51,6 +51,8 @@ interface BadgeNode {
   mergeStateStatus?: string;
   reviewDecision?: string | null;
   updatedAt?: string;
+  baseRefName?: string;
+  headRefName?: string;
   repository?: { nameWithOwner?: string; owner?: { login?: string }; name?: string };
   commits?: { nodes?: { commit?: { statusCheckRollup?: { state?: string } | null } }[] };
   reviewRequests?: { nodes?: { requestedReviewer?: RawReviewer | null }[] };
@@ -200,6 +202,8 @@ function toListItem(node: BadgeNode): PrListItem | null {
     owner,
     repo,
     nameWithOwner: node.repository?.nameWithOwner ?? `${owner}/${repo}`,
+    baseRefName: node.baseRefName ?? '',
+    headRefName: node.headRefName ?? '',
     isDraft: node.isDraft === true,
     mergeable: toMergeableState(node.mergeable),
     mergeState: toMergeState(node.mergeStateStatus),

@@ -725,6 +725,8 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
       checks: summary.checks,
       reviewers: summary.reviewers,
       updatedAt: summary.updatedAt,
+      baseRefName: summary.baseRefName,
+      headRefName: summary.headRefName,
     };
 
     let changed = false;
