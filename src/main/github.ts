@@ -58,9 +58,22 @@ export class GitHubRateLimitError extends Error {
 
 /** Anything else `gh` reported. Carries the first line of stderr verbatim. */
 export class GitHubError extends Error {
-  constructor(message: string) {
+  /**
+   * GraphQL's `errors[].type` when the failure came from a GraphQL envelope,
+   * null when it came from stderr.
+   *
+   * Kept because some of those types describe the *shape* of the answer
+   * rather than a failure — `NOT_ORG_OWNED_REPO` says a personal repository
+   * cannot hold custom properties, which is a fact about the repository, not
+   * a request that went wrong. Matching on the message text instead would put
+   * that distinction at the mercy of GitHub's wording.
+   */
+  readonly type: string | null;
+
+  constructor(message: string, type: string | null = null) {
     super(message);
     this.name = 'GitHubError';
+    this.type = type;
   }
 }
 
@@ -78,15 +91,24 @@ interface GhFailure {
   code: string | undefined;
 }
 
+interface GhResult {
+  stdout: string;
+  /** Null when `gh` exited 0. */
+  failure: Error | null;
+}
+
 /**
- * Run `gh` and resolve its stdout.
+ * Run `gh` and resolve both the output and the failure, whatever the exit
+ * status.
  *
- * `stdin` is written to the child when supplied — that is how GraphQL
- * documents and mutation variables are passed, because `-f key=value` cannot
- * express a nested input object at all.
+ * `gh api graphql` exits non-zero when the envelope carries `errors[]` and
+ * *still* prints that envelope to stdout. Rejecting on the exit status alone
+ * therefore throws the structured error away — its `type` in particular —
+ * leaving only the first line of stderr, which is prose GitHub is free to
+ * reword at any time.
  */
-export function ghExec(args: string[], options: GhExecOptions = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
+function ghExecSettled(args: string[], options: GhExecOptions = {}): Promise<GhResult> {
+  return new Promise((resolve) => {
     const child = execFile(
       'gh',
       args,
@@ -95,11 +117,15 @@ export function ghExec(args: string[], options: GhExecOptions = {}): Promise<str
         maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
       },
       (err, stdout, stderr) => {
-        if (!err) {
-          resolve((stdout as string) ?? '');
-          return;
-        }
-        reject(mapExecError({ stderr: (stderr as string) ?? '', code: (err as NodeJS.ErrnoException).code }));
+        resolve({
+          stdout: (stdout as string) ?? '',
+          failure: err
+            ? mapExecError({
+              stderr: (stderr as string) ?? '',
+              code: (err as NodeJS.ErrnoException).code,
+            })
+            : null,
+        });
       }
     );
 
@@ -107,6 +133,19 @@ export function ghExec(args: string[], options: GhExecOptions = {}): Promise<str
       child.stdin?.end(options.stdin);
     }
   });
+}
+
+/**
+ * Run `gh` and resolve its stdout.
+ *
+ * `stdin` is written to the child when supplied — that is how GraphQL
+ * documents and mutation variables are passed, because `-f key=value` cannot
+ * express a nested input object at all.
+ */
+export async function ghExec(args: string[], options: GhExecOptions = {}): Promise<string> {
+  const { stdout, failure } = await ghExecSettled(args, options);
+  if (failure) throw failure;
+  return stdout;
 }
 
 /**
@@ -193,33 +232,40 @@ interface GraphqlEnvelope<T> {
  *
  * Throws on a non-empty `errors[]` even when the process exits 0: GraphQL
  * reports partial failure with a success status, so trusting the exit code
- * alone silently renders half a pull request.
+ * alone silently renders half a pull request. The envelope is read *before*
+ * the exit status for the mirror-image reason — a top-level error makes `gh`
+ * exit non-zero while still printing the typed error, and only the envelope
+ * says which kind it was.
  */
 export async function ghGraphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  let raw: string;
-  try {
-    raw = await ghExec(['api', 'graphql', '--input', '-'], {
-      stdin: JSON.stringify({ query, variables }),
-    });
-  } catch (err) {
-    throw await withResetTime(err as Error);
-  }
+  const { stdout, failure } = await ghExecSettled(['api', 'graphql', '--input', '-'], {
+    stdin: JSON.stringify({ query, variables }),
+  });
 
-  let envelope: GraphqlEnvelope<T>;
+  let envelope: GraphqlEnvelope<T> | null;
   try {
-    envelope = JSON.parse(raw) as GraphqlEnvelope<T>;
+    envelope = JSON.parse(stdout) as GraphqlEnvelope<T>;
   } catch {
-    throw new GitHubError('GitHub returned a malformed GraphQL response');
+    envelope = null;
   }
 
-  if (envelope.errors && envelope.errors.length > 0) {
-    const messages = envelope.errors.map((e) => e.message).filter(Boolean);
+  if (envelope?.errors && envelope.errors.length > 0) {
     if (envelope.errors.some((e) => e.type === 'RATE_LIMITED')) {
       throw await withResetTime(new GitHubRateLimitError(null));
     }
-    throw new GitHubError(messages[0] ?? 'GraphQL request failed');
+    // The first error *with a message*, so the reported type belongs to the
+    // reported wording rather than to a different entry in the list.
+    const first = envelope.errors.find((e) => e.message) ?? envelope.errors[0];
+    throw new GitHubError(first?.message ?? 'GraphQL request failed', first?.type ?? null);
   }
 
+  // No envelope error, so an exit status is the only thing left that can say
+  // the call failed — a 401 answers with a bare `message` body, not `errors[]`.
+  if (failure) throw await withResetTime(failure);
+
+  if (!envelope) {
+    throw new GitHubError('GitHub returned a malformed GraphQL response');
+  }
   if (envelope.data === undefined) {
     throw new GitHubError('GitHub returned no data');
   }

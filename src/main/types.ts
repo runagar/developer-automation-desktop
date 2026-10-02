@@ -216,6 +216,7 @@ export interface IpcApi {
   githubSetReviewers: (
     pullRequestId: string, userLogins: string[], teamLogins: string[]
   ) => Promise<PrReviewer[]>;
+  githubGetOwners: (ref: PrRef) => Promise<PrOwners>;
 
   // Auto-updater
   onUpdaterStatus: (cb: (status: { state: 'downloading' | 'ready' | 'installing' | 'manual'; version: string; command?: string }) => void) => () => void;
@@ -425,6 +426,32 @@ export type PrMergeStateStatus =
  */
 export type PrReviewerState =
   | 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING_REQUEST';
+
+/** One member of the team that owns a repository. */
+export interface PrOwner {
+  login: string;
+  /** Display name, when the account has one. */
+  name: string | null;
+}
+
+/**
+ * The owning team of the repository a pull request lives in, as reviewer
+ * candidates.
+ *
+ * Empty — not an error — when the repository names no owning team or the
+ * viewer cannot read it: a personal repository holds no custom properties at
+ * all, and the picker still offers free text and GitHub's own suggestions.
+ */
+export interface PrOwners {
+  /**
+   * The team itself as a reviewer: `org/team-slug`, the form
+   * `requestReviewsByLogin` needs. Null when there is no owning team.
+   */
+  teamKey: string | null;
+  /** The team's display name, for the section label. */
+  teamName: string | null;
+  members: PrOwner[];
+}
 
 export interface PrReviewer {
   /** Login for a user, bare slug for a team. Display only. */

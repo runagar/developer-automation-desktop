@@ -219,6 +219,7 @@ const api: IpcApi = {
   githubClose: (pullRequestId) => ipcRenderer.invoke('github:close', pullRequestId),
   githubSetReviewers: (pullRequestId, userLogins, teamLogins) =>
     ipcRenderer.invoke('github:setReviewers', pullRequestId, userLogins, teamLogins),
+  githubGetOwners: (ref) => ipcRenderer.invoke('github:getOwners', ref),
 
   // Auto-updater
   onUpdaterStatus: (cb) => {

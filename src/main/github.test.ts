@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { execFile } from 'child_process';
 import {
   GitHubAuthError, GitHubError, GitHubRateLimitError, GitHubUnavailableError,
-  __test__, githubErrorMessage,
+  __test__, ghGraphql, githubErrorMessage,
 } from './github';
+
+vi.mock('child_process', () => ({ execFile: vi.fn() }));
 
 const { mapExecError, pageUrl } = __test__;
 
@@ -80,5 +83,76 @@ describe('pageUrl', () => {
   it('appends pagination with the right separator', () => {
     expect(pageUrl('repos/o/r/pulls/1/files', 2)).toBe('repos/o/r/pulls/1/files?per_page=100&page=2');
     expect(pageUrl('repos/o/r/compare/a...b?x=1', 3)).toBe('repos/o/r/compare/a...b?x=1&per_page=100&page=3');
+  });
+});
+
+describe('ghGraphql', () => {
+  /**
+   * `gh api graphql` exits non-zero on a top-level GraphQL error and still
+   * prints the envelope, so these assert the envelope is read first.
+   */
+  function mockGh(stdout: string, failure: Error | null, stderr = ''): void {
+    vi.mocked(execFile).mockImplementation(((
+      _cmd: unknown, _args: unknown, _opts: unknown, cb: (e: unknown, o: string, s: string) => void
+    ) => {
+      cb(failure, stdout, stderr);
+      return { stdin: { end: () => undefined } };
+    }) as never);
+  }
+
+  it('keeps the GraphQL error type when gh exits non-zero', async () => {
+    // Given a personal repository asked for custom property values: GitHub
+    // answers with data *and* a typed top-level error, and gh exits 1.
+    mockGh(
+      JSON.stringify({
+        data: { repository: { repositoryCustomPropertyValues: null } },
+        errors: [{
+          type: 'NOT_ORG_OWNED_REPO',
+          message: 'All repositories must belong to an organization to view custom property values.',
+        }],
+      }),
+      new Error('exit 1'),
+      'gh: All repositories must belong to an organization to view custom property values.'
+    );
+
+    // When
+    const err = await ghGraphql('query { x }').catch((e: unknown) => e);
+
+    // Then: the type survives, so a caller can tell this apart from a failure.
+    expect(err).toBeInstanceOf(GitHubError);
+    expect((err as GitHubError).type).toBe('NOT_ORG_OWNED_REPO');
+  });
+
+  it('reports the first error that actually carries a message', async () => {
+    mockGh(JSON.stringify({ errors: [{ type: 'A', message: '' }, { type: 'B', message: 'real' }] }), null);
+
+    const err = await ghGraphql('query { x }').catch((e: unknown) => e);
+
+    expect((err as GitHubError).message).toBe('real');
+    expect((err as GitHubError).type).toBe('B');
+  });
+
+  it('still fails on an exit status when the body has no errors[]', async () => {
+    // A 401 answers with a bare `message` body, not a GraphQL envelope.
+    mockGh(
+      JSON.stringify({ message: 'Bad credentials' }),
+      new Error('exit 1'),
+      'gh: Bad credentials (HTTP 401)'
+    );
+
+    const err = await ghGraphql('query { x }').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(GitHubAuthError);
+  });
+
+  it('carries no type for an error that came from stderr', () => {
+    expect(mapExecError({ stderr: 'gh: something broke', code: undefined }))
+      .toMatchObject({ type: null });
+  });
+
+  it('returns data when gh succeeds', async () => {
+    mockGh(JSON.stringify({ data: { viewer: { login: 'octocat' } } }), null);
+
+    await expect(ghGraphql('query { x }')).resolves.toEqual({ viewer: { login: 'octocat' } });
   });
 });

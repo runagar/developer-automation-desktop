@@ -979,7 +979,11 @@
 .pr-reviewers {
   position: absolute;
   top: calc(100% + 2px);
-  left: 0;
+  /* Anchored to the button's right edge, not its left: the trigger is pushed
+     to the end of the status row by `margin-left: auto`, so a popover growing
+     rightwards leaves the panel. */
+  right: 0;
+  left: auto;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -1028,4 +1032,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 3px;
+}
+
+/* An `org/team-slug` chip is wider than the popover; it truncates rather than
+   pushing the box past its own edge. */
+.pr-reviewers__suggestions .btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An owning team runs to a dozen or more names; the popover scrolls rather
+   than growing past the panel it hangs from. */
+.pr-reviewers__owners {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 150px;
+  overflow-y: auto;
 }

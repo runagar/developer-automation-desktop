@@ -1,5 +1,6 @@
 import { IpcMain } from 'electron';
 import { githubErrorMessage } from '../github';
+import { getOwners } from '../githubOwners';
 import { listPullRequests } from '../githubPrs';
 import {
   addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, getDiff,
@@ -122,4 +123,6 @@ export function registerGitHubHandlers(ipcMain: IpcMain, dataDir: string): void 
     handled((_e, pullRequestId: string, userLogins: string[], teamLogins: string[]) =>
       setReviewers(pullRequestId, userLogins, teamLogins))
   );
+
+  ipcMain.handle('github:getOwners', handled((_e, ref: PrRef) => getOwners(ref)));
 }

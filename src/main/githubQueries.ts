@@ -689,3 +689,54 @@ mutation SetReviewers($pullRequestId: ID!, $userLogins: [String!], $teamSlugs: [
   }
 }
 `;
+
+/**
+ * The `responsible_team` custom repository property.
+ *
+ * A *separate* document from everything else about the repository: a
+ * personal repository answers `repositoryCustomPropertyValues` with a
+ * top-level `NOT_ORG_OWNED_REPO` error even though `data` is present, and
+ * `ghGraphql` — rightly — throws on `errors[]`. Folding this into the summary
+ * would make every pull request in a personal repository fail to load, the
+ * same trap `PR_COMPARE_QUERY` exists to avoid.
+ */
+export const REPO_PROPERTIES_QUERY = `
+query RepoProperties($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    repositoryCustomPropertyValues(first: 100) {
+      nodes {
+        propertyName
+        value
+      }
+    }
+  }
+}
+`;
+
+/**
+ * The members of one organisation team.
+ *
+ * `membership: ALL` rather than `IMMEDIATE`: a parent team's owners include
+ * everyone in its child teams, and a repository pointed at a department-level
+ * team would otherwise come back empty.
+ */
+export const TEAM_MEMBERS_QUERY = `
+query TeamMembers($org: String!, $slug: String!, $cursor: String) {
+  organization(login: $org) {
+    team(slug: $slug) {
+      name
+      combinedSlug
+      members(first: 100, membership: ALL, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          login
+          name
+        }
+      }
+    }
+  }
+}
+`;
