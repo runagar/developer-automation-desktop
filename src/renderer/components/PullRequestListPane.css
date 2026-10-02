@@ -173,7 +173,11 @@
   color: var(--c-mid);
 }
 
+/* `inline-flex` so an icon glyph sits on the text baseline rather than
+   stretching the chip; `currentColor` keeps it on the per-state colour. */
 .pull-request-list__reviewer-glyph {
+  display: inline-flex;
+  align-items: center;
   font-size: 0.68rem;
 }
 

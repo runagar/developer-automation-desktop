@@ -411,7 +411,7 @@ describe('background refresh', () => {
     // Requirement 4. Drafts are cleared by `select()` — changing pull request
     // — and must survive any number of refreshes of the same one.
     const drafts = { 'overview:PR1': 'half a thought', 'diff:a.ts:RIGHT:3:3': 'nit' };
-    const diffSelections = { 'a.ts': { hunkIndex: 0, from: 3, to: 3 } };
+    const diffSelections = { 'a.ts': { hunkIndex: 0, from: 3, to: 3, side: null } };
     useGitHubStore.setState({ drafts, diffSelections });
     dad.githubGetPullRequest = vi.fn().mockResolvedValue(detail({ summary: summary() }));
 
@@ -466,7 +466,7 @@ describe('a file that leaves the diff', () => {
       detail: detail({ summary: { id: 'PR1', changedFiles: 2 } as PrSummary }),
       diffRef: { kind: 'pr' }, selectedPath: 'gone.ts', diffNotice: null,
       drafts: { 'diff:gone.ts:RIGHT:3:3': 'unsent', 'diff:kept.ts:RIGHT:1:1': 'safe' },
-      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3 } },
+      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3, side: null } },
     });
     dad.githubGetPullRequest = vi.fn().mockResolvedValue(
       detail({ summary: { id: 'PR1', changedFiles: 2 } as PrSummary })
@@ -494,7 +494,7 @@ describe('a file that leaves the diff', () => {
     // Interrupting them to report that nothing was lost is just noise.
     useGitHubStore.setState({
       drafts: { 'diff:gone.ts:RIGHT:3:3': '' },
-      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3 } },
+      diffSelections: { 'gone.ts': { hunkIndex: 0, from: 3, to: 3, side: null } },
     });
 
     await useGitHubStore.getState().reloadDetail();
@@ -647,14 +647,14 @@ describe('diff comment selections', () => {
   it('keeps the selection a draft hangs off, per file', () => {
     // Without this the restored draft has nothing to render into: the
     // composer only exists while a line selection does.
-    useGitHubStore.getState().setDiffSelection('src/a.ts', { hunkIndex: 0, from: 2, to: 4 });
-    useGitHubStore.getState().setDiffSelection('src/b.ts', { hunkIndex: 1, from: 7, to: 7 });
-    expect(useGitHubStore.getState().diffSelections['src/a.ts']).toEqual({ hunkIndex: 0, from: 2, to: 4 });
-    expect(useGitHubStore.getState().diffSelections['src/b.ts']).toEqual({ hunkIndex: 1, from: 7, to: 7 });
+    useGitHubStore.getState().setDiffSelection('src/a.ts', { hunkIndex: 0, from: 2, to: 4, side: null });
+    useGitHubStore.getState().setDiffSelection('src/b.ts', { hunkIndex: 1, from: 7, to: 7, side: null });
+    expect(useGitHubStore.getState().diffSelections['src/a.ts']).toEqual({ hunkIndex: 0, from: 2, to: 4, side: null });
+    expect(useGitHubStore.getState().diffSelections['src/b.ts']).toEqual({ hunkIndex: 1, from: 7, to: 7, side: null });
   });
 
   it('removes the entry when cleared', () => {
-    useGitHubStore.getState().setDiffSelection('src/a.ts', { hunkIndex: 0, from: 1, to: 1 });
+    useGitHubStore.getState().setDiffSelection('src/a.ts', { hunkIndex: 0, from: 1, to: 1, side: null });
     useGitHubStore.getState().setDiffSelection('src/a.ts', null);
     expect('src/a.ts' in useGitHubStore.getState().diffSelections).toBe(false);
   });
@@ -662,7 +662,7 @@ describe('diff comment selections', () => {
   it('drops selections when the diff ref changes', () => {
     // Hunk and line indices only mean something against the diff they were
     // taken from.
-    useGitHubStore.setState({ diffSelections: { 'src/a.ts': { hunkIndex: 0, from: 1, to: 1 } } });
+    useGitHubStore.setState({ diffSelections: { 'src/a.ts': { hunkIndex: 0, from: 1, to: 1, side: null } } });
     useGitHubStore.getState().setDiffRef({ kind: 'commit', oid: 'abc', abbreviatedOid: 'abc' });
     expect(useGitHubStore.getState().diffSelections).toEqual({});
   });

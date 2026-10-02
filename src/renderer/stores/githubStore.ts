@@ -22,6 +22,7 @@ import {
   PrTimelineRow,
 } from '../../main/types';
 import { emptyLists } from '../../main/githubPrLists';
+import { DiffSide } from '../../main/githubDiff';
 
 const SELECTION_KEY = 'dad-git-selection';
 const DIFF_MODE_KEY = 'dad-git-diff-mode';
@@ -46,6 +47,13 @@ export interface DiffLineSelection {
   hunkIndex: number;
   from: number;
   to: number;
+  /**
+   * The split-view column the drag happened in; null in unified view, which
+   * has one column covering both sides. `from`/`to` are *unified* line
+   * indexes either way, so without this a right-column drag across a modified
+   * block would silently include the deletions sitting between its endpoints.
+   */
+  side: DiffSide | null;
 }
 
 /** What the header's merge split button runs by default. */

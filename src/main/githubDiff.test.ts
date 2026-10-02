@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  anchorForLine, anchorForSelection, lineMatchesAnchor, parsePatch, toSplitRows,
+  anchorForLine, anchorForRange, anchorForSelection, lineMatchesAnchor, parsePatch, toSplitRows,
 } from './githubDiff';
 
 describe('parsePatch', () => {
@@ -156,11 +156,41 @@ describe('anchorForSelection', () => {
     expect(anchorForSelection(hunk, 2, 1)).toEqual(anchorForSelection(hunk, 1, 2));
   });
 
-  it('rejects a selection spanning both sides', () => {
-    // GitHub rejects this too, but with an unhelpful error; refusing here is
-    // what stops the UI producing an anchor that cannot be posted.
+  it('spans a modified block as LEFT → RIGHT', () => {
+    // GitHub takes `startSide` and `side` separately; a selection covering a
+    // deletion and the addition that replaces it is expressed as the old
+    // number on the left and the new number on the right. Verified against
+    // real review comments, e.g. rust-lang/rust#163494.
     const [hunk] = parsePatch('@@ -1,2 +1,2 @@\n-a\n+A').hunks;
-    expect(anchorForSelection(hunk, 0, 1)).toBeNull();
+    expect(anchorForSelection(hunk, 0, 1)).toEqual({
+      line: 1, side: 'RIGHT', startLine: 1, startSide: 'LEFT',
+    });
+  });
+
+  it('spans a whole modified block from its first deletion to its last addition', () => {
+    const [hunk] = parsePatch('@@ -10,3 +10,4 @@\n-a\n-b\n-c\n+A\n+B\n+C\n+D').hunks;
+    expect(anchorForSelection(hunk, 0, 6)).toEqual({
+      line: 13, side: 'RIGHT', startLine: 10, startSide: 'LEFT',
+    });
+  });
+
+  it('refuses a mixed selection that runs right to left', () => {
+    // An addition first and a deletion last has no representation: the range
+    // would have to travel backwards through the diff.
+    const [hunk] = parsePatch('@@ -10,3 +10,3 @@\n-a\n+A\n ctx\n-b\n+B').hunks;
+    expect(anchorForSelection(hunk, 1, 3)).toBeNull();
+  });
+
+  it('ignores the other column when the selection is clamped to one side', () => {
+    // Split view: dragging down the right-hand column crosses deletions that
+    // sit between the endpoints in unified order but were never swept over.
+    const [hunk] = parsePatch('@@ -10,3 +10,3 @@\n-a\n+A\n ctx\n-b\n+B').hunks;
+    expect(anchorForSelection(hunk, 1, 4, 'RIGHT')).toEqual({
+      line: 12, side: 'RIGHT', startLine: 10, startSide: 'RIGHT',
+    });
+    expect(anchorForSelection(hunk, 0, 3, 'LEFT')).toEqual({
+      line: 12, side: 'LEFT', startLine: 10, startSide: 'LEFT',
+    });
   });
 
   it('lets context lines join a left-side selection using their old numbers', () => {
@@ -179,6 +209,37 @@ describe('anchorForSelection', () => {
     const [hunk] = parsePatch('@@ -1,1 +1,2 @@\n+a').hunks;
     expect(anchorForSelection(hunk, 0, 9)).toBeNull();
     expect(anchorForSelection(hunk, -1, 0)).toBeNull();
+  });
+});
+
+describe('anchorForRange', () => {
+  it('anchors a single line without a range', () => {
+    const [hunk] = parsePatch('@@ -1,1 +1,2 @@\n+a').hunks;
+    expect(anchorForRange(hunk, 0, 0)).toEqual({
+      line: 1, side: 'RIGHT', startLine: null, startSide: null,
+    });
+  });
+
+  it('collapses to a single line when a clamped selection covers only one', () => {
+    // Two split rows can hold one commentable line on the chosen side, so the
+    // index range says "multi" while the anchor must not: GitHub rejects a
+    // range whose start equals its end.
+    const [hunk] = parsePatch('@@ -1,2 +1,2 @@\n-a\n+A').hunks;
+    expect(anchorForRange(hunk, 0, 1, 'RIGHT')).toEqual({
+      line: 1, side: 'RIGHT', startLine: null, startSide: null,
+    });
+  });
+
+  it('keeps the range when the selection really covers several lines', () => {
+    const [hunk] = parsePatch('@@ -1,1 +1,3 @@\n ctx\n+a\n+b').hunks;
+    expect(anchorForRange(hunk, 1, 2)).toEqual({
+      line: 3, side: 'RIGHT', startLine: 2, startSide: 'RIGHT',
+    });
+  });
+
+  it('returns null for an out-of-range index', () => {
+    const [hunk] = parsePatch('@@ -1,1 +1,2 @@\n+a').hunks;
+    expect(anchorForRange(hunk, 0, 9)).toBeNull();
   });
 });
 

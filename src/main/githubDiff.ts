@@ -182,39 +182,69 @@ export interface MultiLineAnchor {
   startSide: DiffSide;
 }
 
+/** True when `line` has a number on `side`, i.e. appears in that column. */
+function addressableOn(line: DiffLine, side: DiffSide): boolean {
+  return (side === 'LEFT' ? line.oldLine : line.newLine) !== null;
+}
+
 /**
- * The anchor for a multi-line selection, or null when the selection is not
- * one GitHub will accept.
+ * The lines a selection actually covers.
  *
- * The selection is clamped to a single hunk and a single side (ambiguity 29).
- * GitHub rejects the alternatives anyway, and doing it here — in tested, pure
- * code — means the UI cannot produce an invalid anchor by accident.
+ * In split view the drag happened in one column, but the selection is stored
+ * as a range of *unified* line indexes, which carry no side. The other
+ * column's lines sit between the endpoints in that order even though the user
+ * never swept over them — dragging down the right-hand column across a
+ * modified block would otherwise pick up its deletions. Restricting to the
+ * column keeps a contiguous run, because each column is exactly the context
+ * lines plus that side's changes, in order.
  */
-export function anchorForSelection(hunk: DiffHunk, fromIndex: number, toIndex: number): MultiLineAnchor | null {
+function linesInSelection(
+  hunk: DiffHunk, fromIndex: number, toIndex: number, restrictSide: DiffSide | null
+): DiffLine[] | null {
   const lo = Math.min(fromIndex, toIndex);
   const hi = Math.max(fromIndex, toIndex);
   if (lo < 0 || hi >= hunk.lines.length) return null;
 
   const selected = hunk.lines.slice(lo, hi + 1);
-  if (selected.length === 0) return null;
+  const kept = restrictSide ? selected.filter((l) => addressableOn(l, restrictSide)) : selected;
+  return kept.length > 0 ? kept : null;
+}
 
-  const anchors: LineAnchor[] = [];
-  for (const line of selected) {
-    const anchor = anchorForLine(line);
-    if (!anchor) return null;
-    anchors.push(anchor);
+/**
+ * The anchor for a multi-line selection, or null when the selection is not
+ * one GitHub will accept.
+ *
+ * The selection is clamped to a single hunk (ambiguity 29). `restrictSide`
+ * clamps it to one column as well, which is what split view needs.
+ *
+ * A selection covering both halves of a modified block is **not** rejected:
+ * `startSide` and `side` are separate inputs to `addPullRequestReviewThread`,
+ * and GitHub expresses that case as `LEFT` → `RIGHT` — start at the old
+ * number of the first deleted line, end at the new number of the last added
+ * one. The reverse has no representation, so a selection that begins on an
+ * addition and ends on a deletion is still refused.
+ */
+export function anchorForSelection(
+  hunk: DiffHunk, fromIndex: number, toIndex: number, restrictSide: DiffSide | null = null
+): MultiLineAnchor | null {
+  const selected = linesInSelection(hunk, fromIndex, toIndex, restrictSide);
+  if (!selected) return null;
+
+  const hasDel = selected.some((line) => line.kind === 'del');
+  const hasAdd = selected.some((line) => line.kind === 'add');
+
+  if (hasDel && hasAdd) {
+    const first = selected[0];
+    const last = selected[selected.length - 1];
+    // Null means the selection starts on an addition or ends on a deletion,
+    // i.e. it runs right-to-left; GitHub has no way to say that.
+    if (first.oldLine === null || last.newLine === null) return null;
+    return { line: last.newLine, side: 'RIGHT', startLine: first.oldLine, startSide: 'LEFT' };
   }
 
   // A context line is addressable from either side, so it must not by itself
   // decide the side of a selection that also contains real changes.
-  const changedSides = new Set(
-    selected
-      .map((line, idx) => (line.kind === 'context' ? null : anchors[idx].side))
-      .filter((s): s is DiffSide => s !== null)
-  );
-  if (changedSides.size > 1) return null;
-
-  const side: DiffSide = changedSides.size === 1 ? [...changedSides][0] : 'RIGHT';
+  const side: DiffSide = restrictSide ?? (hasDel ? 'LEFT' : 'RIGHT');
 
   // Re-derive every number on the chosen side; a context line inside a LEFT
   // selection must contribute its *old* number, not its new one.
@@ -230,6 +260,37 @@ export function anchorForSelection(hunk: DiffHunk, fromIndex: number, toIndex: n
   if (startLine === endLine) return null; // single line — use anchorForLine
 
   return { line: endLine, side, startLine, startSide: side };
+}
+
+/** A line or range anchor, in the shape `PrCommentAnchor` carries them. */
+export interface RangeAnchor {
+  line: number;
+  side: DiffSide;
+  startLine: number | null;
+  startSide: DiffSide | null;
+}
+
+/**
+ * The anchor for whatever a selection covers, single- or multi-line.
+ *
+ * The caller cannot decide which it is from the indexes alone: under
+ * `restrictSide` a two-row drag can still cover one commentable line, and
+ * asking for a range anchor then yields `startLine === line`, which GitHub
+ * rejects.
+ */
+export function anchorForRange(
+  hunk: DiffHunk, fromIndex: number, toIndex: number, restrictSide: DiffSide | null = null
+): RangeAnchor | null {
+  const multi = anchorForSelection(hunk, fromIndex, toIndex, restrictSide);
+  if (multi) return multi;
+
+  const selected = linesInSelection(hunk, fromIndex, toIndex, restrictSide);
+  if (!selected || selected.length === 0) return null;
+
+  // Collapsed to one line: anchor it exactly as a plain click would, so a
+  // thread posted this way lands where `threadsAt` looks for it.
+  const anchor = anchorForLine(selected[selected.length - 1]);
+  return anchor ? { line: anchor.line, side: anchor.side, startLine: null, startSide: null } : null;
 }
 
 /** Index of the hunk containing a line, or -1. Used to enforce the clamp. */

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, MessageSquareText } from 'lucide-react';
 import { PrList, PrListId, PrListItem, PrReviewer } from '../../main/types';
 import { useGitHubStore, sameRef } from '../stores/githubStore';
 import ConfirmDialog from './ConfirmDialog';
@@ -14,11 +14,17 @@ const SECTIONS: { id: PrListId; label: string }[] = [
   { id: 'listening', label: 'LISTENING' },
 ];
 
-/** Reviewer state glyphs. `COMMENTED` and `DISMISSED` stay distinct. */
-const REVIEWER_GLYPH: Record<PrReviewer['state'], string> = {
+/**
+ * Reviewer state glyphs. `COMMENTED` and `DISMISSED` stay distinct.
+ *
+ * Text glyphs where Roboto Mono has one. `COMMENTED` is an icon because the
+ * speech-balloon emoji it used to be is outside the font and rendered as a
+ * tofu box.
+ */
+const REVIEWER_GLYPH: Record<PrReviewer['state'], React.ReactNode> = {
   APPROVED: '✓',
   CHANGES_REQUESTED: '✗',
-  COMMENTED: '💬',
+  COMMENTED: <MessageSquareText size={11} />,
   DISMISSED: '⊘',
   PENDING_REQUEST: '·',
 };

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { PrCommentAnchor, PrDiffFile, PrReviewThread } from '../../main/types';
 import {
-  DiffLine, DiffHunk, anchorForLine, anchorForSelection, lineMatchesAnchor, parsePatch, toSplitRows,
+  DiffLine, DiffHunk, DiffSide, anchorForLine, anchorForRange, lineMatchesAnchor, parsePatch, toSplitRows,
 } from '../../main/githubDiff';
 import { DiffLineSelection, DiffViewMode, useGitHubStore } from '../stores/githubStore';
 import { cn } from '../utils/cn';
@@ -25,6 +25,8 @@ interface Drag {
   hunkIndex: number;
   from: number;
   to: number;
+  /** The split-view column it started in; null in unified view. */
+  side: DiffSide | null;
 }
 
 function gutter(line: DiffLine | null, side: 'old' | 'new'): string {
@@ -82,6 +84,7 @@ export default function DiffFileView({
           hunkIndex: d.hunkIndex,
           from: Math.min(d.from, d.to),
           to: Math.max(d.from, d.to),
+          side: d.side,
         });
       }
       setDrag(null);
@@ -117,7 +120,7 @@ export default function DiffFileView({
    * it began. `preventDefault` stops the browser beginning a text selection,
    * which is what keeps dragging here distinct from selecting the diff text.
    */
-  const addButton = (hunkIndex: number, lineIndex: number): React.ReactNode => {
+  const addButton = (hunkIndex: number, lineIndex: number, side: DiffSide | null): React.ReactNode => {
     if (!canComment) return null;
     return (
       <button
@@ -126,7 +129,7 @@ export default function DiffFileView({
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setDrag({ hunkIndex, from: lineIndex, to: lineIndex });
+          setDrag({ hunkIndex, from: lineIndex, to: lineIndex, side });
         }}
       >
         <Plus size={11} />
@@ -134,14 +137,22 @@ export default function DiffFileView({
     );
   };
 
-  /** Extends an in-progress drag; clamped to the hunk it started in. */
-  const extendDrag = (hunkIndex: number, lineIndex: number): void => {
-    setDrag((d) => (d && d.hunkIndex === hunkIndex ? { ...d, to: lineIndex } : d));
+  /** Extends an in-progress drag; clamped to the hunk and column it began in. */
+  const extendDrag = (hunkIndex: number, lineIndex: number, side: DiffSide | null): void => {
+    setDrag((d) => (d && d.hunkIndex === hunkIndex && d.side === side ? { ...d, to: lineIndex } : d));
   };
 
-  const highlighted = (hunkIndex: number, lineIndex: number): boolean => {
-    if (drag) return drag.hunkIndex === hunkIndex && inRange(drag, lineIndex);
-    return !!selection && selection.hunkIndex === hunkIndex && inRange(selection, lineIndex);
+  /**
+   * True when the line at `lineIndex` is covered by the current selection.
+   *
+   * `side` is the column being painted: a selection made in one split-view
+   * column must not light up the other, which shares the range's unified
+   * indexes but was never swept over.
+   */
+  const highlighted = (hunkIndex: number, lineIndex: number, side: DiffSide | null): boolean => {
+    const range = drag ?? selection;
+    if (!range || range.hunkIndex !== hunkIndex || range.side !== side) return false;
+    return inRange(range, lineIndex);
   };
 
   /**
@@ -150,32 +161,33 @@ export default function DiffFileView({
    * Placed inline rather than at the foot of the hunk so the comment sits
    * against the code it refers to — losing that adjacency is most of what
    * makes a diff comment readable.
+   *
+   * `candidates` are the unified line indexes the row being rendered occupies
+   * — one in unified view, up to two in split. Matching against all of them
+   * matters in split view, where a deleted line paired with an added one has
+   * the lower index of the two: keying off the higher one alone left a
+   * selection on the left-hand column with nowhere to draw its composer.
    */
-  const composerFor = (hunk: DiffHunk, hunkIndex: number, afterLine: number): React.ReactNode => {
+  const composerFor = (hunk: DiffHunk, hunkIndex: number, candidates: number[]): React.ReactNode => {
     if (!selection || selection.hunkIndex !== hunkIndex || drag) return null;
-    if (Math.max(selection.from, selection.to) !== afterLine) return null;
+    if (!candidates.includes(Math.max(selection.from, selection.to))) return null;
 
-    const multi = selection.from !== selection.to;
-    const anchor: PrCommentAnchor | null = multi
-      ? (() => {
-        const a = anchorForSelection(hunk, selection.from, selection.to);
-        return a ? { path: file.path, ...a } : null;
-      })()
-      : (() => {
-        const a = anchorForLine(hunk.lines[selection.from]);
-        return a ? { path: file.path, line: a.line, side: a.side, startLine: null, startSide: null } : null;
-      })();
+    const range = anchorForRange(hunk, selection.from, selection.to, selection.side);
+    const anchor: PrCommentAnchor | null = range ? { path: file.path, ...range } : null;
 
     if (!anchor) {
       return (
         <div className="panel-error">
-          That selection cannot be commented on — it spans both sides of the diff.
+          That selection cannot be commented on — a range must run from the old side to the new,
+          never the other way round.
           <button className="btn btn--micro panel-error__retry" onClick={() => setSelection(null)}>
             DISMISS
           </button>
         </div>
       );
     }
+
+    const multi = anchor.startLine !== null;
 
     return (
       <CommentComposer
@@ -222,19 +234,19 @@ export default function DiffFileView({
 
           {mode === 'unified'
             ? hunk.lines.map((line, lineIndex) => {
-              const composer = composerFor(hunk, hunkIndex, lineIndex);
+              const composer = composerFor(hunk, hunkIndex, [lineIndex]);
               return (
               <React.Fragment key={lineIndex}>
                 <div
                   className={cn(
                     lineClass(line.kind),
-                    highlighted(hunkIndex, lineIndex) && 'pr-diff__line--selected'
+                    highlighted(hunkIndex, lineIndex, null) && 'pr-diff__line--selected'
                   )}
-                  onMouseEnter={dragging ? () => extendDrag(hunkIndex, lineIndex) : undefined}
+                  onMouseEnter={dragging ? () => extendDrag(hunkIndex, lineIndex, null) : undefined}
                 >
                   <span className="pr-diff__gutter">{gutter(line, 'old')}</span>
                   <span className="pr-diff__gutter">{gutter(line, 'new')}</span>
-                  {addButton(hunkIndex, lineIndex)}
+                  {addButton(hunkIndex, lineIndex, null)}
                   <span className="pr-diff__marker">
                     {line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}
                   </span>
@@ -263,8 +275,9 @@ export default function DiffFileView({
                   ...(row.left ? threadsAt(row.left) : []),
                 ].map((t) => [t.id, t])
               ).values()];
-              const lastIndex = Math.max(leftIndex, rightIndex);
-              const composer = lastIndex >= 0 ? composerFor(hunk, hunkIndex, lastIndex) : null;
+              const composer = composerFor(
+                hunk, hunkIndex, [leftIndex, rightIndex].filter((i) => i >= 0)
+              );
 
               return (
                 <React.Fragment key={rowIndex}>
@@ -273,28 +286,28 @@ export default function DiffFileView({
                     className={cn(
                       'pr-diff__split-cell',
                       row.left && lineClass(row.left.kind),
-                      leftIndex >= 0 && highlighted(hunkIndex, leftIndex) && 'pr-diff__line--selected'
+                      leftIndex >= 0 && highlighted(hunkIndex, leftIndex, 'LEFT') && 'pr-diff__line--selected'
                     )}
                     onMouseEnter={dragging && leftIndex >= 0
-                      ? () => extendDrag(hunkIndex, leftIndex)
+                      ? () => extendDrag(hunkIndex, leftIndex, 'LEFT')
                       : undefined}
                   >
                     <span className="pr-diff__gutter">{gutter(row.left, 'old')}</span>
-                    {leftIndex >= 0 && addButton(hunkIndex, leftIndex)}
+                    {leftIndex >= 0 && addButton(hunkIndex, leftIndex, 'LEFT')}
                     <span className="pr-diff__content">{row.left?.content || '\u00a0'}</span>
                   </div>
                   <div
                     className={cn(
                       'pr-diff__split-cell',
                       row.right && lineClass(row.right.kind),
-                      rightIndex >= 0 && highlighted(hunkIndex, rightIndex) && 'pr-diff__line--selected'
+                      rightIndex >= 0 && highlighted(hunkIndex, rightIndex, 'RIGHT') && 'pr-diff__line--selected'
                     )}
                     onMouseEnter={dragging && rightIndex >= 0
-                      ? () => extendDrag(hunkIndex, rightIndex)
+                      ? () => extendDrag(hunkIndex, rightIndex, 'RIGHT')
                       : undefined}
                   >
                     <span className="pr-diff__gutter">{gutter(row.right, 'new')}</span>
-                    {rightIndex >= 0 && addButton(hunkIndex, rightIndex)}
+                    {rightIndex >= 0 && addButton(hunkIndex, rightIndex, 'RIGHT')}
                     <span className="pr-diff__content">{row.right?.content || '\u00a0'}</span>
                   </div>
                 </div>
@@ -302,7 +315,7 @@ export default function DiffFileView({
                   thread.id,
                   <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
                 ))}
-                {composer && inlineRow(`composer-${lastIndex}`, composer)}
+                {composer && inlineRow(`composer-${rowIndex}`, composer)}
                 </React.Fragment>
               );
             })}
