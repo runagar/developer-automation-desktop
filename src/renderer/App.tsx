@@ -189,23 +189,6 @@ export default function App(): React.ReactElement {
     prevActiveRef.current = activeSessionId;
   }, [activeSessionId]);
 
-  // OSC52 clipboard handling for PTY data
-  useEffect(() => {
-    const osc52Re = /\x1b\]52;[cps0-9]*;([A-Za-z0-9+/=]+)(?:\x07|\x1b\\)/g;
-    const unsub = window.dad.onPtyData((_panelInstanceId, data) => {
-      osc52Re.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = osc52Re.exec(data)) !== null) {
-        try {
-          window.dad.clipboardWrite(atob(match[1]));
-        } catch {
-          // Ignore invalid base64 clipboard payloads.
-        }
-      }
-    });
-    return unsub;
-  }, []);
-
   const handleCreateSession = useCallback(
     async (workingDir: string, project?: string) => {
       const session = await window.dad.createSession({ workingDir, project });

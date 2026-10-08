@@ -3,7 +3,7 @@ import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import { PanelInstanceWrapper } from './PanelInstanceWrapper';
 import ShellPane, { ShellPaneHandle } from './ShellPane';
-import { handleOsc52 } from '../utils/osc52';
+import { createOsc52Handler } from '../utils/osc52';
 import './TerminalPane.css';
 
 interface Props {
@@ -71,10 +71,10 @@ export default function ShellPanelInstance({
 
   // Listen for shell data for this panel instance
   useEffect(() => {
+    const decodeOsc52 = createOsc52Handler((text) => window.dad.clipboardWrite(text));
     const unsub = window.dad.onShellData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
-      const cleaned = handleOsc52(data);
-      shellRef.current?.write(cleaned);
+      shellRef.current?.write(decodeOsc52(data));
     });
     return unsub;
   }, [instance.id]);

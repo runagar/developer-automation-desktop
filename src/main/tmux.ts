@@ -116,6 +116,27 @@ export async function killTmuxSession(name: string): Promise<void> {
   }
 }
 
+/**
+ * Keep the viewport where it is when a copy ends above the live bottom.
+ *
+ * `mouse on` hands selection to tmux, whose default `MouseDragEnd1Pane` is
+ * `copy-pipe-and-cancel`: leaving copy-mode snaps the pane back to the bottom,
+ * losing the user's place the moment they copy something they scrolled up to
+ * read. Dropping `-and-cancel` outright is worse, though — selecting at the
+ * bottom would then strand the pane in copy-mode, where keystrokes never reach
+ * the shell. `scroll_position` tells the two apart: 0 means the user never
+ * scrolled, so cancel as before.
+ *
+ * Key tables are **server-global** — there is no per-session form — so this
+ * also applies to tmux sessions outside DAD on the same server. Both tables
+ * are bound because which one is live depends on `mode-keys`.
+ */
+const DRAG_END_BINDING = [
+  'if-shell', '-F', '#{==:#{scroll_position},0}',
+  'send-keys -X copy-pipe-and-cancel',
+  'send-keys -X copy-pipe',
+];
+
 async function configureTmuxSession(name: string): Promise<void> {
   const options: Array<[string, string]> = [
     ['mouse', 'on'],
@@ -125,15 +146,22 @@ async function configureTmuxSession(name: string): Promise<void> {
     ['set-clipboard', 'on'],
   ];
 
-  await Promise.all(
-    options.map(async ([key, value]) => {
+  await Promise.all([
+    ...options.map(async ([key, value]) => {
       try {
         await execTmuxQuiet(['set-option', '-t', name, key, value]);
       } catch {
         // non-fatal
       }
-    })
-  );
+    }),
+    ...['copy-mode', 'copy-mode-vi'].map(async (table) => {
+      try {
+        await execTmuxQuiet(['bind-key', '-T', table, 'MouseDragEnd1Pane', ...DRAG_END_BINDING]);
+      } catch {
+        // non-fatal
+      }
+    }),
+  ]);
 }
 
 /**

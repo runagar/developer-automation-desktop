@@ -4,7 +4,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { useJiraStore } from '../stores/jiraStore';
 import { PanelInstanceWrapper } from './PanelInstanceWrapper';
 import TerminalPane, { TerminalPaneHandle } from './TerminalPane';
-import { handleOsc52 } from '../utils/osc52';
+import { createOsc52Handler } from '../utils/osc52';
 import { Session } from '../../main/types';
 
 interface Props {
@@ -87,10 +87,10 @@ export default function TerminalPanelInstance({
 
   // Listen for PTY data for this panel instance
   useEffect(() => {
+    const decodeOsc52 = createOsc52Handler((text) => window.dad.clipboardWrite(text));
     const unsub = window.dad.onPtyData((panelInstanceId, data) => {
       if (panelInstanceId !== instance.id) return;
-      const cleaned = handleOsc52(data);
-      termRef.current?.write(cleaned);
+      termRef.current?.write(decodeOsc52(data));
       if (session) handleTerminalInput(session.id, data);
     });
     return unsub;
