@@ -29,6 +29,69 @@
   box-shadow: var(--glow);
 }
 
+/* Workspace picker menus (`WorkspaceMenuItems`): grouped `KEY  repo` rows.
+   Shared by the Sessions panel's NEW SESSION menu and the Open Pull Request
+   dialog. Scrolls rather than overflowing — it has no submenus to clip. */
+.dropdown.dropdown--workspaces {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.dropdown--workspaces .dropdown__header {
+  padding: 6px 10px;
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: var(--c-mid);
+  border-bottom: 1px solid var(--c-dark);
+}
+.dropdown--workspaces .dropdown__empty {
+  padding: 8px 10px;
+  font-size: 0.7rem;
+  color: var(--c-mid);
+}
+.dropdown--workspaces .dropdown__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: var(--c-bright);
+  font-family: inherit;
+  border-bottom: 1px solid var(--c-panel);
+}
+.dropdown--workspaces .dropdown__item:hover,
+.dropdown--workspaces .dropdown__item--highlighted {
+  background: var(--c-dark);
+  box-shadow: inset 0 0 0 1px var(--c-bright);
+}
+.dropdown--workspaces .dropdown__item--highlighted {
+  color: var(--c-bright);
+}
+.dropdown--workspaces .dropdown__item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.dropdown--workspaces .dropdown__key {
+  font-weight: 700;
+  color: var(--c-bright);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.dropdown--workspaces .dropdown__repo {
+  font-size: 0.62rem;
+  color: var(--c-mid);
+  text-align: right;
+  overflow-wrap: break-word;
+}
+
 /* Section header — auto-divider above (except first) */
 .dropdown__section {
   padding: 6px 10px 3px;

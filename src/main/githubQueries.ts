@@ -38,6 +38,7 @@ const PR_BADGE_FIELDS = `
   number
   title
   url
+  state
   isDraft
   mergeable
   mergeStateStatus
@@ -67,6 +68,35 @@ query PrBadges($ids: [ID!]!) {
   nodes(ids: $ids) {
     ... on PullRequest {
       ${PR_BADGE_FIELDS}
+    }
+  }
+}
+`;
+
+/** One repository's pull requests, for the Open Pull Request dialog (GIT4). */
+export const REPO_PULL_REQUESTS_QUERY = `
+query RepoPullRequests(
+  $owner: String!, $repo: String!, $states: [PullRequestState!], $first: Int!,
+  $order: IssueOrder, $cursor: String
+) {
+  repository(owner: $owner, name: $repo) {
+    nameWithOwner
+    pullRequests(states: $states, first: $first, orderBy: $order, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        number
+        title
+        isDraft
+        state
+        createdAt
+        closedAt
+        updatedAt
+        headRefName
+        baseRefName
+        author { login }
+        repository { nameWithOwner owner { login } name }
+      }
     }
   }
 }

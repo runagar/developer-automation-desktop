@@ -130,17 +130,42 @@ The pull request tab (GIT1), labelled `PULL!` and identified as `tab-pull-reques
 **Errors** are typed (`GitHubUnavailableError`, `GitHubAuthError`, `GitHubRateLimitError`, `GitHubError`) and mapped to wording at the IPC edge, exactly as `ipc/rest.ts` does for auth. **A 403 is not assumed to be rate limiting** — it is also SSO enforcement, an archived repo and a protected branch — so it maps to rate-limit only when the body says so *and* a reactive `gh api rate_limit` call (itself exempt) confirms `remaining === 0`. GraphQL reports partial failure with **exit code 0**, so a non-empty `errors[]` throws regardless of exit status.
 
 ### Your Pull Requests panel
-Three lists — `CREATED`, `REVIEWING`, `LISTENING` — across the orgs in `settings.json` (`github.orgs`, default `["Nykredit"]`, **restart-required**: `loadSettings` caches for the process lifetime, so there is deliberately no setter).
+Three lists: `CREATED`, `REVIEWING` and `OTHER`. The first two are searched across the orgs in `settings.json` (`github.orgs`, default `["Nykredit"]`). The orgs setting is **restart-required**: `loadSettings` caches for the process lifetime, so there is deliberately no setter. `OTHER` (GIT4) is hand-picked and never searched.
 
-- **Four searches, not three.** `review-requested:@me` matches only *outstanding* requests — submitting a review fulfils the request and the pull request drops out — so Reviewing is the union of that and `reviewed-by:@me`. Without it a reviewed PR reappears under Listening, where the user is least likely to look for their own work.
-- **GitHub has no `subscribed:` qualifier** (an unrecognised qualifier is not an error, it silently matches nothing), so Listening is `involves:@me` minus the other two.
-- All orgs are OR-ed into one query (`org:A org:B`), so the request count stays at four regardless of org count.
-- A pull request appears **once**, precedence Created > Reviewing > Listening.
-- **`more` is measured against what the search returned**, not against the list after precedence — subtracting the post-precedence length counts every PR that moved to another list as "missing", which showed "≈2 more" under Listening when nothing was hidden.
-- Open PRs only, drafts badged, sorted updated-descending, capped at 50 **after** merge and precedence.
-- Each row carries the **branch pair** (`<head> → <base>`) on its own line between the repository reference and the badges, rendered by the shared `BranchPair` component so it cannot drift from the viewer's. It shrinks and ellipsises rather than squeezing its neighbours — branch names are long and the panel is six columns wide. `syncListRow` mirrors it from the viewer's summary, so retargeting a base updates the row without a list refresh.
-- Reviewer chips pair a glyph with the login. Text glyphs where `Roboto Mono` has one; `COMMENTED` uses a lucide icon because the speech-balloon emoji is outside the font and rendered as a tofu box.
-- Refreshed by the auto-refresh loop below, and on demand; one in-flight guard stops focus storms stacking requests. Nothing is persisted.
+- **Three searches.** `review-requested:@me` matches only *outstanding* requests: submitting a review fulfils the request and the pull request drops out. Reviewing is therefore the union of that search and `reviewed-by:@me`. GIT4 removed the old `involves:@me` search that fed `LISTENING`; nothing populates `OTHER` automatically.
+- All orgs are OR-ed into one query (`org:A org:B`), so the request count does not grow with the org count.
+- Between `CREATED` and `REVIEWING` a pull request appears **once**, with Created taking precedence. `OTHER` ignores that precedence: it shows everything the user added, even when the same PR is also listed above.
+- **`more` is measured against what the search returned**, not against the list after precedence. Subtracting the post-precedence length counts every PR that moved to another list as "missing".
+- Searched lists hold open PRs only, drafts badged, sorted updated-descending, capped at 50 **after** merge and precedence.
+- Each row carries the **branch pair** (`<head> → <base>`) on its own line between the repository reference and the badges. It is rendered by the shared `BranchPair` component so it cannot drift from the viewer's, and it shrinks and ellipsises rather than squeezing its neighbours (branch names are long and the panel is six columns wide). `syncListRow` mirrors it from the viewer's summary, so retargeting a base updates the row without a list refresh.
+- Reviewer chips pair a glyph with the login. Text glyphs are used where `Roboto Mono` has one; `COMMENTED` uses a lucide icon because the speech-balloon emoji is outside the font and rendered as a tofu box.
+- Refreshed by the auto-refresh loop below, and on demand. One in-flight guard stops focus storms stacking requests.
+- **Section headers are a flex row, not a button**: a toggle button plus an optional action slot (`OTHER`'s `+ OPEN PR`). A button cannot contain a button, and the action must work whether the section is open or collapsed. Collapse state is held by the pane, memory-only, so adding a PR can expand `OTHER`.
+
+### OTHER section and the Open Pull Request dialog (GIT4)
+**Persistence.** `OTHER` stores identities only: `PrOtherEntry { id, owner, repo, number }` in `localStorage` key `dad-git-other-prs`. Row data is never stored, because it would go stale. The key is loaded through `parseOtherEntries`, which validates every field, de-duplicates by node id and degrades a corrupt payload to an empty list. Its only size guard is a 1 MB runaway ceiling; the list itself is uncapped.
+
+**Refresh.** `github:listPullRequests(otherIds)` badges the entries in the same pass as the searches, via `nodes(ids:)` chunked at 50.
+- A deleted or inaccessible PR comes back from `nodes(ids:)` as a `null` node **plus** a `NOT_FOUND` (or `FORBIDDEN`) error, and `gh` exits 1. That fetch therefore passes `ghGraphql`'s `tolerate` option, which returns `data` when every envelope error has a tolerated type. Rate limiting is never tolerated. Without the option, one vanished PR would fail the whole refresh, `CREATED` and `REVIEWING` included.
+- **`otherEntries` is authoritative.** Every entry renders a line. Entries with a fetched row show the full badged row. The rest show a minimal `#123 owner/repo` row, which still opens the PR by its stored ref. It reads `(unavailable)` and stops being clickable only once a **successful** refresh has failed to return it. Before the first successful load (startup, or offline), absence proves nothing; this is the API Picker's `servicesLoaded` rule.
+- **`reconcileOther`** composes the section from a response. It snapshots the ids that were sent: a fetched entry gets its row; a requested but missing entry is unavailable; an entry added mid-flight keeps its provisional row. Adding and removing are not `run()` mutations, so this is what stops an earlier refresh from undoing them. Bumping the list generation instead would discard a foreground response and leave `listsLoading` stuck.
+
+**Rows.**
+- A `CLOSED`/`MERGED` row shows that state as a neutral chip and suppresses `DRAFT`, `Conflicts!` and `Checking…`. GitHub reports `UNKNOWN` mergeability for a merged PR, which would otherwise read as "Checking…" forever.
+- Each row has a red `✕` (`.btn--micro .btn--danger`, the panel close button's style) in the bottom-right corner. It is a sibling of the row button inside a `position: relative` wrapper, and the row reserves right padding for it. It uses `onMouseDown` `preventDefault` because it unmounts on click (the API Picker star trap).
+- Removing never asks for confirmation, except when the PR is open in the viewer with a pending review; then the usual "Leave the review in progress?" dialog runs first. Removing the open PR calls `select(null)`, leaving the viewer's empty state.
+
+**The dialog (`OpenPrDialog`).**
+- **Owner.** Every workspace is assumed to be `OPEN_PR_OWNER/<repo>`, i.e. `Nykredit/<repo>`. That is a constant in `githubPrLists.ts`, deliberately not `github.orgs[0]`. A repository that does not resolve is an answer, not an error: `repository: null` with a `NOT_FOUND` error becomes `{ kind: 'not-found' }` and the dialog shows `Not a Nykredit GitHub repository`.
+- **Fetching.** `github:listRepoPullRequests(repo, 'open' | 'closed')`:
+  - **open** walks every open PR with the `collect` cursor loop (`CREATED_AT DESC`, 20-page cap, `truncated` footer). Drafts are filtered locally, so `show drafts` never refetches.
+  - **closed** fetches one page: `CLOSED` + `MERGED`, the 50 most recently **updated** (GitHub cannot order by closed date), sorted locally by `closedAt`. It is only fetched when `show closed` is first enabled for a repository.
+- **Ordering.** `orderCandidates` lists drafts, then open, then closed, each newest first. Both checkboxes start unchecked on every open.
+- **Repository picker.** `WorkspacePicker` defaults to the topmost workspace. The last pick persists to `dad-git-open-pr-workspace` as a workspace key and falls back to the topmost if that key no longer exists (`pickWorkspace`).
+- **Rows** are one line: `BranchPair` (capped at 40%), `#n title` (ellipsises), `DRAFT`/`CLOSED`/`MERGED`/`ADDED` chips, then `<author> DD-MM-YYYY HH:mm` (`absoluteTime`). The data comes from the dialog's lightweight query, which carries no badges.
+- **Picking a PR** closes the dialog, then `addOther(candidate)` (an upsert: refreshes a renamed repository's identity, clears an unavailable mark, never duplicates), then expands `OTHER`, then routes through the pane's `handleSelect`. The pending-review confirmation therefore gates only the viewer switch; the PR is added regardless. The new row starts provisional (`candidateToListItem`: `mergeable: UNKNOWN`, no checks, no reviewers) and is completed by `syncListRow` when the viewer loads it. `syncListRow` covers `OTHER` and mirrors `state` too.
+- **Layering.** The dialog lives inside the PR list panel's DOM, so its `.dialog-overlay` is raised into the **top layer** with `useTopLayer(ref, { anchorToParent: false })`. Every panel is its own stacking context, so a sibling panel would otherwise paint over it. `.dialog-overlay[popover]` in `pipboy.css` undoes the UA popover defaults. The repository `Dropdown` opens later and so stacks above it.
+- **Focus.** The dialog carries `data-focus-trap`. The Workspace Tab handler returns early for focus inside such an element (beside its `.dropdown` skip, and for `Ctrl+Tab` too), and the dialog runs its own Tab wrap. Focus moves to the repository trigger on open and back to `+ OPEN PR` on close. ESC, `CANCEL` and the backdrop all close it.
 
 ### PR Viewer panel
 Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
@@ -202,7 +227,7 @@ Three ordering hazards the guards exist for, each covered by a test:
 
 When the selected file leaves the diff, `nextSelectedPath` falls back to `files[0]` as before, the file's drafts and line selection are dropped, and **`diffNotice`** explains why. It renders as a third dismissible `panel-error` banner beside `error` and `actionError` — a separate field rather than reusing `actionError`, which `run()` owns and would overwrite. The notice fires on manual refresh too, not just background: silently dropping a draft is equally bad either way. It cannot misfire on a diff-ref *switch*, because `setDiffRef` nulls `selectedPath` before loading.
 
-**IPC channels:** `github:listPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers`, `github:getOwners` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
+**IPC channels:** `github:listPullRequests`, `github:listRepoPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers`, `github:getOwners` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
 
 **Reviewer edits are replace-set.** `requestReviewsByLogin` takes `userLogins` and **`teamSlugs`** (not `teamLogins`), and a team must be the **`org/team-slug`** form — the bare slug is rejected — so reviewers carry a `requestKey` alongside their display name. Only reviewers with an *outstanding request* belong in the submitted set: including past reviewers would re-request everyone and invalidate their approvals. Bots are excluded; the mutation rejects the whole call when given one.
 
@@ -759,6 +784,9 @@ Renderer process
 ├── PanelErrorBoundary   per-panel error boundary with retry
 ├── StateIndicator       idle / running / awaiting / dead pill
 ├── ConfirmDialog        modal confirmation for destructive actions
+├── OpenPrDialog         PULL! tab: browse a workspace's PRs and add one to OTHER (top-layer overlay, own Tab trap)
+├── WorkspacePicker      workspace dropdown trigger (DiffRefPicker pattern) over WorkspaceMenuItems
+├── WorkspaceMenuItems   grouped `KEY  repo` workspace menu body; shared by NEW SESSION ▾ and WorkspacePicker (`.dropdown--workspaces`)
 ├── WorkspaceDiscoveryDialog  first-launch / on-demand workspace discovery (inert backdrop, ESC = ✕)
 ├── TitleBar             frameless window controls + update indicator
 ├── UpdateIndicator      inline titlebar notification for available app updates
@@ -817,6 +845,8 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 `WorkspacePanel` sets `z-index: placement.z` on each `.workspace-panel`, so **every panel is its own stacking context**. A menu rendered inside a panel is clamped to that panel's context and can never out-stack a *sibling* panel — no `z-index` is large enough, because the value is only compared against its siblings inside the panel. The top layer sits above all stacking contexts and all `overflow: hidden` clipping, so it is the only fix that always holds.
 
 The hook is applied automatically by the shared `<Dropdown>` component, so anything built on it is already correct. Menus with bespoke markup must call it directly — `RestCrafterPane`'s local `Menu` component is the example to copy.
+
+**The same applies to a modal dialog rendered from inside a panel.** `OpenPrDialog` raises its `.dialog-overlay` with `useTopLayer(ref, { anchorToParent: false })`, and `.dialog-overlay[popover]` in `pipboy.css` resets the UA popover defaults so it still covers the window. Because a popover keeps its DOM position, the dialog stays inside the panel for focus purposes. It therefore marks itself `data-focus-trap`, which the Workspace Tab handler skips, and runs its own Tab cycle. Dialogs rendered from `App` level, outside every panel, need neither.
 
 Two properties keep it safe to retrofit onto existing menus:
 - `popover="manual"` (never `"auto"`) adds no light-dismiss and no Esc handling, so each menu keeps the open/close logic it already had.

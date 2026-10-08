@@ -1,0 +1,117 @@
+.open-pr-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(1000px, 90vw);
+  max-height: 85vh;
+  padding: 10px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-bright);
+  box-shadow: var(--glow-sm);
+}
+
+.open-pr-dialog__title-bar {
+  font-size: 0.78rem;
+  letter-spacing: 0.15em;
+  color: var(--c-bright);
+}
+
+.open-pr-dialog__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.open-pr-dialog__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.15em;
+  color: var(--c-mid);
+}
+
+.open-pr-dialog__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  color: var(--c-mid);
+  cursor: pointer;
+  user-select: none;
+}
+
+.open-pr-dialog__toggle:hover {
+  color: var(--c-bright);
+}
+
+.open-pr-dialog__toggle input {
+  margin: 0;
+  accent-color: var(--c-bright);
+  cursor: pointer;
+}
+
+.open-pr-dialog__list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--c-dark);
+}
+
+.open-pr-dialog__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  text-align: left;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--c-dark);
+  cursor: pointer;
+}
+
+.open-pr-dialog__row:hover,
+.open-pr-dialog__row:focus-visible {
+  background: var(--c-panel-hover);
+  outline: none;
+}
+
+.open-pr-dialog__branches {
+  flex: 0 0 auto;
+  max-width: 40%;
+}
+
+.open-pr-dialog__title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-bright);
+}
+
+.open-pr-dialog__meta {
+  flex-shrink: 0;
+  color: var(--c-mid);
+}
+
+.open-pr-dialog__notice {
+  padding: 6px 8px;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--c-mid);
+}
+
+.open-pr-dialog__notice--loading {
+  color: var(--c-checking);
+}
+
+.open-pr-dialog__notice--warn {
+  color: var(--c-warn);
+}
+
+.open-pr-dialog__buttons {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { LIST_CAP, assignLists, buildSearchQuery, emptyLists, mergeOutcomes } from './githubPrLists';
-import { PrListItem } from './types';
+import {
+  LIST_CAP, assignLists, buildOtherList, buildSearchQuery, candidateToListItem, emptyLists,
+  mergeOutcomes, orderCandidates, sortByUpdatedDesc, toPrState,
+} from './githubPrLists';
+import { PrCandidate, PrListItem } from './types';
 
 function item(id: string): PrListItem {
   return {
@@ -13,6 +16,7 @@ function item(id: string): PrListItem {
     nameWithOwner: 'Nykredit/repo',
     baseRefName: 'develop',
     headRefName: `feature/${id}`,
+    state: 'OPEN',
     isDraft: false,
     mergeable: 'MERGEABLE',
     mergeState: 'CLEAN',
@@ -37,7 +41,6 @@ describe('buildSearchQuery', () => {
   it('uses the right qualifier for each source', () => {
     expect(buildSearchQuery('reviewing', ['A'])).toContain('review-requested:@me');
     expect(buildSearchQuery('reviewed', ['A'])).toContain('reviewed-by:@me');
-    expect(buildSearchQuery('involves', ['A'])).toContain('involves:@me');
   });
 
   it('restricts to open pull requests', () => {
@@ -59,102 +62,58 @@ describe('assignLists', () => {
   const none = { ids: [], totalCount: 0 };
 
   it('places a pull request in exactly one list, Created first', () => {
-    const lists = assignLists(
-      { ids: ['a'], totalCount: 1 },
-      { ids: ['a'], totalCount: 1 },
-      { ids: ['a'], totalCount: 1 },
-      byId('a')
-    );
+    const lists = assignLists({ ids: ['a'], totalCount: 1 }, { ids: ['a'], totalCount: 1 }, byId('a'));
     expect(lists.created.items.map((i) => i.id)).toEqual(['a']);
     expect(lists.reviewing.items).toHaveLength(0);
-    expect(lists.listening.items).toHaveLength(0);
-  });
-
-  it('prefers Reviewing over Listening', () => {
-    const lists = assignLists(
-      none,
-      { ids: ['b'], totalCount: 1 },
-      { ids: ['b'], totalCount: 1 },
-      byId('b')
-    );
-    expect(lists.reviewing.items.map((i) => i.id)).toEqual(['b']);
-    expect(lists.listening.items).toHaveLength(0);
-  });
-
-  it('keeps Listening as involves minus the other two', () => {
-    const lists = assignLists(
-      { ids: ['a'], totalCount: 1 },
-      { ids: ['b'], totalCount: 1 },
-      { ids: ['a', 'b', 'c'], totalCount: 3 },
-      byId('a', 'b', 'c')
-    );
-    expect(lists.listening.items.map((i) => i.id)).toEqual(['c']);
   });
 
   it('drops an id with no detail rather than rendering a blank row', () => {
     // The detail query omits pull requests deleted or made inaccessible
     // between the search and the fetch.
-    const lists = assignLists({ ids: ['a', 'ghost'], totalCount: 2 }, none, none, byId('a'));
+    const lists = assignLists({ ids: ['a', 'ghost'], totalCount: 2 }, none, byId('a'));
     expect(lists.created.items.map((i) => i.id)).toEqual(['a']);
   });
 
   it('caps after precedence, not per source', () => {
-    // Capping each source first under-fills the result: `involves` is a
-    // superset, so its first page can be consumed entirely by precedence.
     const ids = Array.from({ length: LIST_CAP + 5 }, (_, i) => `pr${i}`);
-    const lists = assignLists(
-      { ids, totalCount: ids.length },
-      none,
-      { ids, totalCount: ids.length },
-      byId(...ids)
-    );
+    const lists = assignLists({ ids, totalCount: ids.length }, { ids, totalCount: ids.length }, byId(...ids));
     expect(lists.created.items).toHaveLength(LIST_CAP);
     expect(lists.created.more).toBe(5);
-    expect(lists.listening.items).toHaveLength(0);
+    expect(lists.reviewing.items).toHaveLength(0);
   });
 
   it('counts matches the search page never returned as "more"', () => {
-    const lists = assignLists({ ids: ['a'], totalCount: 120 }, none, none, byId('a'));
+    const lists = assignLists({ ids: ['a'], totalCount: 120 }, none, byId('a'));
     expect(lists.created.more).toBe(119);
   });
 
   it('does not count items moved to another list as missing', () => {
-    // Regression: one authored and one review-requested PR, both also
-    // matching `involves:@me`, made Listening report "≈2 more" when nothing
-    // was hidden — they were simply shown under Created and Reviewing.
-    const lists = assignLists(
-      { ids: ['a'], totalCount: 1 },
-      { ids: ['b'], totalCount: 1 },
-      { ids: ['a', 'b', 'c'], totalCount: 3 },
-      byId('a', 'b', 'c')
-    );
-    expect(lists.listening.items.map((i) => i.id)).toEqual(['c']);
-    expect(lists.listening.more).toBe(0);
-    expect(lists.listening.moreIsApproximate).toBe(false);
+    const lists = assignLists({ ids: ['a'], totalCount: 1 }, { ids: ['a', 'b'], totalCount: 2 }, byId('a', 'b'));
+    expect(lists.reviewing.items.map((i) => i.id)).toEqual(['b']);
+    expect(lists.reviewing.more).toBe(0);
+    expect(lists.reviewing.moreIsApproximate).toBe(false);
   });
 
-  it('marks only the Listening count approximate', () => {
-    const lists = assignLists(
-      { ids: ['a'], totalCount: 9 },
-      none,
-      { ids: ['a', 'c'], totalCount: 9 },
-      byId('a', 'c')
-    );
+  it('marks only the Reviewing remainder approximate', () => {
+    const lists = assignLists({ ids: ['a'], totalCount: 9 }, { ids: ['b'], totalCount: 9 }, byId('a', 'b'));
     expect(lists.created.moreIsApproximate).toBe(false);
-    // The server cannot subtract Created and Reviewing for us, so the
-    // Listening remainder overstates what is genuinely missing.
-    expect(lists.listening.moreIsApproximate).toBe(true);
-  });
-
-  it('never marks a zero remainder as approximate', () => {
-    const lists = assignLists(none, none, { ids: ['c'], totalCount: 1 }, byId('c'));
-    expect(lists.listening.more).toBe(0);
-    expect(lists.listening.moreIsApproximate).toBe(false);
+    expect(lists.reviewing.moreIsApproximate).toBe(true);
   });
 
   it('preserves search order (updated-descending)', () => {
-    const lists = assignLists({ ids: ['c', 'a', 'b'], totalCount: 3 }, none, none, byId('a', 'b', 'c'));
+    const lists = assignLists({ ids: ['c', 'a', 'b'], totalCount: 3 }, none, byId('a', 'b', 'c'));
     expect(lists.created.items.map((i) => i.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('no longer produces a list from `involves:@me`', () => {
+    // Given a pull request that only involves the user
+    // When the lists are assigned from the two searches
+    const lists = assignLists(none, none, byId('c'));
+
+    // Then nothing is populated automatically
+    expect(Object.keys(lists)).toEqual(['created', 'reviewing']);
+    expect(lists.created.items).toHaveLength(0);
+    expect(lists.reviewing.items).toHaveLength(0);
   });
 });
 
@@ -163,7 +122,7 @@ describe('emptyLists', () => {
     const lists = emptyLists();
     lists.created.items.push(item('a'));
     expect(lists.reviewing.items).toHaveLength(0);
-    expect(lists.listening.items).toHaveLength(0);
+    expect(lists.other.items).toHaveLength(0);
   });
 });
 
@@ -193,22 +152,136 @@ describe('mergeOutcomes', () => {
 });
 
 describe('reviewing after a review is submitted', () => {
-  it('keeps a reviewed pull request in Reviewing rather than Listening', () => {
+  it('keeps a reviewed pull request in Reviewing', () => {
     // `review-requested:@me` drops a pull request the moment the review is
-    // submitted, because the request is then fulfilled. Without the
-    // `reviewed-by:@me` union it falls through to Listening — where the user
-    // is least likely to look for their own outstanding work.
+    // submitted, because the request is then fulfilled; the `reviewed-by:@me`
+    // union keeps it listed.
     const reviewing = mergeOutcomes(
       { ids: [], totalCount: 0 },
       { ids: ['reviewed-pr'], totalCount: 1 }
     );
-    const lists = assignLists(
-      { ids: [], totalCount: 0 },
-      reviewing,
-      { ids: ['reviewed-pr'], totalCount: 1 },
-      byId('reviewed-pr')
-    );
+    const lists = assignLists({ ids: [], totalCount: 0 }, reviewing, byId('reviewed-pr'));
     expect(lists.reviewing.items.map((i) => i.id)).toEqual(['reviewed-pr']);
-    expect(lists.listening.items).toHaveLength(0);
+  });
+});
+
+function updated(id: string, at: string): PrListItem {
+  return { ...item(id), updatedAt: at };
+}
+
+function candidate(id: string, patch: Partial<PrCandidate> = {}): PrCandidate {
+  return {
+    id,
+    number: 1,
+    title: `PR ${id}`,
+    owner: 'Nykredit',
+    repo: 'rs-consent',
+    nameWithOwner: 'Nykredit/rs-consent',
+    headRefName: `feature/${id}`,
+    baseRefName: 'develop',
+    isDraft: false,
+    state: 'OPEN',
+    author: 'RULU_NYK',
+    createdAt: '2026-09-01T00:00:00Z',
+    closedAt: null,
+    updatedAt: '2026-09-01T00:00:00Z',
+    ...patch,
+  };
+}
+
+describe('toPrState', () => {
+  it('keeps closed and merged, and resolves anything else to open', () => {
+    expect(toPrState('CLOSED')).toBe('CLOSED');
+    expect(toPrState('MERGED')).toBe('MERGED');
+    expect(toPrState('OPEN')).toBe('OPEN');
+    expect(toPrState(undefined)).toBe('OPEN');
+    expect(toPrState('SOMETHING_NEW')).toBe('OPEN');
+  });
+});
+
+describe('sortByUpdatedDesc', () => {
+  it('orders newest update first without mutating the input', () => {
+    // Given
+    const input = [updated('a', '2026-01-01T00:00:00Z'), updated('b', '2026-03-01T00:00:00Z')];
+
+    // When
+    const sorted = sortByUpdatedDesc(input);
+
+    // Then
+    expect(sorted.map((i) => i.id)).toEqual(['b', 'a']);
+    expect(input.map((i) => i.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('buildOtherList', () => {
+  it('returns the found rows newest first, uncapped, and skips ids that did not resolve', () => {
+    // Given
+    const ids = Array.from({ length: LIST_CAP + 3 }, (_, i) => `o${i}`);
+    const byIdMap = new Map(ids.map((id, i) => [id, updated(id, new Date(2026, 0, i + 1).toISOString())]));
+    byIdMap.delete('o0');
+
+    // When
+    const list = buildOtherList([...ids, 'o1'], byIdMap);
+
+    // Then
+    expect(list.items).toHaveLength(LIST_CAP + 2);
+    expect(list.items[0].id).toBe(`o${LIST_CAP + 2}`);
+    expect(list.items.some((i) => i.id === 'o0')).toBe(false);
+    expect(list.more).toBe(0);
+  });
+});
+
+describe('candidateToListItem', () => {
+  it('builds a provisional row without inventing badges', () => {
+    // Given
+    const c = candidate('x', { number: 42, state: 'MERGED', isDraft: true });
+
+    // When
+    const row = candidateToListItem(c);
+
+    // Then
+    expect(row).toMatchObject({
+      id: 'x', number: 42, owner: 'Nykredit', repo: 'rs-consent', state: 'MERGED', isDraft: true,
+      checks: 'NONE', mergeable: 'UNKNOWN', reviewers: [],
+    });
+  });
+});
+
+describe('orderCandidates', () => {
+  const open = [
+    candidate('old-ready', { createdAt: '2026-01-01T00:00:00Z' }),
+    candidate('new-ready', { createdAt: '2026-03-01T00:00:00Z' }),
+    candidate('old-draft', { isDraft: true, createdAt: '2026-01-02T00:00:00Z' }),
+    candidate('new-draft', { isDraft: true, createdAt: '2026-03-02T00:00:00Z' }),
+  ];
+  const closed = [
+    candidate('closed-early', { state: 'CLOSED', closedAt: '2026-02-01T00:00:00Z' }),
+    candidate('merged-late', { state: 'MERGED', closedAt: '2026-04-01T00:00:00Z' }),
+  ];
+
+  it('shows only open non-draft pull requests by default, newest first', () => {
+    // When
+    const ordered = orderCandidates(open, closed, { showDrafts: false, showClosed: false });
+
+    // Then
+    expect(ordered.map((c) => c.id)).toEqual(['new-ready', 'old-ready']);
+  });
+
+  it('puts drafts first and closed last, each newest first', () => {
+    // When
+    const ordered = orderCandidates(open, closed, { showDrafts: true, showClosed: true });
+
+    // Then
+    expect(ordered.map((c) => c.id)).toEqual([
+      'new-draft', 'old-draft', 'new-ready', 'old-ready', 'merged-late', 'closed-early',
+    ]);
+  });
+
+  it('shows nothing closed until the closed page has loaded', () => {
+    // When
+    const ordered = orderCandidates(open, null, { showDrafts: false, showClosed: true });
+
+    // Then
+    expect(ordered.map((c) => c.id)).toEqual(['new-ready', 'old-ready']);
   });
 });

@@ -17,17 +17,24 @@
 
 import { create } from 'zustand';
 import {
-  PrBranchUpdateMethod, PrCommentAnchor, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrListId, PrLists,
-  PrMergeMethod, PrMergeOptions, PrRef, PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment,
-  PrTimelineRow,
+  PrBranchUpdateMethod, PrCandidate, PrCommentAnchor, PrDetail, PrDiff, PrDiffFile, PrDiffRef,
+  PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrOtherEntry, PrRef, PrReviewEvent,
+  PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, WorkspaceEntry, WorkspaceGroup,
 } from '../../main/types';
-import { emptyLists } from '../../main/githubPrLists';
+import {
+  candidateToListItem, emptyLists, sortByUpdatedDesc, toPrState,
+} from '../../main/githubPrLists';
 import { DiffSide } from '../../main/githubDiff';
 
 const SELECTION_KEY = 'dad-git-selection';
 const DIFF_MODE_KEY = 'dad-git-diff-mode';
 const MERGE_ACTION_KEY = 'dad-git-merge-action';
 const UPDATE_BRANCH_ACTION_KEY = 'dad-git-update-branch-action';
+const OTHER_KEY = 'dad-git-other-prs';
+const OPEN_PR_WORKSPACE_KEY = 'dad-git-open-pr-workspace';
+/** A runaway-payload guard only: `OTHER` itself is uncapped. */
+const OTHER_LIMIT = 1024 * 1024;
+const REF_SEGMENT = /^[^/\s]+$/;
 
 /**
  * The single cadence for keeping the tab current.
@@ -137,6 +144,92 @@ function vanishedFileNotice(path: string): string {
     + 'Your unsent comment on it could not be kept.';
 }
 
+export function parseOtherEntries(raw: string | null): PrOtherEntry[] {
+  if (!raw || raw.length > OTHER_LIMIT) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const entries: PrOtherEntry[] = [];
+    for (const value of parsed) {
+      const entry = toOtherEntry(value);
+      if (!entry || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      entries.push(entry);
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+function toOtherEntry(value: unknown): PrOtherEntry | null {
+  const v = value as Partial<PrOtherEntry> | null;
+  if (!v || typeof v.id !== 'string' || v.id === '') return null;
+  if (typeof v.owner !== 'string' || !REF_SEGMENT.test(v.owner)) return null;
+  if (typeof v.repo !== 'string' || !REF_SEGMENT.test(v.repo)) return null;
+  if (typeof v.number !== 'number' || !Number.isInteger(v.number) || v.number <= 0) return null;
+  return { id: v.id, owner: v.owner, repo: v.repo, number: v.number };
+}
+
+function loadOtherEntries(): PrOtherEntry[] {
+  try {
+    return parseOtherEntries(localStorage.getItem(OTHER_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function saveOtherEntries(entries: PrOtherEntry[]): void {
+  try {
+    localStorage.setItem(OTHER_KEY, JSON.stringify(entries));
+  } catch {
+    // Storage unavailable or full — the list still works for this session.
+  }
+}
+
+function loadOpenPrWorkspace(): string | null {
+  try {
+    return localStorage.getItem(OPEN_PR_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compose `OTHER` from a list response.
+ *
+ * An entry the request asked for but did not get back is unavailable; one
+ * added while the request was in flight keeps the row it already has, so a
+ * refresh that started earlier cannot undo an add or a remove.
+ */
+export function reconcileOther(
+  entries: PrOtherEntry[],
+  requestedIds: string[],
+  fetched: PrListItem[],
+  previous: PrListItem[]
+): { items: PrListItem[]; unavailable: string[] } {
+  const fetchedById = new Map(fetched.map((item) => [item.id, item]));
+  const previousById = new Map(previous.map((item) => [item.id, item]));
+  const requested = new Set(requestedIds);
+  const items: PrListItem[] = [];
+  const unavailable: string[] = [];
+
+  for (const entry of entries) {
+    const row = fetchedById.get(entry.id) ?? (requested.has(entry.id) ? undefined : previousById.get(entry.id));
+    if (row) items.push(row);
+    else if (requested.has(entry.id)) unavailable.push(entry.id);
+  }
+
+  return { items: sortByUpdatedDesc(items), unavailable };
+}
+
+/** The remembered workspace while it still exists, otherwise the topmost. */
+export function pickWorkspace(groups: WorkspaceGroup[], key: string | null): WorkspaceEntry | null {
+  const all = groups.flatMap((g) => g.workspaces);
+  return all.find((w) => w.key === key) ?? all[0] ?? null;
+}
+
 function loadDiffMode(): DiffViewMode {
   try {
     // Unified is the default: the panel is often narrow, and split inside 18
@@ -153,6 +246,12 @@ interface GitHubStore {
   listsLoading: boolean;
   listsLoadedAt: number | null;
   listsError: string | null;
+  /** Persisted and authoritative: every entry renders, with or without a fetched row. */
+  otherEntries: PrOtherEntry[];
+  /** Entries a successful refresh asked for and did not get back. */
+  otherUnavailable: string[];
+  /** Workspace key last picked in the Open Pull Request dialog. */
+  openPrWorkspace: string | null;
 
   // --- selection & detail ------------------------------------------------
   selection: PrRef | null;
@@ -217,6 +316,9 @@ interface GitHubStore {
 
   // --- actions -----------------------------------------------------------
   refreshLists: (force?: boolean, background?: boolean) => Promise<void>;
+  addOther: (candidate: PrCandidate) => void;
+  removeOther: (id: string) => void;
+  setOpenPrWorkspace: (key: string) => void;
   select: (ref: PrRef | null) => void;
   reloadDetail: (background?: boolean) => Promise<void>;
   /** Unconditional background pass, driven by the poll interval. */
@@ -276,6 +378,9 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   listsLoading: false,
   listsLoadedAt: null,
   listsError: null,
+  otherEntries: loadOtherEntries(),
+  otherUnavailable: [],
+  openPrWorkspace: loadOpenPrWorkspace(),
 
   selection: loadSelection(),
   detail: null,
@@ -318,13 +423,19 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     const generation = ++listGeneration;
     const epoch = mutationEpoch;
     if (!background) set({ listsLoading: true, listsError: null });
+    const requested = get().otherEntries.map((e) => e.id);
     try {
-      const lists = await window.dad.githubListPullRequests();
+      const response = await window.dad.githubListPullRequests(requested);
       if (generation !== listGeneration) return;
       if (background && epoch !== mutationEpoch) return;
+      const { otherEntries, lists: current } = get();
+      const { items, unavailable } = reconcileOther(
+        otherEntries, requested, response.other.items, current.other.items
+      );
+      const lists: PrLists = { ...response, other: { items, more: 0, moreIsApproximate: false } };
       set(background
-        ? { lists, listsLoadedAt: Date.now() }
-        : { lists, listsLoadedAt: Date.now(), listsLoading: false });
+        ? { lists, otherUnavailable: unavailable, listsLoadedAt: Date.now() }
+        : { lists, otherUnavailable: unavailable, listsLoadedAt: Date.now(), listsLoading: false });
     } catch (err) {
       if (generation !== listGeneration) return;
       // A background failure is swallowed deliberately: the next tick retries,
@@ -333,6 +444,51 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     } finally {
       listInFlight = false;
     }
+  },
+
+  addOther(candidate) {
+    const { otherEntries, otherUnavailable, lists } = get();
+    const entry: PrOtherEntry = {
+      id: candidate.id, owner: candidate.owner, repo: candidate.repo, number: candidate.number,
+    };
+    const exists = otherEntries.some((e) => e.id === entry.id);
+    const entries = exists
+      ? otherEntries.map((e) => (e.id === entry.id ? entry : e))
+      : [...otherEntries, entry];
+    saveOtherEntries(entries);
+
+    const hasRow = lists.other.items.some((item) => item.id === entry.id);
+    set({
+      otherEntries: entries,
+      otherUnavailable: otherUnavailable.filter((id) => id !== entry.id),
+      lists: hasRow ? lists : {
+        ...lists,
+        other: { ...lists.other, items: sortByUpdatedDesc([...lists.other.items, candidateToListItem(candidate)]) },
+      },
+    });
+  },
+
+  removeOther(id) {
+    const { otherEntries, otherUnavailable, lists, selection, detail } = get();
+    const entry = otherEntries.find((e) => e.id === id);
+    if (!entry) return;
+    const entries = otherEntries.filter((e) => e.id !== id);
+    saveOtherEntries(entries);
+    set({
+      otherEntries: entries,
+      otherUnavailable: otherUnavailable.filter((x) => x !== id),
+      lists: { ...lists, other: { ...lists.other, items: lists.other.items.filter((item) => item.id !== id) } },
+    });
+    if (sameRef(selection, entry) || detail?.summary.id === id) get().select(null);
+  },
+
+  setOpenPrWorkspace(key) {
+    try {
+      localStorage.setItem(OPEN_PR_WORKSPACE_KEY, key);
+    } catch {
+      // A full quota only costs remembering the choice across restarts.
+    }
+    set({ openPrWorkspace: key });
   },
 
   /**
@@ -735,11 +891,12 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
       updatedAt: summary.updatedAt,
       baseRefName: summary.baseRefName,
       headRefName: summary.headRefName,
+      state: toPrState(summary.state),
     };
 
     let changed = false;
     const next = {} as PrLists;
-    for (const key of ['created', 'reviewing', 'listening'] as PrListId[]) {
+    for (const key of ['created', 'reviewing', 'other'] as PrListId[]) {
       const list = lists[key];
       if (!list.items.some((item) => item.id === summary.id)) {
         next[key] = list;

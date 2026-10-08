@@ -434,6 +434,9 @@ export default function Workspace({
       if (e.key !== 'Tab') return;
       if (!isActiveTabRef.current) return;
 
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest('[data-focus-trap]')) return;
+
       if (e.ctrlKey) {
         const order = panelOrder(instancesRef.current);
         if (order.length === 0) return;
@@ -453,7 +456,6 @@ export default function Workspace({
 
       // Plain Tab: wrap within the focused panel so focus never escapes.
       // Skip if focus is inside a dropdown (its own Tab handler manages cycling).
-      const active = document.activeElement as HTMLElement | null;
       if (active?.closest('.dropdown')) return;
 
       const panel = active?.closest('[data-panel-id]') as HTMLElement | null;

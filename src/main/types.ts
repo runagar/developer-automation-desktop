@@ -186,7 +186,8 @@ export interface IpcApi {
   restSend: (request: RestRequestSpec) => Promise<RestResultInfo>;
 
   // Pull Requests (GIT1)
-  githubListPullRequests: () => Promise<PrLists>;
+  githubListPullRequests: (otherIds: string[]) => Promise<PrLists>;
+  githubListRepoPullRequests: (repo: string, which: 'open' | 'closed') => Promise<PrCandidateResult>;
   githubGetPullRequest: (ref: PrRef) => Promise<PrDetail>;
   githubGetDiff: (ref: PrRef, diffRef: PrDiffRef, changedFiles: number) => Promise<PrDiff>;
   githubSubmitReview: (
@@ -479,6 +480,8 @@ export interface PrReviewer {
   requested: boolean;
 }
 
+export type PrState = 'OPEN' | 'CLOSED' | 'MERGED';
+
 /** A row in the "Your Pull Requests" panel. */
 export interface PrListItem {
   id: string;
@@ -491,6 +494,7 @@ export interface PrListItem {
   nameWithOwner: string;
   baseRefName: string;
   headRefName: string;
+  state: PrState;
   isDraft: boolean;
   mergeable: PrMergeableState;
   mergeState: PrMergeStateStatus;
@@ -499,11 +503,11 @@ export interface PrListItem {
   reviewers: PrReviewer[];
 }
 
-export type PrListId = 'created' | 'reviewing' | 'listening';
+export type PrListId = 'created' | 'reviewing' | 'other';
 
 export interface PrList {
   items: PrListItem[];
-  /** Matches beyond the cap. Approximate for `listening` — see `moreIsApproximate`. */
+  /** Matches beyond the cap. Approximate for `reviewing` — see `moreIsApproximate`. */
   more: number;
   moreIsApproximate: boolean;
 }
@@ -511,8 +515,38 @@ export interface PrList {
 export interface PrLists {
   created: PrList;
   reviewing: PrList;
-  listening: PrList;
+  /** Hand-picked via the Open Pull Request dialog; never populated by a search. */
+  other: PrList;
 }
+
+/** Persisted identity of an `OTHER` row; its data is always refetched. */
+export interface PrOtherEntry {
+  id: string;
+  owner: string;
+  repo: string;
+  number: number;
+}
+
+export interface PrCandidate {
+  id: string;
+  number: number;
+  title: string;
+  owner: string;
+  repo: string;
+  nameWithOwner: string;
+  headRefName: string;
+  baseRefName: string;
+  isDraft: boolean;
+  state: PrState;
+  author: string | null;
+  createdAt: string;
+  closedAt: string | null;
+  updatedAt: string;
+}
+
+export type PrCandidateResult =
+  | { kind: 'found'; nameWithOwner: string; candidates: PrCandidate[]; truncated: boolean }
+  | { kind: 'not-found'; nameWithOwner: string };
 
 export interface PrRef {
   owner: string;

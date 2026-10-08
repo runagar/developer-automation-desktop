@@ -193,7 +193,8 @@ const api: IpcApi = {
   restSend: (request) => ipcRenderer.invoke('rest:send', request),
 
   // Pull Requests (GIT1)
-  githubListPullRequests: () => ipcRenderer.invoke('github:listPullRequests'),
+  githubListPullRequests: (otherIds) => ipcRenderer.invoke('github:listPullRequests', otherIds),
+  githubListRepoPullRequests: (repo, which) => ipcRenderer.invoke('github:listRepoPullRequests', repo, which),
   githubGetPullRequest: (ref) => ipcRenderer.invoke('github:getPullRequest', ref),
   githubGetDiff: (ref, diffRef, changedFiles) =>
     ipcRenderer.invoke('github:getDiff', ref, diffRef, changedFiles),

@@ -353,6 +353,19 @@
   z-index: 10000;
 }
 
+/* An overlay rendered inside a panel is raised into the top layer with
+   `useTopLayer`, since each panel is its own stacking context. These undo the
+   UA `[popover]` defaults so it still covers the whole window. */
+.dialog-overlay[popover] {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  overflow: visible;
+  color: inherit;
+}
+
 /* =========================================================
    SHARED TAB BAR
    Used by the Notes panel and the REST Response panel. Kept

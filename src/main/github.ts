@@ -227,6 +227,11 @@ interface GraphqlEnvelope<T> {
   errors?: { message?: string; type?: string }[];
 }
 
+export interface GhGraphqlOptions {
+  /** Error types returned as data rather than thrown, e.g. `nodes(ids:)` answering a vanished id with `NOT_FOUND`. Never applies to rate limiting. */
+  tolerate?: ReadonlySet<string>;
+}
+
 /**
  * Execute a GraphQL document.
  *
@@ -237,7 +242,11 @@ interface GraphqlEnvelope<T> {
  * exit non-zero while still printing the typed error, and only the envelope
  * says which kind it was.
  */
-export async function ghGraphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+export async function ghGraphql<T>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  options: GhGraphqlOptions = {}
+): Promise<T> {
   const { stdout, failure } = await ghExecSettled(['api', 'graphql', '--input', '-'], {
     stdin: JSON.stringify({ query, variables }),
   });
@@ -252,6 +261,14 @@ export async function ghGraphql<T>(query: string, variables: Record<string, unkn
   if (envelope?.errors && envelope.errors.length > 0) {
     if (envelope.errors.some((e) => e.type === 'RATE_LIMITED')) {
       throw await withResetTime(new GitHubRateLimitError(null));
+    }
+    const tolerate = options.tolerate;
+    if (
+      tolerate
+      && envelope.data !== undefined
+      && envelope.errors.every((e) => e.type !== undefined && tolerate.has(e.type))
+    ) {
+      return envelope.data;
     }
     // The first error *with a message*, so the reported type belongs to the
     // reported wording rather than to a different entry in the list.

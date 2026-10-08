@@ -38,69 +38,10 @@
 }
 
 /* Positioned with measured viewport coordinates (see dropdownStyle), so it
-   opts out of anchor positioning. The top layer keeps it above every panel. */
+   opts out of anchor positioning. The top layer keeps it above every panel.
+   The menu body is styled by the shared `.dropdown--workspaces`. */
 .session-list__new .dropdown {
   position: fixed;
-  background: var(--c-panel);
-  border: 1px solid var(--c-bright);
-  box-shadow: var(--glow);
-  max-height: 60vh;
-  overflow-y: auto;
-}
-.session-list__new .dropdown__header {
-  padding: 6px 10px;
-  font-size: 0.6rem;
-  letter-spacing: 0.15em;
-  color: var(--c-mid);
-  border-bottom: 1px solid var(--c-dark);
-}
-.session-list__new .dropdown__empty {
-  padding: 8px 10px;
-  font-size: 0.7rem;
-  color: var(--c-mid);
-}
-.session-list__new .dropdown__item {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  padding: 6px 10px;
-  font-size: 0.72rem;
-  letter-spacing: normal;
-  text-align: left;
-  text-transform: none;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: var(--c-bright);
-  font-family: inherit;
-  border-bottom: 1px solid var(--c-panel);
-}
-.session-list__new .dropdown__item:hover,
-.session-list__new .dropdown__item--highlighted {
-  background: var(--c-dark);
-  box-shadow: inset 0 0 0 1px var(--c-bright);
-}
-.session-list__new .dropdown__item--highlighted {
-  color: var(--c-bright);
-}
-.session-list__new .dropdown__item-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-.session-list__new .dropdown__key {
-  font-weight: 700;
-  color: var(--c-bright);
-  letter-spacing: 0.05em;
-  flex-shrink: 0;
-}
-.session-list__new .dropdown__repo {
-  font-size: 0.62rem;
-  color: var(--c-mid);
-  text-align: right;
-  overflow-wrap: break-word;
 }
 
 /* Keyboard highlight for "New Session" button */

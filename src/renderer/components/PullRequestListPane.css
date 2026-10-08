@@ -56,8 +56,26 @@
 .pull-request-list__section-header {
   display: flex;
   align-items: center;
+  background: var(--c-panel);
+}
+
+.pull-request-list__section-header:hover {
+  background: var(--c-panel-hover);
+}
+
+/* A sibling of the toggle, not a child: a button cannot contain a button, and
+   it must work whether the section is open or collapsed. */
+.pull-request-list__section-action {
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.pull-request-list__section-toggle {
+  display: flex;
+  align-items: center;
   gap: 4px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px;
   font-family: var(--font);
   /* Above the row text (0.68rem), so the three headers read as the structure
@@ -67,13 +85,9 @@
   letter-spacing: 0.18em;
   text-align: left;
   color: var(--c-bright);
-  background: var(--c-panel);
+  background: none;
   border: none;
   cursor: pointer;
-}
-
-.pull-request-list__section-header:hover {
-  background: var(--c-panel-hover);
 }
 
 .pull-request-list__caret {
@@ -112,6 +126,34 @@
 .pull-request-list__row--active {
   background: var(--c-active);
   border-left-color: var(--c-bright);
+}
+
+.pull-request-list__row-wrap {
+  position: relative;
+}
+
+/* Clears the ✕ in the bottom-right corner, so badges and reviewers never sit
+   under it. */
+.pull-request-list__row--removable {
+  padding-right: 28px;
+}
+
+.pull-request-list__remove {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+}
+
+.pull-request-list__row--unavailable {
+  cursor: default;
+}
+
+.pull-request-list__row--unavailable:hover {
+  background: none;
+}
+
+.pull-request-list__row--unavailable .pull-request-list__title {
+  color: var(--c-mid);
 }
 
 .pull-request-list__title {

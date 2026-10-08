@@ -1,9 +1,13 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import {
   STALE_MS, diffRefKey, diffRefOptions, formatRef, isFileViewed, nextSelectedPath,
-  commentCountsByFile, parseRef, sameRef, threadsForFile, useGitHubStore,
+  commentCountsByFile, parseOtherEntries, parseRef, pickWorkspace, reconcileOther, sameRef,
+  threadsForFile, useGitHubStore,
 } from './githubStore';
-import { PrDetail, PrDiffFile, PrDiffRef, PrListItem, PrReviewThread, PrSummary } from '../../main/types';
+import {
+  PrCandidate, PrDetail, PrDiffFile, PrDiffRef, PrListItem, PrLists, PrReviewThread, PrSummary,
+  WorkspaceGroup,
+} from '../../main/types';
 
 function file(path: string, viewed = false): PrDiffFile {
   return {
@@ -199,7 +203,7 @@ describe('list refresh', () => {
   const lists = {
     created: { items: [], more: 0, moreIsApproximate: false },
     reviewing: { items: [], more: 0, moreIsApproximate: false },
-    listening: { items: [], more: 0, moreIsApproximate: false },
+    other: { items: [], more: 0, moreIsApproximate: false },
   };
 
   let dad: Record<string, unknown>;
@@ -268,7 +272,7 @@ describe('background refresh', () => {
   const lists = {
     created: { items: [], more: 0, moreIsApproximate: false },
     reviewing: { items: [], more: 0, moreIsApproximate: false },
-    listening: { items: [], more: 0, moreIsApproximate: false },
+    other: { items: [], more: 0, moreIsApproximate: false },
   };
 
   function summary(over: Partial<PrSummary> = {}): PrSummary {
@@ -776,6 +780,7 @@ describe('syncListRow', () => {
     nameWithOwner: 'o/r',
     baseRefName: 'main',
     headRefName: 'feature/old',
+    state: 'OPEN',
     isDraft: true,
     mergeable: 'UNKNOWN',
     mergeState: 'UNKNOWN',
@@ -803,7 +808,7 @@ describe('syncListRow', () => {
       lists: {
         created: { items: [row('PR_1')], more: 0, moreIsApproximate: false },
         reviewing: { items: [], more: 0, moreIsApproximate: false },
-        listening: { items: [], more: 0, moreIsApproximate: false },
+        other: { items: [], more: 0, moreIsApproximate: false },
       },
     });
   });
@@ -823,6 +828,23 @@ describe('syncListRow', () => {
     expect(useGitHubStore.getState().lists.created.items[0]).toMatchObject({
       id: 'PR_1', owner: 'o', repo: 'r', nameWithOwner: 'o/r', number: 1,
     });
+  });
+
+  it('mirrors the state onto an OTHER row too', () => {
+    // Given
+    useGitHubStore.setState({
+      lists: {
+        created: { items: [], more: 0, moreIsApproximate: false },
+        reviewing: { items: [], more: 0, moreIsApproximate: false },
+        other: { items: [row('PR_2')], more: 0, moreIsApproximate: false },
+      },
+    });
+
+    // When
+    useGitHubStore.getState().syncListRow({ ...summaryFor('PR_2'), state: 'MERGED' });
+
+    // Then
+    expect(useGitHubStore.getState().lists.other.items[0]).toMatchObject({ state: 'MERGED', title: 'new title' });
   });
 
   it('does not invent a row for a pull request the lists do not hold', () => {
@@ -875,5 +897,272 @@ describe('update-branch preference', () => {
     const fresh = await import('./githubStore');
 
     expect(fresh.useGitHubStore.getState().updateBranchAction).toBe('MERGE');
+  });
+});
+
+function otherRow(id: string, updatedAt = '2026-09-01T00:00:00Z'): PrListItem {
+  return {
+    id, number: Number(id.replace(/\D/g, '')) || 1, title: `PR ${id}`, url: '', owner: 'Nykredit',
+    repo: 'rs-consent', nameWithOwner: 'Nykredit/rs-consent', baseRefName: 'develop',
+    headRefName: `feature/${id}`, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE',
+    mergeState: 'CLEAN', checks: 'SUCCESS', updatedAt, reviewers: [],
+  };
+}
+
+function entry(id: string, number = 1): { id: string; owner: string; repo: string; number: number } {
+  return { id, owner: 'Nykredit', repo: 'rs-consent', number };
+}
+
+function otherCandidate(id: string, patch: Partial<PrCandidate> = {}): PrCandidate {
+  return {
+    id, number: 7, title: `PR ${id}`, owner: 'Nykredit', repo: 'rs-consent',
+    nameWithOwner: 'Nykredit/rs-consent', headRefName: 'feature/x', baseRefName: 'develop',
+    isDraft: false, state: 'OPEN', author: 'RULU_NYK', createdAt: '2026-09-01T00:00:00Z',
+    closedAt: null, updatedAt: '2026-09-02T00:00:00Z', ...patch,
+  };
+}
+
+function emptyListsWithOther(items: PrListItem[] = []): PrLists {
+  return {
+    created: { items: [], more: 0, moreIsApproximate: false },
+    reviewing: { items: [], more: 0, moreIsApproximate: false },
+    other: { items, more: 0, moreIsApproximate: false },
+  };
+}
+
+describe('parseOtherEntries', () => {
+  it('keeps valid entries in order and drops duplicates', () => {
+    // Given
+    const raw = JSON.stringify([entry('A', 1), entry('B', 2), entry('A', 3)]);
+
+    // When
+    const entries = parseOtherEntries(raw);
+
+    // Then
+    expect(entries).toEqual([entry('A', 1), entry('B', 2)]);
+  });
+
+  it('drops malformed entries rather than discarding the list', () => {
+    // Given
+    const raw = JSON.stringify([
+      entry('ok'),
+      { id: 'no-number', owner: 'o', repo: 'r' },
+      { id: 'bad-number', owner: 'o', repo: 'r', number: 0 },
+      { id: 'slash', owner: 'o/x', repo: 'r', number: 1 },
+      { id: '', owner: 'o', repo: 'r', number: 1 },
+      'not an object',
+    ]);
+
+    // When
+    const entries = parseOtherEntries(raw);
+
+    // Then
+    expect(entries.map((e) => e.id)).toEqual(['ok']);
+  });
+
+  it('degrades to an empty list for corrupt or runaway payloads', () => {
+    expect(parseOtherEntries(null)).toEqual([]);
+    expect(parseOtherEntries('{not json')).toEqual([]);
+    expect(parseOtherEntries('{"a":1}')).toEqual([]);
+    expect(parseOtherEntries('x'.repeat(1024 * 1024 + 1))).toEqual([]);
+  });
+});
+
+describe('reconcileOther', () => {
+  it('uses fetched rows, newest first', () => {
+    // Given
+    const entries = [entry('A'), entry('B')];
+    const fetched = [otherRow('A', '2026-01-01T00:00:00Z'), otherRow('B', '2026-02-01T00:00:00Z')];
+
+    // When
+    const { items, unavailable } = reconcileOther(entries, ['A', 'B'], fetched, []);
+
+    // Then
+    expect(items.map((i) => i.id)).toEqual(['B', 'A']);
+    expect(unavailable).toEqual([]);
+  });
+
+  it('marks a requested entry that did not come back as unavailable', () => {
+    // When
+    const { items, unavailable } = reconcileOther([entry('A'), entry('GONE')], ['A', 'GONE'], [otherRow('A')], [otherRow('GONE')]);
+
+    // Then
+    expect(items.map((i) => i.id)).toEqual(['A']);
+    expect(unavailable).toEqual(['GONE']);
+  });
+
+  it('keeps the provisional row of an entry added while the request was in flight', () => {
+    // When
+    const { items, unavailable } = reconcileOther([entry('A'), entry('NEW')], ['A'], [otherRow('A')], [otherRow('NEW')]);
+
+    // Then
+    expect(items.map((i) => i.id).sort()).toEqual(['A', 'NEW']);
+    expect(unavailable).toEqual([]);
+  });
+
+  it('drops a row for an entry removed while the request was in flight', () => {
+    // When
+    const { items } = reconcileOther([entry('A')], ['A', 'REMOVED'], [otherRow('A'), otherRow('REMOVED')], []);
+
+    // Then
+    expect(items.map((i) => i.id)).toEqual(['A']);
+  });
+});
+
+describe('pickWorkspace', () => {
+  const groups: WorkspaceGroup[] = [
+    { group: 'G1', workspaces: [{ key: 'DAD', repo: 'developer-automation-desktop', workingDir: '/a' }] },
+    { group: 'G2', workspaces: [{ key: 'CON', repo: 'rs-consent', workingDir: '/b' }] },
+  ];
+
+  it('returns the remembered workspace while it still exists', () => {
+    expect(pickWorkspace(groups, 'CON')?.repo).toBe('rs-consent');
+  });
+
+  it('falls back to the topmost workspace', () => {
+    expect(pickWorkspace(groups, 'RENAMED')?.key).toBe('DAD');
+    expect(pickWorkspace(groups, null)?.key).toBe('DAD');
+  });
+
+  it('returns null when no workspaces are registered', () => {
+    expect(pickWorkspace([], 'DAD')).toBeNull();
+  });
+});
+
+describe('OTHER section', () => {
+  let store: Record<string, string>;
+  let dad: Record<string, unknown>;
+
+  beforeEach(() => {
+    store = {};
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => { store[k] = v; },
+      removeItem: (k: string) => { delete store[k]; },
+    });
+    dad = {};
+    vi.stubGlobal('window', { dad });
+    useGitHubStore.setState({
+      lists: emptyListsWithOther(), otherEntries: [], otherUnavailable: [],
+      listsLoading: false, listsError: null, listsLoadedAt: null,
+      selection: null, detail: null, busy: false,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('adds a picked pull request as a persisted entry with a provisional row', () => {
+    // When
+    useGitHubStore.getState().addOther(otherCandidate('PR_X'));
+
+    // Then
+    const state = useGitHubStore.getState();
+    expect(state.otherEntries).toEqual([{ id: 'PR_X', owner: 'Nykredit', repo: 'rs-consent', number: 7 }]);
+    expect(state.lists.other.items.map((i) => i.id)).toEqual(['PR_X']);
+    expect(JSON.parse(store['dad-git-other-prs'])).toEqual(state.otherEntries);
+  });
+
+  it('upserts rather than duplicating, clearing a stale unavailable mark', () => {
+    // Given
+    useGitHubStore.setState({ otherEntries: [entry('PR_X', 7)], otherUnavailable: ['PR_X'] });
+
+    // When
+    useGitHubStore.getState().addOther(otherCandidate('PR_X', { repo: 'rs-consent-renamed' }));
+
+    // Then
+    const state = useGitHubStore.getState();
+    expect(state.otherEntries).toHaveLength(1);
+    expect(state.otherEntries[0].repo).toBe('rs-consent-renamed');
+    expect(state.otherUnavailable).toEqual([]);
+    expect(state.lists.other.items).toHaveLength(1);
+  });
+
+  it('removes an entry without touching a viewer showing something else', () => {
+    // Given
+    useGitHubStore.setState({
+      otherEntries: [entry('PR_X', 7)], lists: emptyListsWithOther([otherRow('PR_X')]),
+      selection: { owner: 'Nykredit', repo: 'rs-consent', number: 99 },
+    });
+
+    // When
+    useGitHubStore.getState().removeOther('PR_X');
+
+    // Then
+    const state = useGitHubStore.getState();
+    expect(state.otherEntries).toEqual([]);
+    expect(state.lists.other.items).toEqual([]);
+    expect(state.selection).toEqual({ owner: 'Nykredit', repo: 'rs-consent', number: 99 });
+    expect(JSON.parse(store['dad-git-other-prs'])).toEqual([]);
+  });
+
+  it('voids the viewer when the removed pull request is open in it', () => {
+    // Given
+    useGitHubStore.setState({
+      otherEntries: [entry('PR_X', 7)],
+      selection: { owner: 'Nykredit', repo: 'rs-consent', number: 7 },
+    });
+
+    // When
+    useGitHubStore.getState().removeOther('PR_X');
+
+    // Then
+    expect(useGitHubStore.getState().selection).toBeNull();
+  });
+
+  it('sends the persisted ids with a refresh and marks the ones that did not come back', async () => {
+    // Given
+    useGitHubStore.setState({ otherEntries: [entry('A'), entry('GONE')] });
+    const spy = vi.fn().mockResolvedValue(emptyListsWithOther([otherRow('A')]));
+    dad.githubListPullRequests = spy;
+
+    // When
+    await useGitHubStore.getState().refreshLists(true);
+
+    // Then
+    expect(spy).toHaveBeenCalledWith(['A', 'GONE']);
+    const state = useGitHubStore.getState();
+    expect(state.lists.other.items.map((i) => i.id)).toEqual(['A']);
+    expect(state.otherUnavailable).toEqual(['GONE']);
+  });
+
+  it('marks nothing unavailable when the refresh fails', async () => {
+    // Given
+    useGitHubStore.setState({ otherEntries: [entry('A')] });
+    dad.githubListPullRequests = vi.fn().mockRejectedValue(new Error('offline'));
+
+    // When
+    await useGitHubStore.getState().refreshLists(true);
+
+    // Then
+    expect(useGitHubStore.getState().otherUnavailable).toEqual([]);
+    expect(useGitHubStore.getState().otherEntries).toHaveLength(1);
+  });
+
+  it('keeps a pull request added while a refresh was in flight', async () => {
+    // Given
+    let resolve: (v: PrLists) => void = () => undefined;
+    dad.githubListPullRequests = vi.fn(() => new Promise<PrLists>((r) => { resolve = r; }));
+    const pending = useGitHubStore.getState().refreshLists(true);
+
+    // When
+    useGitHubStore.getState().addOther(otherCandidate('LATE'));
+    resolve(emptyListsWithOther());
+    await pending;
+
+    // Then
+    const state = useGitHubStore.getState();
+    expect(state.lists.other.items.map((i) => i.id)).toEqual(['LATE']);
+    expect(state.otherUnavailable).toEqual([]);
+  });
+
+  it('remembers the workspace picked in the dialog', () => {
+    // When
+    useGitHubStore.getState().setOpenPrWorkspace('CON');
+
+    // Then
+    expect(store['dad-git-open-pr-workspace']).toBe('CON');
+    expect(useGitHubStore.getState().openPrWorkspace).toBe('CON');
   });
 });

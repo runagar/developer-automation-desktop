@@ -4,8 +4,8 @@ import { getOwners } from '../githubOwners';
 import { listPullRequests } from '../githubPrs';
 import {
   addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, getDiff,
-  getPullRequest, mergePullRequest, replyToThread, setAutoMerge, setDraft, setFileViewed,
-  setReviewers, setThreadResolved, submitReview, updatePullRequestBranch,
+  getPullRequest, listRepoPullRequests, mergePullRequest, replyToThread, setAutoMerge, setDraft,
+  setFileViewed, setReviewers, setThreadResolved, submitReview, updatePullRequestBranch,
 } from '../githubPr';
 import {
   PrBranchUpdateMethod, PrCommentAnchor, PrDiffRef, PrMergeOptions, PrRef, PrReviewEvent,
@@ -31,7 +31,16 @@ function handled<A extends unknown[], R>(fn: (...args: A) => Promise<R>): (...ar
 export function registerGitHubHandlers(ipcMain: IpcMain, dataDir: string): void {
   // --- reads ---------------------------------------------------------------
 
-  ipcMain.handle('github:listPullRequests', handled(() => listPullRequests(dataDir)));
+  ipcMain.handle(
+    'github:listPullRequests',
+    handled((_e, otherIds: string[]) => listPullRequests(dataDir, otherIds))
+  );
+
+  ipcMain.handle(
+    'github:listRepoPullRequests',
+    handled((_e, repo: string, which: 'open' | 'closed') =>
+      listRepoPullRequests(repo, which === 'closed' ? 'closed' : 'open'))
+  );
 
   ipcMain.handle('github:getPullRequest', handled((_e, ref: PrRef) => getPullRequest(ref)));
 

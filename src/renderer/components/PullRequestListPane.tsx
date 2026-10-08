@@ -1,9 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { RefreshCw, MessageSquareText } from 'lucide-react';
-import { PrList, PrListId, PrListItem, PrReviewer } from '../../main/types';
+import {
+  PrCandidate, PrList, PrListId, PrListItem, PrOtherEntry, PrRef, PrReviewer,
+} from '../../main/types';
 import { useGitHubStore, sameRef } from '../stores/githubStore';
 import ConfirmDialog from './ConfirmDialog';
 import BranchPair from './BranchPair';
+import OpenPrDialog from './OpenPrDialog';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import './PullRequestListPane.css';
@@ -11,7 +14,7 @@ import './PullRequestListPane.css';
 const SECTIONS: { id: PrListId; label: string }[] = [
   { id: 'created', label: 'CREATED' },
   { id: 'reviewing', label: 'REVIEWING' },
-  { id: 'listening', label: 'LISTENING' },
+  { id: 'other', label: 'OTHER' },
 ];
 
 /**
@@ -47,18 +50,20 @@ function chipClass(tone: 'ok' | 'warn' | 'checking' | 'error' | 'neutral'): stri
 }
 
 function Badges({ item }: { item: PrListItem }): React.ReactElement {
+  const open = item.state === 'OPEN';
   return (
     <>
-      {item.isDraft && <span className={chipClass('neutral')}>DRAFT</span>}
+      {!open && <span className={chipClass('neutral')}>{item.state}</span>}
+      {open && item.isDraft && <span className={chipClass('neutral')}>DRAFT</span>}
       {/* `warn` to match the viewer: a conflict is a state to fix, not a
           failed operation. */}
-      {item.mergeable === 'CONFLICTING' && (
+      {open && item.mergeable === 'CONFLICTING' && (
         <span className={chipClass('warn')}>Conflicts!</span>
       )}
       {/* GitHub computes mergeability lazily; UNKNOWN is "checking", never
           "conflicting". Short form: the list panel is six columns wide and the
           viewer carries the full wording. */}
-      {item.mergeable === 'UNKNOWN' && (
+      {open && item.mergeable === 'UNKNOWN' && (
         <span className={chipClass('checking')}>Checking…</span>
       )}
       {item.checks !== 'NONE' && (
@@ -75,13 +80,18 @@ function Badges({ item }: { item: PrListItem }): React.ReactElement {
 interface RowProps {
   item: PrListItem;
   active: boolean;
-  onSelect: (item: PrListItem) => void;
+  onSelect: (ref: PrRef) => void;
+  onRemove?: (id: string) => void;
 }
 
-const Row = React.memo(function Row({ item, active, onSelect }: RowProps): React.ReactElement {
-  return (
+const Row = React.memo(function Row({ item, active, onSelect, onRemove }: RowProps): React.ReactElement {
+  const row = (
     <button
-      className={cn('pull-request-list__row', active && 'pull-request-list__row--active')}
+      className={cn(
+        'pull-request-list__row',
+        active && 'pull-request-list__row--active',
+        onRemove && 'pull-request-list__row--removable'
+      )}
       onClick={() => onSelect(item)}
       title={item.title}
     >
@@ -108,39 +118,148 @@ const Row = React.memo(function Row({ item, active, onSelect }: RowProps): React
       )}
     </button>
   );
+
+  if (!onRemove) return row;
+  return (
+    <div className="pull-request-list__row-wrap">
+      {row}
+      <RemoveButton id={item.id} onRemove={onRemove} />
+    </div>
+  );
 });
+
+function RemoveButton({ id, onRemove }: { id: string; onRemove: (id: string) => void }): React.ReactElement {
+  return (
+    <button
+      className="btn btn--micro btn--danger pull-request-list__remove"
+      title="Remove from OTHER"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onRemove(id)}
+    >
+      ✕
+    </button>
+  );
+}
+
+interface EntryRowProps {
+  entry: PrOtherEntry;
+  unavailable: boolean;
+  active: boolean;
+  onSelect: (ref: PrRef) => void;
+  onRemove: (id: string) => void;
+}
+
+/** An `OTHER` entry with no fetched row: not loaded yet, or gone from GitHub. */
+function EntryRow({ entry, unavailable, active, onSelect, onRemove }: EntryRowProps): React.ReactElement {
+  const label = (
+    <span className="pull-request-list__title">
+      <span className="pull-request-list__number">#{entry.number}</span>
+      {entry.owner}/{entry.repo}
+      {unavailable && ' (unavailable)'}
+    </span>
+  );
+
+  return (
+    <div className="pull-request-list__row-wrap">
+      {unavailable ? (
+        <div className="pull-request-list__row pull-request-list__row--removable pull-request-list__row--unavailable">
+          {label}
+        </div>
+      ) : (
+        <button
+          className={cn(
+            'pull-request-list__row',
+            'pull-request-list__row--removable',
+            active && 'pull-request-list__row--active'
+          )}
+          onClick={() => onSelect(entry)}
+        >
+          {label}
+        </button>
+      )}
+      <RemoveButton id={entry.id} onRemove={onRemove} />
+    </div>
+  );
+}
 
 interface SectionProps {
   label: string;
-  list: PrList;
-  activeId: string | null;
-  onSelect: (item: PrListItem) => void;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  action?: React.ReactNode;
+  children: React.ReactNode;
 }
 
-function Section({ label, list, activeId, onSelect }: SectionProps): React.ReactElement {
-  // Collapse state is memory-only, matching the API Picker's category headers.
-  const [open, setOpen] = useState(true);
-
+function Section({ label, count, open, onToggle, action, children }: SectionProps): React.ReactElement {
   return (
     <div className="pull-request-list__section">
-      <button className="pull-request-list__section-header" onClick={() => setOpen((v) => !v)}>
-        <span className="pull-request-list__caret">{open ? '▾' : '▸'}</span>
-        {label} ({list.items.length})
-      </button>
-      {open && (
-        <>
-          {list.items.length === 0 && <div className="pull-request-list__none">nothing here</div>}
-          {list.items.map((item) => (
-            <Row key={item.id} item={item} active={item.id === activeId} onSelect={onSelect} />
-          ))}
-          {list.more > 0 && (
-            <div className="pull-request-list__more">
-              {list.moreIsApproximate ? `≈${list.more} more` : `${list.more} more`}
-            </div>
-          )}
-        </>
-      )}
+      <div className="pull-request-list__section-header">
+        <button className="pull-request-list__section-toggle" onClick={onToggle}>
+          <span className="pull-request-list__caret">{open ? '▾' : '▸'}</span>
+          {label} ({count})
+        </button>
+        {action}
+      </div>
+      {open && children}
     </div>
+  );
+}
+
+interface SearchedListProps {
+  list: PrList;
+  activeId: string | null;
+  onSelect: (ref: PrRef) => void;
+}
+
+function SearchedList({ list, activeId, onSelect }: SearchedListProps): React.ReactElement {
+  return (
+    <>
+      {list.items.length === 0 && <div className="pull-request-list__none">nothing here</div>}
+      {list.items.map((item) => (
+        <Row key={item.id} item={item} active={item.id === activeId} onSelect={onSelect} />
+      ))}
+      {list.more > 0 && (
+        <div className="pull-request-list__more">
+          {list.moreIsApproximate ? `≈${list.more} more` : `${list.more} more`}
+        </div>
+      )}
+    </>
+  );
+}
+
+interface OtherListProps {
+  list: PrList;
+  entries: PrOtherEntry[];
+  unavailable: string[];
+  activeId: string | null;
+  onSelect: (ref: PrRef) => void;
+  onRemove: (id: string) => void;
+}
+
+function OtherList({ list, entries, unavailable, activeId, onSelect, onRemove }: OtherListProps): React.ReactElement {
+  const entryIds = new Set(entries.map((e) => e.id));
+  const rows = list.items.filter((item) => entryIds.has(item.id));
+  const rowIds = new Set(rows.map((item) => item.id));
+  const unavailableIds = new Set(unavailable);
+
+  return (
+    <>
+      {entries.length === 0 && <div className="pull-request-list__none">nothing here</div>}
+      {rows.map((item) => (
+        <Row key={item.id} item={item} active={item.id === activeId} onSelect={onSelect} onRemove={onRemove} />
+      ))}
+      {entries.filter((e) => !rowIds.has(e.id)).map((entry) => (
+        <EntryRow
+          key={entry.id}
+          entry={entry}
+          unavailable={unavailableIds.has(entry.id)}
+          active={entry.id === activeId}
+          onSelect={onSelect}
+          onRemove={onRemove}
+        />
+      ))}
+    </>
   );
 }
 
@@ -152,13 +271,22 @@ export default function PullRequestListPane(): React.ReactElement {
   const error = useGitHubStore((s) => s.listsError);
   const selection = useGitHubStore((s) => s.selection);
   const detail = useGitHubStore((s) => s.detail);
+  const otherEntries = useGitHubStore((s) => s.otherEntries);
+  const otherUnavailable = useGitHubStore((s) => s.otherUnavailable);
   const refreshLists = useGitHubStore((s) => s.refreshLists);
   const select = useGitHubStore((s) => s.select);
   const reloadDetail = useGitHubStore((s) => s.reloadDetail);
+  const addOther = useGitHubStore((s) => s.addOther);
+  const removeOther = useGitHubStore((s) => s.removeOther);
 
-  const [confirmSwitch, setConfirmSwitch] = useState<PrListItem | null>(null);
+  const [confirmSwitch, setConfirmSwitch] = useState<PrRef | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<PrOtherEntry | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<PrListId, boolean>>({
+    created: false, reviewing: false, other: false,
+  });
 
-  const handleSelect = useCallback((item: PrListItem) => {
+  const handleSelect = useCallback((item: PrRef) => {
     const target = { owner: item.owner, repo: item.repo, number: item.number };
     // Already open *and* loaded — nothing to do. If it is selected but failed
     // to load, fall through so the click retries rather than doing nothing.
@@ -166,7 +294,7 @@ export default function PullRequestListPane(): React.ReactElement {
     // Replacing the open PR discards nothing on the server, but an in-progress
     // review is easy to forget about; confirm before moving away from it.
     if (detail?.summary.pendingReview && !sameRef(selection, target)) {
-      setConfirmSwitch(item);
+      setConfirmSwitch(target);
       return;
     }
     if (sameRef(selection, target)) {
@@ -175,6 +303,35 @@ export default function PullRequestListPane(): React.ReactElement {
     }
     select(target);
   }, [detail, reloadDetail, select, selection]);
+
+  const handleRemove = useCallback((id: string) => {
+    const state = useGitHubStore.getState();
+    const entry = state.otherEntries.find((e) => e.id === id);
+    if (!entry) return;
+    const isOpen = sameRef(state.selection, entry) || state.detail?.summary.id === id;
+    if (isOpen && state.detail?.summary.pendingReview) {
+      setConfirmRemove(entry);
+      return;
+    }
+    removeOther(id);
+  }, [removeOther]);
+
+  const handlePick = useCallback((candidate: PrCandidate) => {
+    setDialogOpen(false);
+    addOther(candidate);
+    setCollapsed((c) => ({ ...c, other: false }));
+    handleSelect(candidate);
+  }, [addOther, handleSelect]);
+
+  const closeDialog = useCallback(() => setDialogOpen(false), []);
+
+  const toggle = (id: PrListId): void => setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+
+  const counts = useMemo<Record<PrListId, number>>(() => ({
+    created: lists.created.items.length,
+    reviewing: lists.reviewing.items.length,
+    other: otherEntries.length,
+  }), [lists, otherEntries]);
 
   const activeId = detail?.summary.id ?? null;
 
@@ -187,8 +344,7 @@ export default function PullRequestListPane(): React.ReactElement {
         <span className={cn('pull-request-list__status', loading && 'pull-request-list__status--loading')}>
           {loading
             ? 'LOADING…'
-            : `${lists.created.items.length} created · ${lists.reviewing.items.length} reviewing`
-              + ` · ${lists.listening.items.length} listening`}
+            : `${counts.created} created · ${counts.reviewing} reviewing · ${counts.other} other`}
         </span>
         {/* Same icon as the PR viewer and the API Picker. */}
         <button
@@ -215,12 +371,35 @@ export default function PullRequestListPane(): React.ReactElement {
           <Section
             key={id}
             label={label}
-            list={lists[id]}
-            activeId={activeId}
-            onSelect={handleSelect}
-          />
+            count={counts[id]}
+            open={!collapsed[id]}
+            onToggle={() => toggle(id)}
+            action={id === 'other' && (
+              <button
+                className="btn btn--micro pull-request-list__section-action"
+                onClick={() => setDialogOpen(true)}
+              >
+                + OPEN PR
+              </button>
+            )}
+          >
+            {id === 'other' ? (
+              <OtherList
+                list={lists.other}
+                entries={otherEntries}
+                unavailable={otherUnavailable}
+                activeId={activeId}
+                onSelect={handleSelect}
+                onRemove={handleRemove}
+              />
+            ) : (
+              <SearchedList list={lists[id]} activeId={activeId} onSelect={handleSelect} />
+            )}
+          </Section>
         ))}
       </div>
+
+      {dialogOpen && <OpenPrDialog onClose={closeDialog} onPick={handlePick} />}
 
       {confirmSwitch && (
         <ConfirmDialog
@@ -232,12 +411,24 @@ export default function PullRequestListPane(): React.ReactElement {
           confirmLabel="OPEN ANYWAY"
           onCancel={() => setConfirmSwitch(null)}
           onConfirm={() => {
-            select({
-              owner: confirmSwitch.owner,
-              repo: confirmSwitch.repo,
-              number: confirmSwitch.number,
-            });
+            select(confirmSwitch);
             setConfirmSwitch(null);
+          }}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmDialog
+          message="Leave the review in progress?"
+          detail={
+            'You have unsubmitted review comments. They stay on GitHub as a pending review, '
+            + `but removing #${confirmRemove.number} will close this view of them.`
+          }
+          confirmLabel="REMOVE ANYWAY"
+          onCancel={() => setConfirmRemove(null)}
+          onConfirm={() => {
+            removeOther(confirmRemove.id);
+            setConfirmRemove(null);
           }}
         />
       )}

@@ -6,6 +6,7 @@ import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import SessionContextMenu from './SessionContextMenu';
 import { Dropdown } from './dropdown';
+import WorkspaceMenuItems from './WorkspaceMenuItems';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import './SessionList.css';
 
@@ -251,9 +252,6 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
     return () => document.removeEventListener('keydown', handler, true);
   }, [dropdownOpen, allWorkspaces, onCreate]);
 
-  // Running flat index counter for keyboard highlight mapping
-  let flatIndex = 0;
-
   return (
     <aside className="session-list" ref={rootRef} tabIndex={-1}>
       <div className="session-list__new" ref={dropdownRef}>
@@ -276,36 +274,15 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         </button>
 
         {dropdownOpen && (
-          <Dropdown anchorToParent={false} style={dropdownStyle}>
-            {workspaceGroups.length === 0 && (
-              <div className="dropdown__empty">No projects found</div>
-            )}
-            {workspaceGroups.map((group) => (
-              <div key={group.group}>
-                <div className="dropdown__header">{group.group}</div>
-                {group.workspaces.map((p) => {
-                  const idx = flatIndex++;
-                  return (
-                    <button
-                      key={p.key}
-                      className={[
-                        'dropdown__item',
-                        highlightedIndex === idx ? 'dropdown__item--highlighted' : '',
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => {
-                        onCreate(p.workingDir, p.key);
-                        setDropdownOpen(false);
-                      }}
-                    >
-                      <div className="dropdown__item-row">
-                        <span className="dropdown__key">{p.key}</span>
-                        <span className="dropdown__repo">{p.repo}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+          <Dropdown className="dropdown--workspaces" anchorToParent={false} style={dropdownStyle}>
+            <WorkspaceMenuItems
+              groups={workspaceGroups}
+              highlightedIndex={highlightedIndex}
+              onPick={(p) => {
+                onCreate(p.workingDir, p.key);
+                setDropdownOpen(false);
+              }}
+            />
           </Dropdown>
         )}
       </div>

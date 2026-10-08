@@ -2,32 +2,30 @@
  * Search query construction and list assignment for "Your Pull Requests".
  *
  * Pure: no I/O, so precedence and the cap are asserted in tests rather than
- * argued about — and the definition of "Listening" stays a one-line change if
- * `involves:@me` proves too broad in use.
+ * argued about. Also imported by the renderer.
  */
 
-import { PrList, PrListItem, PrLists } from './types';
+import { PrCandidate, PrList, PrListItem, PrLists, PrState } from './types';
+
+/** Every workspace is assumed to live under this owner (GIT4, ambiguity 1). */
+export const OPEN_PR_OWNER = 'Nykredit';
 
 /**
- * Per-list cap (requirement 2.1, ambiguity 9).
- *
- * Applied *after* merge and precedence. Capping each source first
- * under-fills the result: `involves` is a superset of the other two, so its
- * first page can be consumed entirely by precedence.
+ * Per-list cap for the searched lists (requirement 2.1, ambiguity 9).
+ * Applied *after* merge and precedence; `OTHER` is never capped.
  */
 export const LIST_CAP = 50;
 
 /** One page is fetched per search; 100 is GitHub's maximum. */
 export const SEARCH_PAGE_SIZE = 100;
 
-export type SearchKind = 'created' | 'reviewing' | 'reviewed' | 'involves';
+export type SearchKind = 'created' | 'reviewing' | 'reviewed';
 
 /**
  * Build the search query for one of the three sources.
  *
  * Multiple orgs are OR-ed into a single query (`org:A org:B` is an OR in
- * GitHub search), so the request count is three regardless of how many orgs
- * are configured.
+ * GitHub search), so the request count does not grow with the org count.
  */
 export function buildSearchQuery(kind: SearchKind, orgs: string[]): string {
   const scope = orgs
@@ -42,8 +40,7 @@ export function buildSearchQuery(kind: SearchKind, orgs: string[]): string {
       // and the pull request leaves this result set, which is why `reviewed`
       // exists alongside it.
       : kind === 'reviewing' ? 'review-requested:@me'
-        : kind === 'reviewed' ? 'reviewed-by:@me'
-          : 'involves:@me';
+        : 'reviewed-by:@me';
 
   // Open only, drafts included and badged (ambiguity 9).
   return ['is:pr', 'is:open', who, scope].filter(Boolean).join(' ');
@@ -56,17 +53,6 @@ export interface SearchOutcome {
   totalCount: number;
 }
 
-/**
- * Assign every matched pull request to exactly one list.
- *
- * A pull request can legitimately match more than one source — authored *and*
- * review-requested, or reviewing *and* commented — and appears once, under
- * the first of Created > Reviewing > Listening (ambiguity 8).
- *
- * Listening is `involves` minus the other two (ambiguity 7). GitHub has no
- * `subscribed:` qualifier: an unrecognised qualifier is not an error, it
- * silently matches nothing, so subscription state is simply not searchable.
- */
 /**
  * Union two searches, preserving the order of the first.
  *
@@ -86,12 +72,16 @@ export function mergeOutcomes(a: SearchOutcome, b: SearchOutcome): SearchOutcome
   return { ids, totalCount: ids.length + beyond };
 }
 
+/**
+ * Assign every matched pull request to exactly one of the searched lists,
+ * precedence Created > Reviewing (ambiguity 8). `OTHER` is built separately by
+ * `buildOtherList` and ignores this precedence (GIT4, ambiguity 9).
+ */
 export function assignLists(
   created: SearchOutcome,
   reviewing: SearchOutcome,
-  involves: SearchOutcome,
   byId: Map<string, PrListItem>
-): PrLists {
+): Pick<PrLists, 'created' | 'reviewing'> {
   const claimed = new Set<string>();
 
   const take = (ids: string[]): PrListItem[] => {
@@ -99,7 +89,7 @@ export function assignLists(
     for (const id of ids) {
       if (claimed.has(id)) continue;
       const item = byId.get(id);
-      if (!item) continue; // detail fetch dropped it (deleted, or no access)
+      if (!item) continue;
       claimed.add(id);
       items.push(item);
     }
@@ -108,17 +98,12 @@ export function assignLists(
 
   const createdItems = take(created.ids);
   const reviewingItems = take(reviewing.ids);
-  const listeningItems = take(involves.ids);
 
   return {
     created: capList(createdItems, created, false),
-    // Approximate for the same reason as Listening: it is a union of two
-    // searches, so a remainder beyond either page cannot be de-duplicated
-    // without fetching it.
+    // Approximate: a union of two searches, so a remainder beyond either page
+    // cannot be de-duplicated without fetching it.
     reviewing: capList(reviewingItems, reviewing, true),
-    // Approximate only because matches *beyond the fetched page* cannot be
-    // classified without fetching them; everything on the page is exact.
-    listening: capList(listeningItems, involves, true),
   };
 }
 
@@ -128,9 +113,7 @@ export function assignLists(
  * `more` is measured against the number of results the search **returned**,
  * not against the list after precedence. Subtracting the post-precedence
  * length instead counts every pull request that moved to another list as
- * "missing" — so a user with one authored and one review-requested PR, both
- * also matching `involves:@me`, saw "≈2 more" under Listening when in fact
- * nothing was hidden at all.
+ * "missing".
  */
 function capList(items: PrListItem[], outcome: SearchOutcome, approximate: boolean): PrList {
   const visible = items.slice(0, LIST_CAP);
@@ -149,5 +132,84 @@ function capList(items: PrListItem[], outcome: SearchOutcome, approximate: boole
  */
 export function emptyLists(): PrLists {
   const empty = (): PrList => ({ items: [], more: 0, moreIsApproximate: false });
-  return { created: empty(), reviewing: empty(), listening: empty() };
+  return { created: empty(), reviewing: empty(), other: empty() };
+}
+
+export function toPrState(value: string | undefined | null): PrState {
+  if (value === 'CLOSED' || value === 'MERGED') return value;
+  return 'OPEN';
+}
+
+export function sortByUpdatedDesc(items: PrListItem[]): PrListItem[] {
+  return [...items].sort((a, b) => compareDesc(a.updatedAt, b.updatedAt));
+}
+
+/** The `OTHER` rows that were found, in update order; ids that did not resolve are absent. */
+export function buildOtherList(ids: string[], byId: Map<string, PrListItem>): PrList {
+  const seen = new Set<string>();
+  const items: PrListItem[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const item = byId.get(id);
+    if (item) items.push(item);
+  }
+  return { items: sortByUpdatedDesc(items), more: 0, moreIsApproximate: false };
+}
+
+/**
+ * The row shown the moment a pull request is added, before its badges are
+ * known. The viewer's load (`syncListRow`) and the next list refresh replace it.
+ */
+export function candidateToListItem(candidate: PrCandidate): PrListItem {
+  return {
+    id: candidate.id,
+    number: candidate.number,
+    title: candidate.title,
+    url: '',
+    owner: candidate.owner,
+    repo: candidate.repo,
+    nameWithOwner: candidate.nameWithOwner,
+    baseRefName: candidate.baseRefName,
+    headRefName: candidate.headRefName,
+    state: candidate.state,
+    isDraft: candidate.isDraft,
+    mergeable: 'UNKNOWN',
+    mergeState: 'UNKNOWN',
+    checks: 'NONE',
+    updatedAt: candidate.updatedAt,
+    reviewers: [],
+  };
+}
+
+export interface CandidateFilter {
+  showDrafts: boolean;
+  showClosed: boolean;
+}
+
+/**
+ * The Open Pull Request dialog's list: drafts, then open, then closed/merged,
+ * each newest first (requirements 2.2.2.1 and 2.2.2.3).
+ */
+export function orderCandidates(
+  open: PrCandidate[],
+  closed: PrCandidate[] | null,
+  filter: CandidateFilter
+): PrCandidate[] {
+  const byCreated = (a: PrCandidate, b: PrCandidate): number => compareDesc(a.createdAt, b.createdAt);
+  const byClosed = (a: PrCandidate, b: PrCandidate): number =>
+    compareDesc(a.closedAt ?? a.updatedAt, b.closedAt ?? b.updatedAt);
+
+  const openOnly = open.filter((c) => c.state === 'OPEN');
+  const drafts = filter.showDrafts ? openOnly.filter((c) => c.isDraft).sort(byCreated) : [];
+  const ready = openOnly.filter((c) => !c.isDraft).sort(byCreated);
+  const done = filter.showClosed && closed
+    ? closed.filter((c) => c.state !== 'OPEN').sort(byClosed)
+    : [];
+
+  return [...drafts, ...ready, ...done];
+}
+
+function compareDesc(a: string, b: string): number {
+  return (Date.parse(b) || 0) - (Date.parse(a) || 0);
 }

@@ -49,7 +49,7 @@
 
 /*
  * The outermost label in the hierarchy, so it is the largest: above any
- * in-panel section heading (the PR list's CREATED/REVIEWING/LISTENING sit at
+ * in-panel section heading (the PR list's CREATED/REVIEWING/OTHER sit at
  * 0.82rem). Uniform across every panel, since it is the panel chrome rather
  * than anything a panel owns.
  */

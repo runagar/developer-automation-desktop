@@ -150,6 +150,54 @@ describe('ghGraphql', () => {
       .toMatchObject({ type: null });
   });
 
+  it('returns partial data when every error is tolerated', async () => {
+    // Given nodes(ids:) answering a vanished id with a null node and NOT_FOUND
+    mockGh(
+      JSON.stringify({
+        data: { nodes: [{ id: 'A' }, null] },
+        errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a node with the global id of B' }],
+      }),
+      new Error('exit 1')
+    );
+
+    // When
+    const data = await ghGraphql('query { x }', {}, { tolerate: new Set(['NOT_FOUND']) });
+
+    // Then
+    expect(data).toEqual({ nodes: [{ id: 'A' }, null] });
+  });
+
+  it('still throws when any error is not tolerated', async () => {
+    // Given
+    mockGh(
+      JSON.stringify({
+        data: { nodes: [null, null] },
+        errors: [{ type: 'NOT_FOUND', message: 'gone' }, { type: 'INTERNAL', message: 'boom' }],
+      }),
+      new Error('exit 1')
+    );
+
+    // When
+    const err = await ghGraphql('query { x }', {}, { tolerate: new Set(['NOT_FOUND']) }).catch((e: unknown) => e);
+
+    // Then
+    expect(err).toBeInstanceOf(GitHubError);
+  });
+
+  it('never tolerates rate limiting', async () => {
+    // Given
+    mockGh(
+      JSON.stringify({ data: { nodes: [] }, errors: [{ type: 'RATE_LIMITED', message: 'slow down' }] }),
+      new Error('exit 1')
+    );
+
+    // When
+    const err = await ghGraphql('query { x }', {}, { tolerate: new Set(['RATE_LIMITED']) }).catch((e: unknown) => e);
+
+    // Then
+    expect(err).toBeInstanceOf(GitHubRateLimitError);
+  });
+
   it('returns data when gh succeeds', async () => {
     mockGh(JSON.stringify({ data: { viewer: { login: 'octocat' } } }), null);
 

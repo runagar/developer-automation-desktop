@@ -3,13 +3,14 @@
  *
  * Three searches (one per source, all configured orgs OR-ed into each), then a
  * chunked GraphQL query for the badge and reviewer fields the search API does
- * not return.
+ * not return. The hand-picked `OTHER` rows are badged in the same pass.
  */
 
 import { ghRest, ghGraphql } from './github';
 import { PR_BADGES_QUERY } from './githubQueries';
 import {
-  SEARCH_PAGE_SIZE, SearchKind, SearchOutcome, assignLists, buildSearchQuery, mergeOutcomes,
+  SEARCH_PAGE_SIZE, SearchKind, SearchOutcome, assignLists, buildOtherList, buildSearchQuery,
+  mergeOutcomes, toPrState,
 } from './githubPrLists';
 import { getGitHubOrgs } from './settings';
 import {
@@ -25,6 +26,9 @@ import {
  * not a plan.
  */
 const BADGE_CHUNK = 50;
+
+/** A hand-picked pull request that was deleted or became inaccessible is an answer, not a failure. */
+const VANISHED_NODE_ERRORS: ReadonlySet<string> = new Set(['NOT_FOUND', 'FORBIDDEN']);
 
 interface SearchResponse {
   total_count?: number;
@@ -46,6 +50,7 @@ interface BadgeNode {
   number?: number;
   title?: string;
   url?: string;
+  state?: string;
   isDraft?: boolean;
   mergeable?: string;
   mergeStateStatus?: string;
@@ -204,6 +209,7 @@ function toListItem(node: BadgeNode): PrListItem | null {
     nameWithOwner: node.repository?.nameWithOwner ?? `${owner}/${repo}`,
     baseRefName: node.baseRefName ?? '',
     headRefName: node.headRefName ?? '',
+    state: toPrState(node.state),
     isDraft: node.isDraft === true,
     mergeable: toMergeableState(node.mergeable),
     mergeState: toMergeState(node.mergeStateStatus),
@@ -213,11 +219,12 @@ function toListItem(node: BadgeNode): PrListItem | null {
   };
 }
 
-async function fetchBadges(ids: string[]): Promise<Map<string, PrListItem>> {
+async function fetchBadges(ids: string[], tolerateVanished = false): Promise<Map<string, PrListItem>> {
   const byId = new Map<string, PrListItem>();
+  const options = tolerateVanished ? { tolerate: VANISHED_NODE_ERRORS } : {};
   for (let i = 0; i < ids.length; i += BADGE_CHUNK) {
     const chunk = ids.slice(i, i + BADGE_CHUNK);
-    const data = await ghGraphql<{ nodes: (BadgeNode | null)[] }>(PR_BADGES_QUERY, { ids: chunk });
+    const data = await ghGraphql<{ nodes: (BadgeNode | null)[] }>(PR_BADGES_QUERY, { ids: chunk }, options);
     for (const node of data.nodes ?? []) {
       if (!node) continue;
       const item = toListItem(node);
@@ -227,23 +234,24 @@ async function fetchBadges(ids: string[]): Promise<Map<string, PrListItem>> {
   return byId;
 }
 
-export async function listPullRequests(dataDir: string): Promise<PrLists> {
+export async function listPullRequests(dataDir: string, otherIds: unknown): Promise<PrLists> {
   const orgs = getGitHubOrgs(dataDir);
+  const candidates: unknown[] = Array.isArray(otherIds) ? otherIds : [];
+  const other = [...new Set(candidates.filter((id): id is string => typeof id === 'string' && id !== ''))];
 
-  // Four searches, not three: "reviewing" is the union of outstanding review
-  // requests and reviews already submitted. Without the second, submitting a
-  // review drops the pull request out of Reviewing and it reappears under
-  // Listening — which is where the user is least likely to look for it.
-  const [created, requested, reviewed, involves] = await Promise.all([
+  // "Reviewing" is the union of outstanding review requests and reviews
+  // already submitted: submitting a review fulfils the request and drops the
+  // pull request out of `review-requested:@me`.
+  const [created, requested, reviewed, otherById] = await Promise.all([
     search('created', orgs),
     search('reviewing', orgs),
     search('reviewed', orgs),
-    search('involves', orgs),
+    other.length > 0 ? fetchBadges(other, true) : Promise.resolve(new Map<string, PrListItem>()),
   ]);
 
   const reviewing = mergeOutcomes(requested, reviewed);
-  const ids = [...new Set([...created.ids, ...reviewing.ids, ...involves.ids])];
+  const ids = [...new Set([...created.ids, ...reviewing.ids])];
   const byId = ids.length > 0 ? await fetchBadges(ids) : new Map<string, PrListItem>();
 
-  return assignLists(created, reviewing, involves, byId);
+  return { ...assignLists(created, reviewing, byId), other: buildOtherList(other, otherById) };
 }

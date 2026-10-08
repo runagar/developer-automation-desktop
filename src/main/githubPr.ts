@@ -7,7 +7,7 @@
  * exact failure requirement 3.2.2 ("all diff commits") forbids.
  */
 
-import { ghGraphql, ghRest, ghRestPagedArray, ghRestPagedObject } from './github';
+import { GitHubError, PAGE_SIZE, ghGraphql, ghRest, ghRestPagedArray, ghRestPagedObject } from './github';
 import {
   ADD_ISSUE_COMMENT_MUTATION, ADD_REVIEW_THREAD_MUTATION, CLOSE_PR_MUTATION,
   CONVERT_TO_DRAFT_MUTATION, DELETE_ISSUE_COMMENT_MUTATION, DELETE_REVIEW_COMMENT_MUTATION,
@@ -15,17 +15,18 @@ import {
   DISCARD_REVIEW_MUTATION, ENABLE_AUTO_MERGE_MUTATION,
   MARK_FILE_VIEWED_MUTATION, MERGE_MUTATION, PR_COMMITS_QUERY, PR_COMPARE_QUERY,
   PR_FILE_VIEWED_QUERY, PR_REVIEW_THREADS_QUERY, PR_SUMMARY_QUERY, PR_TIMELINE_QUERY,
-  READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION,
+  READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, REPO_PULL_REQUESTS_QUERY, RESOLVE_THREAD_MUTATION,
   SET_REVIEWERS_MUTATION, SUBMIT_REVIEW_MUTATION,
   SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNRESOLVE_THREAD_MUTATION,
   UPDATE_BRANCH_MUTATION,
 } from './githubQueries';
 import { TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline } from './githubTimeline';
 import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState } from './githubPrs';
+import { OPEN_PR_OWNER, toPrState } from './githubPrLists';
 import {
-  PrAutoMerge, PrBranchUpdateMethod, PrCommentAnchor, PrCommit, PrDetail, PrDiff, PrDiffFile,
-  PrDiffRef, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef, PrReviewEvent,
-  PrReviewThread, PrSummary, PrThreadComment, PrThreadState,
+  PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor, PrCommit,
+  PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef,
+  PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrThreadState,
 } from './types';
 
 /**
@@ -363,6 +364,97 @@ export async function getDiff(ref: PrRef, diffRef: PrDiffRef, changedFiles: numb
     truncated,
     headOid: diffRef.afterOid,
   };
+}
+
+// ---------------------------------------------------------------------------
+// A repository's pull requests (Open Pull Request dialog, GIT4)
+// ---------------------------------------------------------------------------
+
+const CLOSED_CANDIDATE_LIMIT = 50;
+const REPO_NAME = /^[A-Za-z0-9._-]+$/;
+
+interface CandidateNode {
+  id?: string;
+  number?: number;
+  title?: string;
+  isDraft?: boolean;
+  state?: string;
+  createdAt?: string;
+  closedAt?: string | null;
+  updatedAt?: string;
+  headRefName?: string;
+  baseRefName?: string;
+  author?: { login?: string } | null;
+  repository?: { nameWithOwner?: string; owner?: { login?: string }; name?: string };
+}
+
+interface CandidateResponse {
+  repository?: { nameWithOwner?: string; pullRequests?: Connection<CandidateNode> } | null;
+}
+
+function toCandidate(node: CandidateNode): PrCandidate | null {
+  if (!node?.id || node.number === undefined) return null;
+  const owner = node.repository?.owner?.login ?? OPEN_PR_OWNER;
+  const repo = node.repository?.name ?? '';
+  return {
+    id: node.id,
+    number: node.number,
+    title: node.title ?? '',
+    owner,
+    repo,
+    nameWithOwner: node.repository?.nameWithOwner ?? `${owner}/${repo}`,
+    headRefName: node.headRefName ?? '',
+    baseRefName: node.baseRefName ?? '',
+    isDraft: node.isDraft === true,
+    state: toPrState(node.state),
+    author: node.author?.login ?? null,
+    createdAt: node.createdAt ?? '',
+    closedAt: node.closedAt ?? null,
+    updatedAt: node.updatedAt ?? '',
+  };
+}
+
+export async function listRepoPullRequests(repo: string, which: 'open' | 'closed'): Promise<PrCandidateResult> {
+  const nameWithOwner = `${OPEN_PR_OWNER}/${repo}`;
+  if (typeof repo !== 'string' || !REPO_NAME.test(repo)) return { kind: 'not-found', nameWithOwner };
+
+  const base = { owner: OPEN_PR_OWNER, repo };
+  try {
+    if (which === 'open') {
+      const page = await collect<CandidateNode>(
+        REPO_PULL_REQUESTS_QUERY,
+        { ...base, states: ['OPEN'], first: PAGE_SIZE, order: { field: 'CREATED_AT', direction: 'DESC' } },
+        (d) => repositoryOrMissing(d).pullRequests
+      );
+      return { kind: 'found', nameWithOwner, candidates: toCandidates(page.nodes), truncated: page.truncated };
+    }
+
+    const data = await ghGraphql<CandidateResponse>(REPO_PULL_REQUESTS_QUERY, {
+      ...base,
+      states: ['CLOSED', 'MERGED'],
+      first: CLOSED_CANDIDATE_LIMIT,
+      order: { field: 'UPDATED_AT', direction: 'DESC' },
+      cursor: null,
+    });
+    const nodes = repositoryOrMissing(data).pullRequests?.nodes ?? [];
+    return { kind: 'found', nameWithOwner, candidates: toCandidates(nodes), truncated: false };
+  } catch (err) {
+    if (err instanceof RepositoryMissing) return { kind: 'not-found', nameWithOwner };
+    if (err instanceof GitHubError && err.type === 'NOT_FOUND') return { kind: 'not-found', nameWithOwner };
+    throw err;
+  }
+}
+
+class RepositoryMissing extends Error {}
+
+function repositoryOrMissing(data: unknown): { pullRequests?: Connection<CandidateNode> } {
+  const repository = (data as CandidateResponse)?.repository;
+  if (!repository) throw new RepositoryMissing();
+  return repository;
+}
+
+function toCandidates(nodes: CandidateNode[]): PrCandidate[] {
+  return nodes.map(toCandidate).filter((c): c is PrCandidate => c !== null);
 }
 
 // ---------------------------------------------------------------------------
