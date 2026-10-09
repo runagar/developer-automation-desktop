@@ -18,7 +18,8 @@ function file(path: string, viewed = false): PrDiffFile {
 function thread(over: Partial<PrReviewThread> = {}): PrReviewThread {
   return {
     id: 't1', isResolved: false, isOutdated: false, viewerCanResolve: true, viewerCanUnresolve: true,
-    viewerCanReply: true, path: 'a.ts', line: 3, startLine: null, side: 'RIGHT', comments: [], ...over,
+    viewerCanReply: true, path: 'a.ts', line: 3, startLine: null, side: 'RIGHT', subjectType: 'LINE', comments: [],
+    ...over,
   };
 }
 
@@ -196,6 +197,20 @@ describe('threadsForFile', () => {
 
   it('returns nothing when no file is selected', () => {
     expect(threadsForFile([thread()], null)).toEqual([]);
+  });
+
+  it('keeps a live file-level thread, which has no line by design', () => {
+    // Given
+    const threads = [
+      thread({ id: 'file', path: 'a.ts', line: null, subjectType: 'FILE' }),
+      thread({ id: 'outdated-file', path: 'a.ts', line: null, subjectType: 'FILE', isOutdated: true }),
+    ];
+
+    // When
+    const visible = threadsForFile(threads, 'a.ts');
+
+    // Then
+    expect(visible.map((t) => t.id)).toEqual(['file']);
   });
 });
 
@@ -692,6 +707,19 @@ describe('commentCountsByFile', () => {
       t({ id: '2', path: 'a.ts', isOutdated: true, comments: [{}] as PrReviewThread['comments'] }),
       t({ id: '3', path: 'a.ts', line: null, comments: [{}] as PrReviewThread['comments'] }),
     ]);
+    expect(counts).toEqual({ 'a.ts': 1 });
+  });
+
+  it('counts file-level comments, which the file header shows', () => {
+    // Given
+    const threads = [
+      t({ id: '1', path: 'a.ts', line: null, subjectType: 'FILE', comments: [{}] as PrReviewThread['comments'] }),
+    ];
+
+    // When
+    const counts = commentCountsByFile(threads);
+
+    // Then
     expect(counts).toEqual({ 'a.ts': 1 });
   });
 

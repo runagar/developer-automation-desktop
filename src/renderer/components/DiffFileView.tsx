@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { PrCommentAnchor, PrDiffFile, PrReviewThread } from '../../main/types';
+import { PrCommentAnchor, PrDiffFile, PrLineCommentAnchor, PrReviewThread } from '../../main/types';
 import {
   DiffLine, DiffHunk, DiffSide, MissingPatchReason, anchorForLine, anchorForRange, lineMatchesAnchor,
   missingPatchReason, parsePatch, toSplitRows,
@@ -80,6 +80,12 @@ export default function DiffFileView({
 
   const dragging = drag !== null;
 
+  const fileDraftKey = `diff:${file.path}:FILE::`;
+  const [fileComposerOpen, setFileComposerOpen] = useState(
+    () => Boolean(useGitHubStore.getState().drafts[fileDraftKey])
+  );
+  const fileThreads = threads.filter((t) => t.subjectType === 'FILE');
+
   useEffect(() => {
     if (!dragging) return undefined;
     // Released anywhere, not just over the diff: a drag that ends outside the
@@ -101,10 +107,50 @@ export default function DiffFileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
-  const origin = file.previousPath && (
-    <div className="pr-diff__origin">
-      {file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} {file.previousPath}
+  const fileRow = (key: string, content: React.ReactNode): React.ReactNode => (
+    <div key={key} className="pr-diff__inline-row pr-diff__inline-row--file">
+      <div className="pr-diff__inline-body">{content}</div>
     </div>
+  );
+
+  const fileHeader = (
+    <>
+      {(file.previousPath || canComment) && (
+        <div className="pr-diff__file-header">
+          <span className="pr-diff__origin">
+            {file.previousPath
+              && `${file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} ${file.previousPath}`}
+          </span>
+          {canComment && !fileComposerOpen && (
+            <button
+              className="btn btn--micro"
+              title="Comment on the file as a whole"
+              onClick={() => setFileComposerOpen(true)}
+            >
+              COMMENT ON FILE
+            </button>
+          )}
+        </div>
+      )}
+      {fileThreads.map((thread) => fileRow(
+        thread.id,
+        <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
+      ))}
+      {fileComposerOpen && fileRow(
+        'file-composer',
+        <CommentComposer
+          draftKey={fileDraftKey}
+          placeholder="Comment on this file…  (Ctrl+Enter to send, Esc to cancel)"
+          submitLabel={pendingReviewId ? 'ADD TO REVIEW' : 'COMMENT'}
+          autoFocus
+          onSubmit={async (body) => {
+            await onComment({ path: file.path, subjectType: 'FILE' }, body);
+            setFileComposerOpen(false);
+          }}
+          onCancel={() => setFileComposerOpen(false)}
+        />
+      )}
+    </>
   );
 
   if (!file.patch) {
@@ -112,7 +158,7 @@ export default function DiffFileView({
     // with no patch. They are still listed, so the file is not silently missing.
     return (
       <>
-        {origin}
+        {fileHeader}
         <div className="pr-diff__placeholder">{MISSING_PATCH_LABELS[missingPatchReason(file)]}</div>
       </>
     );
@@ -187,7 +233,7 @@ export default function DiffFileView({
     if (!candidates.includes(Math.max(selection.from, selection.to))) return null;
 
     const range = anchorForRange(hunk, selection.from, selection.to, selection.side);
-    const anchor: PrCommentAnchor | null = range ? { path: file.path, ...range } : null;
+    const anchor: PrLineCommentAnchor | null = range ? { path: file.path, ...range } : null;
 
     if (!anchor) {
       return (
@@ -242,7 +288,7 @@ export default function DiffFileView({
         dragging && 'pr-diff__file--dragging'
       )}
     >
-      {origin}
+      {fileHeader}
       {parsed.hunks.map((hunk, hunkIndex) => (
         <div key={`${hunk.header}-${hunkIndex}`} className="pr-diff__hunk">
           <div className="pr-diff__hunk-header">{hunk.header}</div>

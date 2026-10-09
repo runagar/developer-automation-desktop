@@ -725,10 +725,12 @@ export interface PrReviewThread {
   viewerCanUnresolve: boolean;
   viewerCanReply: boolean;
   path: string;
-  /** Null once the thread's line no longer exists in the current diff. */
+  /** Null once the thread's line no longer exists in the current diff, and always for a FILE thread. */
   line: number | null;
   startLine: number | null;
   side: 'LEFT' | 'RIGHT';
+  /** `FILE` threads comment on the file as a whole and have no line. */
+  subjectType: 'LINE' | 'FILE';
   comments: PrThreadComment[];
 }
 
@@ -781,10 +783,17 @@ export interface PrDetail {
 
 export type PrReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 
-export interface PrCommentAnchor {
+export interface PrLineCommentAnchor {
   path: string;
   line: number;
   side: 'LEFT' | 'RIGHT';
   startLine: number | null;
   startSide: 'LEFT' | 'RIGHT' | null;
 }
+
+export interface PrFileCommentAnchor {
+  path: string;
+  subjectType: 'FILE';
+}
+
+export type PrCommentAnchor = PrLineCommentAnchor | PrFileCommentAnchor;

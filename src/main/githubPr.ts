@@ -238,6 +238,7 @@ export function toReviewThread(raw: any): PrReviewThread {
     line: raw?.line ?? raw?.originalLine ?? null,
     startLine: raw?.startLine ?? raw?.originalStartLine ?? null,
     side: raw?.diffSide === 'LEFT' ? 'LEFT' : 'RIGHT',
+    subjectType: raw?.subjectType === 'FILE' ? 'FILE' : 'LINE',
     comments: (raw?.comments?.nodes ?? []).map(toThreadComment),
   };
 }
@@ -489,15 +490,16 @@ export async function discardReview(reviewId: string): Promise<void> {
 export async function addReviewComment(
   pullRequestId: string, reviewId: string | null, anchor: PrCommentAnchor, body: string
 ): Promise<{ thread: PrReviewThread; pendingReviewId: string | null }> {
+  const subject = 'subjectType' in anchor
+    ? { subjectType: anchor.subjectType }
+    : { line: anchor.line, side: anchor.side, startLine: anchor.startLine, startSide: anchor.startSide };
+
   const data = await ghGraphql<any>(ADD_REVIEW_THREAD_MUTATION, {
     pullRequestId,
     reviewId,
     path: anchor.path,
     body,
-    line: anchor.line,
-    side: anchor.side,
-    startLine: anchor.startLine,
-    startSide: anchor.startSide,
+    ...subject,
   });
 
   const raw = data?.addPullRequestReviewThread?.thread;

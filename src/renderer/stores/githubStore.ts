@@ -17,7 +17,7 @@
 
 import { create } from 'zustand';
 import {
-  PrBranchUpdateMethod, PrCandidate, PrCommentAnchor, PrDetail, PrDiff, PrDiffFile, PrDiffRef,
+  PrBranchUpdateMethod, PrCandidate, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrLineCommentAnchor,
   PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrOtherEntry, PrRef, PrReviewEvent,
   PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, WorkspaceEntry, WorkspaceGroup,
 } from '../../main/types';
@@ -1094,9 +1094,9 @@ export function diffRefOptions(detail: PrDetail | null): DiffRefOption[] {
   return options;
 }
 
-/** Whether a thread renders inline against the diff at all. */
+/** Whether a thread renders against the diff at all: a live line, or the file itself. */
 function isInlineThread(thread: PrReviewThread): boolean {
-  return !thread.isOutdated && thread.line !== null;
+  return !thread.isOutdated && (thread.subjectType === 'FILE' || thread.line !== null);
 }
 
 /** Threads that belong inline in the diff: live, and on the shown file. */
@@ -1122,7 +1122,7 @@ export function commentCountsByFile(threads: PrReviewThread[]): Record<string, n
   return counts;
 }
 
-export function anchorFrom(path: string, line: number, side: 'LEFT' | 'RIGHT'): PrCommentAnchor {
+export function anchorFrom(path: string, line: number, side: 'LEFT' | 'RIGHT'): PrLineCommentAnchor {
   return { path, line, side, startLine: null, startSide: null };
 }
 

@@ -406,6 +406,7 @@ query PrReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: S
           startLine
           originalStartLine
           diffSide
+          subjectType
           comments(first: 50) {
             nodes {
               id
@@ -477,6 +478,10 @@ mutation DiscardReview($reviewId: ID!) {
  *
  * `pullRequestReviewId` is optional: present, the thread is held as pending;
  * absent, it is published immediately (requirement 3.4's second sentence).
+ *
+ * A FILE subject omits every line variable; omitted variables leave the input
+ * fields unset, so `subjectType` falls back to GitHub's `LINE` default for
+ * ordinary line comments.
  */
 export const ADD_REVIEW_THREAD_MUTATION = `
 mutation AddReviewThread(
@@ -484,10 +489,11 @@ mutation AddReviewThread(
   $reviewId: ID
   $path: String!
   $body: String!
-  $line: Int!
-  $side: DiffSide!
+  $line: Int
+  $side: DiffSide
   $startLine: Int
   $startSide: DiffSide
+  $subjectType: PullRequestReviewThreadSubjectType
 ) {
   addPullRequestReviewThread(input: {
     pullRequestId: $pullRequestId
@@ -498,6 +504,7 @@ mutation AddReviewThread(
     side: $side
     startLine: $startLine
     startSide: $startSide
+    subjectType: $subjectType
   }) {
     thread {
       id
@@ -507,6 +514,7 @@ mutation AddReviewThread(
       line
       startLine
       diffSide
+      subjectType
       viewerCanResolve
       viewerCanUnresolve
       viewerCanReply

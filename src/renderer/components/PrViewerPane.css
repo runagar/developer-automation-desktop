@@ -705,13 +705,26 @@
   overflow: auto;
 }
 
-.pr-diff__origin {
+.pr-diff__file-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 4px 6px;
+  border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-diff__origin {
+  flex: 1;
+  min-width: 0;
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   color: var(--c-mid);
-  border-bottom: 1px solid var(--c-dark);
   overflow-wrap: anywhere;
+}
+
+/* A file comment has no line, so it skips the gutter indent line comments use. */
+.pr-diff__inline-row--file .pr-diff__inline-body {
+  padding-left: 6px;
 }
 
 .pr-diff__hunk-header {
