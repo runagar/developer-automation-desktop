@@ -755,7 +755,7 @@ export interface PrDiffFile {
   status: PrFileStatus;
   additions: number;
   deletions: number;
-  /** Absent for binary files and files past GitHub's size ceiling. */
+  /** Absent for pure renames/copies, binary files and files past GitHub's size ceiling. */
   patch: string | null;
   /** Only meaningful in full-PR mode; see ambiguity 27. */
   viewed: boolean;

@@ -705,6 +705,15 @@
   overflow: auto;
 }
 
+.pr-diff__origin {
+  padding: 4px 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--c-mid);
+  border-bottom: 1px solid var(--c-dark);
+  overflow-wrap: anywhere;
+}
+
 .pr-diff__hunk-header {
   padding: 2px 6px;
   font-size: 0.66rem;

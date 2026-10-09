@@ -44,6 +44,22 @@ export interface ParsedDiff {
   deletions: number;
 }
 
+export type MissingPatchReason = 'renamed' | 'copied' | 'unavailable';
+
+/**
+ * A pure rename or copy arrives without a patch, exactly like a binary or
+ * oversized file. On a module-move PR nearly every file is one, so labelling
+ * them all "too large" reads as the viewer being broken.
+ */
+export function missingPatchReason(
+  file: { status: string; additions: number; deletions: number }
+): MissingPatchReason {
+  const unchanged = file.additions === 0 && file.deletions === 0;
+  if (unchanged && file.status === 'renamed') return 'renamed';
+  if (unchanged && file.status === 'copied') return 'copied';
+  return 'unavailable';
+}
+
 /**
  * Hunk header grammar.
  *

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  anchorForLine, anchorForRange, anchorForSelection, lineMatchesAnchor, parsePatch, toSplitRows,
+  anchorForLine, anchorForRange, anchorForSelection, lineMatchesAnchor, missingPatchReason, parsePatch, toSplitRows,
 } from './githubDiff';
 
 describe('parsePatch', () => {
@@ -254,5 +254,51 @@ describe('lineMatchesAnchor', () => {
     const [hunk] = parsePatch('@@ -5,1 +5,1 @@\n-gone\n+kept').hunks;
     expect(lineMatchesAnchor(hunk.lines[0], { line: 5, side: 'LEFT' })).toBe(true);
     expect(lineMatchesAnchor(hunk.lines[1], { line: 5, side: 'LEFT' })).toBe(false);
+  });
+});
+
+describe('missingPatchReason', () => {
+  it('reports a pure rename', () => {
+    // Given
+    const file = { status: 'renamed', additions: 0, deletions: 0 };
+
+    // When
+    const reason = missingPatchReason(file);
+
+    // Then
+    expect(reason).toBe('renamed');
+  });
+
+  it('reports a pure copy', () => {
+    // Given
+    const file = { status: 'copied', additions: 0, deletions: 0 };
+
+    // When
+    const reason = missingPatchReason(file);
+
+    // Then
+    expect(reason).toBe('copied');
+  });
+
+  it('treats a rename with changes but no patch as unavailable', () => {
+    // Given
+    const file = { status: 'renamed', additions: 4, deletions: 1 };
+
+    // When
+    const reason = missingPatchReason(file);
+
+    // Then
+    expect(reason).toBe('unavailable');
+  });
+
+  it('treats any other patchless file as unavailable', () => {
+    // Given
+    const file = { status: 'modified', additions: 0, deletions: 0 };
+
+    // When
+    const reason = missingPatchReason(file);
+
+    // Then
+    expect(reason).toBe('unavailable');
   });
 });

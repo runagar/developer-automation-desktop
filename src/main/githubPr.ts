@@ -298,8 +298,8 @@ function toDiffFile(file: RestFile, viewed: Set<string>): PrDiffFile {
     status: (file.status ?? 'modified') as PrFileStatus,
     additions: file.additions ?? 0,
     deletions: file.deletions ?? 0,
-    // Absent for binary files and anything past GitHub's size ceiling; the
-    // viewer renders a placeholder rather than dropping the row.
+    // Absent for pure renames/copies, binary files and anything past GitHub's
+    // size ceiling; the viewer renders a placeholder rather than dropping the row.
     patch: file.patch ?? null,
     viewed: viewed.has(path),
   };

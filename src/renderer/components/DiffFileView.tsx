@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { PrCommentAnchor, PrDiffFile, PrReviewThread } from '../../main/types';
 import {
-  DiffLine, DiffHunk, DiffSide, anchorForLine, anchorForRange, lineMatchesAnchor, parsePatch, toSplitRows,
+  DiffLine, DiffHunk, DiffSide, MissingPatchReason, anchorForLine, anchorForRange, lineMatchesAnchor,
+  missingPatchReason, parsePatch, toSplitRows,
 } from '../../main/githubDiff';
 import { DiffLineSelection, DiffViewMode, useGitHubStore } from '../stores/githubStore';
 import { cn } from '../utils/cn';
@@ -43,6 +44,12 @@ function inRange(range: { from: number; to: number } | null, index: number): boo
   if (!range) return false;
   return index >= Math.min(range.from, range.to) && index <= Math.max(range.from, range.to);
 }
+
+const MISSING_PATCH_LABELS: Record<MissingPatchReason, string> = {
+  renamed: 'FILE RENAMED WITHOUT CHANGES',
+  copied: 'FILE COPIED WITHOUT CHANGES',
+  unavailable: 'DIFF NOT SHOWN (binary / too large)',
+};
 
 export default function DiffFileView({
   file, mode, threads, canComment, pendingReviewId, onComment,
@@ -94,13 +101,20 @@ export default function DiffFileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
+  const origin = file.previousPath && (
+    <div className="pr-diff__origin">
+      {file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} {file.previousPath}
+    </div>
+  );
+
   if (!file.patch) {
-    // Binary files and files past GitHub's size ceiling arrive with no patch.
-    // They are still listed, so the file is not silently missing.
+    // Pure renames, binary files and files past GitHub's size ceiling arrive
+    // with no patch. They are still listed, so the file is not silently missing.
     return (
-      <div className="pr-diff__placeholder">
-        DIFF NOT SHOWN (binary / too large)
-      </div>
+      <>
+        {origin}
+        <div className="pr-diff__placeholder">{MISSING_PATCH_LABELS[missingPatchReason(file)]}</div>
+      </>
     );
   }
 
@@ -228,6 +242,7 @@ export default function DiffFileView({
         dragging && 'pr-diff__file--dragging'
       )}
     >
+      {origin}
       {parsed.hunks.map((hunk, hunkIndex) => (
         <div key={`${hunk.header}-${hunkIndex}`} className="pr-diff__hunk">
           <div className="pr-diff__hunk-header">{hunk.header}</div>
