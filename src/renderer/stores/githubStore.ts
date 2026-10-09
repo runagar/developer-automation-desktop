@@ -24,7 +24,7 @@ import {
 import {
   candidateToListItem, emptyLists, sortByUpdatedDesc, toPrState,
 } from '../../main/githubPrLists';
-import { DiffSide } from '../../main/githubDiff';
+import { DiffSide, parsePatch, positionForNewLine } from '../../main/githubDiff';
 
 const SELECTION_KEY = 'dad-git-selection';
 const DIFF_MODE_KEY = 'dad-git-diff-mode';
@@ -1114,12 +1114,75 @@ export function threadsForFile(threads: PrReviewThread[], path: string | null): 
  * line to render against and surface in the Overview instead.
  */
 export function commentCountsByFile(threads: PrReviewThread[]): Record<string, number> {
+  return countCommentsByFile(threads.filter(isInlineThread));
+}
+
+export function countCommentsByFile(threads: PrReviewThread[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const thread of threads) {
-    if (!isInlineThread(thread)) continue;
     counts[thread.path] = (counts[thread.path] ?? 0) + thread.comments.length;
   }
   return counts;
+}
+
+/**
+ * Threads a single-commit diff can draw: file-level threads, and line threads
+ * written against that commit, placed where they were written rather than
+ * where the line is now — so one outdated at the head still shows here.
+ *
+ * Only right-hand threads qualify. A thread's left-hand numbers count from the
+ * merge base, the view's from the commit's parent, and the two only agree by
+ * accident. A thread on a line outside the commit's own hunks has nowhere to
+ * render, so it is left out rather than counted.
+ */
+export function threadsForCommit(
+  threads: PrReviewThread[], commitOid: string, files: PrDiffFile[]
+): PrReviewThread[] {
+  const linesByPath = new Map<string, Set<number>>();
+  const shownLines = (path: string): Set<number> => {
+    let lines = linesByPath.get(path);
+    if (!lines) {
+      const patch = files.find((f) => f.path === path)?.patch;
+      lines = new Set(
+        parsePatch(patch).hunks.flatMap((h) => h.lines)
+          .filter((l) => l.kind !== 'del' && l.newLine !== null)
+          .map((l) => l.newLine as number)
+      );
+      linesByPath.set(path, lines);
+    }
+    return lines;
+  };
+
+  return threads.flatMap((t) => {
+    if (t.subjectType === 'FILE') {
+      return !t.isOutdated && files.some((f) => f.path === t.path) ? [t] : [];
+    }
+    if (t.originalCommitOid !== commitOid || t.side !== 'RIGHT' || t.originalLine === null) return [];
+    if (!shownLines(t.path).has(t.originalLine)) return [];
+    return [{ ...t, line: t.originalLine, startLine: t.originalStartLine }];
+  });
+}
+
+/** The last pull-request-as-of-commit diff fetched; one is reused for every comment on that commit. */
+let prDiffAtCommit: { key: string; files: PrDiffFile[] } | null = null;
+
+/**
+ * The `position` of a right-hand line in the pull request's diff as of
+ * `commitOid` — what GitHub anchors a commit-pinned comment by — or null when
+ * the line is not part of that diff. A three-dot compare from the base is that
+ * diff: merge base to commit.
+ */
+export async function commitCommentPosition(
+  ref: PrRef, baseOid: string, commitOid: string, path: string, line: number
+): Promise<number | null> {
+  const key = `${formatRef(ref)}@${baseOid}...${commitOid}`;
+  if (prDiffAtCommit?.key !== key) {
+    const diff = await window.dad.githubGetDiff(
+      ref, { kind: 'range', beforeOid: baseOid, afterOid: commitOid, label: '' }, 0
+    );
+    prDiffAtCommit = { key, files: diff.files };
+  }
+  return positionForNewLine(prDiffAtCommit.files.find((f) => f.path === path)?.patch, line);
 }
 
 export function anchorFrom(path: string, line: number, side: 'LEFT' | 'RIGHT'): PrLineCommentAnchor {

@@ -17,7 +17,8 @@ interface Props {
   submitLabel: string;
   disabled?: boolean;
   autoFocus?: boolean;
-  onSubmit: (body: string) => void | Promise<void>;
+  /** Resolving to `false` reports the submit failed, so the text is kept for another try. */
+  onSubmit: (body: string) => void | boolean | Promise<void | boolean>;
   onCancel?: () => void;
 }
 
@@ -64,12 +65,12 @@ export default function CommentComposer({
     onCancel?.();
   };
 
-  const send = async (fn: (body: string) => void | Promise<void>): Promise<void> => {
+  const send = async (fn: (body: string) => void | boolean | Promise<void | boolean>): Promise<void> => {
     const trimmed = body.trim();
     if (!trimmed || sending) return;
     setSending(true);
     try {
-      await fn(trimmed);
+      if ((await fn(trimmed)) === false) return;
       setBody('');
       // Sent: the draft is no longer unfinished work.
       if (draftKey) useGitHubStore.getState().setDraft(draftKey, '');

@@ -10,15 +10,24 @@ import { cn } from '../utils/cn';
 import CommentThread from './CommentThread';
 import CommentComposer from './CommentComposer';
 
+/**
+ * `pr` comments anywhere in the full PR diff. `commit` comments on one
+ * right-hand line at a time, pinned to the commit shown: GitHub anchors those
+ * by position in the pull request's diff as of the commit, which a left-hand
+ * line of the commit's own diff has no reliable counterpart in, and which has
+ * no way to express a range. `null` offers no commenting at all.
+ */
+export type DiffCommentMode = 'pr' | 'commit' | null;
+
 interface Props {
   file: PrDiffFile;
   mode: DiffViewMode;
-  /** Threads belonging to this file. Empty outside full-PR mode. */
+  /** Threads this view can place on this file. */
   threads: PrReviewThread[];
-  /** False in commit/range mode, where anchors cannot be computed reliably. */
-  canComment: boolean;
+  commentMode: DiffCommentMode;
   pendingReviewId: string | null;
-  onComment: (anchor: PrCommentAnchor, body: string) => Promise<void>;
+  /** Resolves to whether the comment was posted. */
+  onComment: (anchor: PrCommentAnchor, body: string) => Promise<boolean>;
 }
 
 /** An in-progress drag from the `+` affordance, in one hunk. */
@@ -52,7 +61,7 @@ const MISSING_PATCH_LABELS: Record<MissingPatchReason, string> = {
 };
 
 export default function DiffFileView({
-  file, mode, threads, canComment, pendingReviewId, onComment,
+  file, mode, threads, commentMode, pendingReviewId, onComment,
 }: Props): React.ReactElement {
   const parsed = useMemo(() => parsePatch(file.patch), [file.patch]);
 
@@ -115,13 +124,13 @@ export default function DiffFileView({
 
   const fileHeader = (
     <>
-      {(file.previousPath || canComment) && (
+      {(file.previousPath || commentMode) && (
         <div className="pr-diff__file-header">
           <span className="pr-diff__origin">
             {file.previousPath
               && `${file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} ${file.previousPath}`}
           </span>
-          {canComment && !fileComposerOpen && (
+          {commentMode && !fileComposerOpen && (
             <button
               className="btn btn--micro"
               title="Comment on the file as a whole"
@@ -144,8 +153,9 @@ export default function DiffFileView({
           submitLabel={pendingReviewId ? 'ADD TO REVIEW' : 'COMMENT'}
           autoFocus
           onSubmit={async (body) => {
-            await onComment({ path: file.path, subjectType: 'FILE' }, body);
+            if (!(await onComment({ path: file.path, subjectType: 'FILE' }, body))) return false;
             setFileComposerOpen(false);
+            return true;
           }}
           onCancel={() => setFileComposerOpen(false)}
         />
@@ -172,6 +182,8 @@ export default function DiffFileView({
     );
   };
 
+  const singleLine = commentMode === 'commit';
+
   /**
    * The `+` affordance.
    *
@@ -180,12 +192,15 @@ export default function DiffFileView({
    * it began. `preventDefault` stops the browser beginning a text selection,
    * which is what keeps dragging here distinct from selecting the diff text.
    */
-  const addButton = (hunkIndex: number, lineIndex: number, side: DiffSide | null): React.ReactNode => {
-    if (!canComment) return null;
+  const addButton = (
+    hunkIndex: number, lineIndex: number, side: DiffSide | null, line: DiffLine
+  ): React.ReactNode => {
+    if (!commentMode) return null;
+    if (singleLine && (line.kind === 'del' || side === 'LEFT')) return null;
     return (
       <button
         className="pr-diff__add-comment"
-        title="Comment on this line — drag to cover several"
+        title={singleLine ? 'Comment on this line of the commit' : 'Comment on this line — drag to cover several'}
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -199,6 +214,7 @@ export default function DiffFileView({
 
   /** Extends an in-progress drag; clamped to the hunk and column it began in. */
   const extendDrag = (hunkIndex: number, lineIndex: number, side: DiffSide | null): void => {
+    if (singleLine) return;
     setDrag((d) => (d && d.hunkIndex === hunkIndex && d.side === side ? { ...d, to: lineIndex } : d));
   };
 
@@ -257,11 +273,15 @@ export default function DiffFileView({
           placeholder={
             multi
               ? `Comment on lines ${anchor.startLine}–${anchor.line}…  (Ctrl+Enter to send, Esc to cancel)`
-              : `Comment on line ${anchor.line}…  (Ctrl+Enter to send, Esc to cancel)`
+              : `Comment on line ${anchor.line}${singleLine ? ' of this commit' : ''}…  (Ctrl+Enter to send, Esc to cancel)`
           }
           submitLabel={pendingReviewId ? 'ADD TO REVIEW' : 'COMMENT'}
           autoFocus
-        onSubmit={async (body) => { await onComment(anchor, body); setSelection(null); }}
+        onSubmit={async (body) => {
+          if (!(await onComment(anchor, body))) return false;
+          setSelection(null);
+          return true;
+        }}
         onCancel={() => setSelection(null)}
       />
     );
@@ -307,7 +327,7 @@ export default function DiffFileView({
                 >
                   <span className="pr-diff__gutter">{gutter(line, 'old')}</span>
                   <span className="pr-diff__gutter">{gutter(line, 'new')}</span>
-                  {addButton(hunkIndex, lineIndex, null)}
+                  {addButton(hunkIndex, lineIndex, null, line)}
                   <span className="pr-diff__marker">
                     {line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}
                   </span>
@@ -354,7 +374,7 @@ export default function DiffFileView({
                       : undefined}
                   >
                     <span className="pr-diff__gutter">{gutter(row.left, 'old')}</span>
-                    {leftIndex >= 0 && addButton(hunkIndex, leftIndex, 'LEFT')}
+                    {row.left && leftIndex >= 0 && addButton(hunkIndex, leftIndex, 'LEFT', row.left)}
                     <span className="pr-diff__content">{row.left?.content || '\u00a0'}</span>
                   </div>
                   <div
@@ -368,7 +388,7 @@ export default function DiffFileView({
                       : undefined}
                   >
                     <span className="pr-diff__gutter">{gutter(row.right, 'new')}</span>
-                    {rightIndex >= 0 && addButton(hunkIndex, rightIndex, 'RIGHT')}
+                    {row.right && rightIndex >= 0 && addButton(hunkIndex, rightIndex, 'RIGHT', row.right)}
                     <span className="pr-diff__content">{row.right?.content || '\u00a0'}</span>
                   </div>
                 </div>

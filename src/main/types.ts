@@ -731,6 +731,10 @@ export interface PrReviewThread {
   side: 'LEFT' | 'RIGHT';
   /** `FILE` threads comment on the file as a whole and have no line. */
   subjectType: 'LINE' | 'FILE';
+  /** Where the thread was written, in the pull request's diff as of `originalCommitOid`. */
+  originalLine: number | null;
+  originalStartLine: number | null;
+  originalCommitOid: string | null;
   comments: PrThreadComment[];
 }
 
@@ -796,4 +800,16 @@ export interface PrFileCommentAnchor {
   subjectType: 'FILE';
 }
 
-export type PrCommentAnchor = PrLineCommentAnchor | PrFileCommentAnchor;
+/**
+ * A single right-hand line pinned to an earlier commit. `position` is the
+ * line's index in the pull request's diff as of `commitOid`; `line` is its
+ * post-image number, used to verify where GitHub actually put it.
+ */
+export interface PrCommitCommentAnchor {
+  path: string;
+  commitOid: string;
+  position: number;
+  line: number;
+}
+
+export type PrCommentAnchor = PrLineCommentAnchor | PrFileCommentAnchor | PrCommitCommentAnchor;

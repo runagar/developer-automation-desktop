@@ -9,14 +9,14 @@
 
 import { GitHubError, PAGE_SIZE, ghGraphql, ghRest, ghRestPagedArray, ghRestPagedObject } from './github';
 import {
-  ADD_ISSUE_COMMENT_MUTATION, ADD_REVIEW_THREAD_MUTATION, CLOSE_PR_MUTATION,
+  ADD_COMMIT_REVIEW_COMMENT_MUTATION, ADD_ISSUE_COMMENT_MUTATION, ADD_REVIEW_THREAD_MUTATION, CLOSE_PR_MUTATION,
   CONVERT_TO_DRAFT_MUTATION, DELETE_ISSUE_COMMENT_MUTATION, DELETE_REVIEW_COMMENT_MUTATION,
   DISABLE_AUTO_MERGE_MUTATION,
   DISCARD_REVIEW_MUTATION, ENABLE_AUTO_MERGE_MUTATION,
   MARK_FILE_VIEWED_MUTATION, MERGE_MUTATION, PR_COMMITS_QUERY, PR_COMPARE_QUERY,
-  PR_FILE_VIEWED_QUERY, PR_REVIEW_THREADS_QUERY, PR_SUMMARY_QUERY, PR_TIMELINE_QUERY,
+  PR_FILE_VIEWED_QUERY, PR_RECENT_THREADS_QUERY, PR_REVIEW_THREADS_QUERY, PR_SUMMARY_QUERY, PR_TIMELINE_QUERY,
   READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, REPO_PULL_REQUESTS_QUERY, RESOLVE_THREAD_MUTATION,
-  SET_REVIEWERS_MUTATION, SUBMIT_REVIEW_MUTATION,
+  SET_REVIEWERS_MUTATION, START_PENDING_REVIEW_MUTATION, SUBMIT_REVIEW_MUTATION,
   SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNRESOLVE_THREAD_MUTATION,
   UPDATE_BRANCH_MUTATION,
 } from './githubQueries';
@@ -25,6 +25,7 @@ import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState }
 import { OPEN_PR_OWNER, toPrState } from './githubPrLists';
 import {
   PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor, PrCommit,
+  PrCommitCommentAnchor,
   PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef,
   PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrThreadState,
 } from './types';
@@ -239,6 +240,9 @@ export function toReviewThread(raw: any): PrReviewThread {
     startLine: raw?.startLine ?? raw?.originalStartLine ?? null,
     side: raw?.diffSide === 'LEFT' ? 'LEFT' : 'RIGHT',
     subjectType: raw?.subjectType === 'FILE' ? 'FILE' : 'LINE',
+    originalLine: raw?.originalLine ?? null,
+    originalStartLine: raw?.originalStartLine ?? null,
+    originalCommitOid: raw?.comments?.nodes?.[0]?.originalCommit?.oid ?? null,
     comments: (raw?.comments?.nodes ?? []).map(toThreadComment),
   };
 }
@@ -490,6 +494,8 @@ export async function discardReview(reviewId: string): Promise<void> {
 export async function addReviewComment(
   pullRequestId: string, reviewId: string | null, anchor: PrCommentAnchor, body: string
 ): Promise<{ thread: PrReviewThread; pendingReviewId: string | null }> {
+  if ('commitOid' in anchor) return addCommitReviewComment(pullRequestId, reviewId, anchor, body);
+
   const subject = 'subjectType' in anchor
     ? { subjectType: anchor.subjectType }
     : { line: anchor.line, side: anchor.side, startLine: anchor.startLine, startSide: anchor.startSide };
@@ -511,6 +517,65 @@ export async function addReviewComment(
     // published one is not something the user can add to.
     pendingReviewId: review?.state === 'PENDING' ? (review.id ?? null) : (reviewId ?? null),
   };
+}
+
+/**
+ * A comment pinned to an earlier commit, joining the pending review.
+ *
+ * The mutation cannot create a review, so one is started at the head when
+ * none is open — never at the commit, which would tie an eventual approval to
+ * a stale commit. GitHub reports where it placed the comment; a mismatch is
+ * withdrawn rather than left on a line the user never chose.
+ */
+async function addCommitReviewComment(
+  pullRequestId: string, reviewId: string | null, anchor: PrCommitCommentAnchor, body: string
+): Promise<{ thread: PrReviewThread; pendingReviewId: string }> {
+  const startedReviewId = reviewId === null ? await startPendingReview(pullRequestId) : null;
+  const pendingReviewId = reviewId ?? (startedReviewId as string);
+
+  let comment: { id?: string; originalLine?: number | null } | undefined;
+  try {
+    const data = await ghGraphql<any>(ADD_COMMIT_REVIEW_COMMENT_MUTATION, {
+      reviewId: pendingReviewId,
+      commitOid: anchor.commitOid,
+      path: anchor.path,
+      position: anchor.position,
+      body,
+    });
+    comment = data?.addPullRequestReviewComment?.comment;
+  } catch (err) {
+    if (startedReviewId) await discardReview(startedReviewId);
+    throw err;
+  }
+
+  if (!comment?.id || comment.originalLine !== anchor.line) {
+    if (comment?.id) await deleteComment(comment.id, 'review');
+    if (startedReviewId) await discardReview(startedReviewId);
+    throw new GitHubError(
+      `GitHub placed the comment on line ${comment?.originalLine ?? '?'} instead of ${anchor.line}, `
+        + 'so it was withdrawn. Comment from the full PR diff instead.'
+    );
+  }
+
+  const thread = await findThreadOfComment(pullRequestId, comment.id);
+  if (!thread) {
+    throw new GitHubError('The comment was added, but GitHub did not return its thread. Refresh to see it.');
+  }
+  return { thread, pendingReviewId };
+}
+
+async function startPendingReview(pullRequestId: string): Promise<string> {
+  const data = await ghGraphql<any>(START_PENDING_REVIEW_MUTATION, { pullRequestId });
+  const id = data?.addPullRequestReview?.pullRequestReview?.id;
+  if (!id) throw new GitHubError('GitHub did not start a review');
+  return id;
+}
+
+async function findThreadOfComment(pullRequestId: string, commentId: string): Promise<PrReviewThread | null> {
+  const data = await ghGraphql<any>(PR_RECENT_THREADS_QUERY, { pullRequestId });
+  const nodes: any[] = data?.node?.reviewThreads?.nodes ?? [];
+  const raw = nodes.find((t) => (t?.comments?.nodes ?? []).some((c: any) => c?.id === commentId));
+  return raw ? toReviewThread(raw) : null;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  anchorForLine, anchorForRange, anchorForSelection, lineMatchesAnchor, missingPatchReason, parsePatch, toSplitRows,
+  anchorForLine, anchorForRange, anchorForSelection, lineMatchesAnchor, missingPatchReason, parsePatch, positionForNewLine,
+  toSplitRows,
 } from './githubDiff';
 
 describe('parsePatch', () => {
@@ -300,5 +301,41 @@ describe('missingPatchReason', () => {
 
     // Then
     expect(reason).toBe('unavailable');
+  });
+});
+
+describe('positionForNewLine', () => {
+  it('counts later hunk headers as positions', () => {
+    // Given
+    const patch = '@@ -1,3 +1,6 @@\n+B1\n+B2\n+B3\n line 01\n line 02\n A1\n'
+      + '@@ -27,7 +30,7 @@ line 21\n line 22\n line 23\n line 24\n-line 25\n+B changed 25\n line 26';
+
+    // When
+    const position = positionForNewLine(patch, 33);
+
+    // Then
+    expect(position).toBe(12);
+  });
+
+  it('counts a mid-hunk no-newline marker as a position', () => {
+    // Given
+    const patch = '@@ -1,3 +1,4 @@\n x1\n x2\n-x3\n\\ No newline at end of file\n+x3\n+x4';
+
+    // When
+    const positions = [positionForNewLine(patch, 3), positionForNewLine(patch, 4)];
+
+    // Then
+    expect(positions).toEqual([5, 6]);
+  });
+
+  it('returns null for a line outside the patch, or no patch at all', () => {
+    // Given
+    const patch = '@@ -1,2 +1,2 @@\n a\n-b\n+c';
+
+    // When
+    const positions = [positionForNewLine(patch, 9), positionForNewLine(null, 1)];
+
+    // Then
+    expect(positions).toEqual([null, null]);
   });
 });

@@ -314,6 +314,27 @@ export function hunkIndexOfLine(parsed: ParsedDiff, hunk: DiffHunk): number {
   return parsed.hunks.indexOf(hunk);
 }
 
+/**
+ * The diff `position` GitHub expects for a post-image line, or null when the
+ * line is not in the patch.
+ *
+ * Counts every line below the first hunk header: later hunk headers and
+ * `\ No newline at end of file` markers included, as verified against the
+ * live API.
+ */
+export function positionForNewLine(patch: string | null | undefined, newLine: number): number | null {
+  let position = 0;
+  for (const [hunkIndex, hunk] of parsePatch(patch).hunks.entries()) {
+    if (hunkIndex > 0) position += 1;
+    for (const line of hunk.lines) {
+      position += 1;
+      if (line.kind !== 'del' && line.newLine === newLine) return position;
+      if (line.noNewline) position += 1;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Thread placement
 // ---------------------------------------------------------------------------

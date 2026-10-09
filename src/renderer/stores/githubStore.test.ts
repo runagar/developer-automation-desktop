@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import {
   STALE_MS, diffRefKey, diffRefOptions, formatRef, isFileViewed, nextSelectedPath,
   commentCountsByFile, parseOtherEntries, parseRef, pickWorkspace, reconcileOther, sameRef,
-  threadsForFile, useGitHubStore,
+  threadsForCommit, threadsForFile, useGitHubStore,
 } from './githubStore';
 import {
   PrCandidate, PrDetail, PrDiffFile, PrDiffRef, PrListItem, PrLists, PrReviewThread, PrSummary,
@@ -18,8 +18,8 @@ function file(path: string, viewed = false): PrDiffFile {
 function thread(over: Partial<PrReviewThread> = {}): PrReviewThread {
   return {
     id: 't1', isResolved: false, isOutdated: false, viewerCanResolve: true, viewerCanUnresolve: true,
-    viewerCanReply: true, path: 'a.ts', line: 3, startLine: null, side: 'RIGHT', subjectType: 'LINE', comments: [],
-    ...over,
+    viewerCanReply: true, path: 'a.ts', line: 3, startLine: null, side: 'RIGHT', subjectType: 'LINE',
+    originalLine: 3, originalStartLine: null, originalCommitOid: 'head', comments: [], ...over,
   };
 }
 
@@ -1192,5 +1192,54 @@ describe('OTHER section', () => {
     // Then
     expect(store['dad-git-open-pr-workspace']).toBe('CON');
     expect(useGitHubStore.getState().openPrWorkspace).toBe('CON');
+  });
+});
+
+describe('threadsForCommit', () => {
+  const files = [
+    {
+      path: 'a.ts', previousPath: null, status: 'modified', additions: 1, deletions: 1,
+      patch: '@@ -10,3 +10,3 @@\n keep\n-gone\n+added\n tail', viewed: false,
+    },
+  ] as PrDiffFile[];
+
+  it('places a right-hand thread written on the commit where it was written', () => {
+    // Given
+    const threads = [thread({ id: 'pinned', line: 40, originalLine: 11, originalCommitOid: 'c1', isOutdated: true })];
+
+    // When
+    const shown = threadsForCommit(threads, 'c1', files);
+
+    // Then
+    expect(shown.map((t) => [t.id, t.line])).toEqual([['pinned', 11]]);
+  });
+
+  it('leaves out threads from other commits, left-hand threads and lines outside the hunks', () => {
+    // Given
+    const threads = [
+      thread({ id: 'other-commit', originalLine: 11, originalCommitOid: 'c2' }),
+      thread({ id: 'left', originalLine: 11, originalCommitOid: 'c1', side: 'LEFT' }),
+      thread({ id: 'outside', originalLine: 99, originalCommitOid: 'c1' }),
+    ];
+
+    // When
+    const shown = threadsForCommit(threads, 'c1', files);
+
+    // Then
+    expect(shown).toEqual([]);
+  });
+
+  it('keeps live file-level threads on a file in the commit', () => {
+    // Given
+    const threads = [
+      thread({ id: 'file', line: null, originalLine: null, subjectType: 'FILE', originalCommitOid: 'c9' }),
+      thread({ id: 'elsewhere', path: 'b.ts', line: null, originalLine: null, subjectType: 'FILE' }),
+    ];
+
+    // When
+    const shown = threadsForCommit(threads, 'c1', files);
+
+    // Then
+    expect(shown.map((t) => t.id)).toEqual(['file']);
   });
 });

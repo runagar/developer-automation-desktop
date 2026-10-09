@@ -386,13 +386,7 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
 }
 `;
 
-export const PR_REVIEW_THREADS_QUERY = `
-query PrReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(first: 50, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
+const REVIEW_THREAD_FIELDS = `
           id
           isResolved
           isOutdated
@@ -418,9 +412,20 @@ query PrReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: S
               viewerDidAuthor
               outdated
               viewerCanDelete
+              # The first comment's commit is the one the thread was written
+              # against, which is what lets a single-commit diff show it.
+              originalCommit { oid }
             }
           }
-        }
+`;
+
+export const PR_REVIEW_THREADS_QUERY = `
+query PrReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {${REVIEW_THREAD_FIELDS}        }
       }
     }
   }
@@ -506,35 +511,71 @@ mutation AddReviewThread(
     startSide: $startSide
     subjectType: $subjectType
   }) {
-    thread {
-      id
-      isResolved
-      isOutdated
-      path
-      line
-      startLine
-      diffSide
-      subjectType
-      viewerCanResolve
-      viewerCanUnresolve
-      viewerCanReply
+    thread {${REVIEW_THREAD_FIELDS}
       comments(first: 50) {
         nodes {
-          id
-          databaseId
-          body
-          createdAt
-          state
-          author { login }
-          viewerDidAuthor
-          outdated
-          viewerCanDelete
           # The review this comment landed in, and whether it still needs
           # submitting. Adding a thread with no review id creates a PENDING
           # review, whereas a reply is published outright — so the state has
           # to be checked, not assumed.
           pullRequestReview { id state }
         }
+      }
+    }
+  }
+}
+`;
+
+/** An empty PENDING review at the head commit, for comments that cannot create one. */
+export const START_PENDING_REVIEW_MUTATION = `
+mutation StartPendingReview($pullRequestId: ID!) {
+  addPullRequestReview(input: { pullRequestId: $pullRequestId }) {
+    pullRequestReview { id state }
+  }
+}
+`;
+
+/**
+ * A line comment pinned to an earlier commit of the pull request.
+ *
+ * `addPullRequestReviewThread` has no commit input and always anchors to the
+ * head, so this deprecated mutation is the only way to add a commit-pinned
+ * comment to a pending review — REST refuses while one is pending, and
+ * `addPullRequestReview` cannot add to an existing one. `position` counts
+ * lines in the pull request's diff *as of that commit* (merge base to commit),
+ * hunk headers and `\ No newline` markers included. All verified against the
+ * live API.
+ */
+export const ADD_COMMIT_REVIEW_COMMENT_MUTATION = `
+mutation AddCommitReviewComment(
+  $reviewId: ID!
+  $commitOid: GitObjectID!
+  $path: String!
+  $position: Int!
+  $body: String!
+) {
+  addPullRequestReviewComment(input: {
+    pullRequestReviewId: $reviewId
+    commitOID: $commitOid
+    path: $path
+    position: $position
+    body: $body
+  }) {
+    comment { id originalLine }
+  }
+}
+`;
+
+/**
+ * The newest threads, for finding the one a comment just started.
+ * `addPullRequestReviewComment` returns the comment but not its thread.
+ */
+export const PR_RECENT_THREADS_QUERY = `
+query PrRecentThreads($pullRequestId: ID!) {
+  node(id: $pullRequestId) {
+    ... on PullRequest {
+      reviewThreads(last: 20) {
+        nodes {${REVIEW_THREAD_FIELDS}        }
       }
     }
   }
