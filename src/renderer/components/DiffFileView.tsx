@@ -122,25 +122,32 @@ export default function DiffFileView({
     </div>
   );
 
+  const nameStart = file.path.lastIndexOf('/') + 1;
+
   const fileHeader = (
     <>
-      {(file.previousPath || commentMode) && (
-        <div className="pr-diff__file-header">
-          <span className="pr-diff__origin">
-            {file.previousPath
-              && `${file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} ${file.previousPath}`}
+      <div className="pr-diff__file-header">
+        <div className="pr-diff__file-title">
+          <span className="pr-diff__title-path">
+            <span className="pr-diff__title-dir">{file.path.slice(0, nameStart)}</span>
+            <span className="pr-diff__title-name">{file.path.slice(nameStart)}</span>
           </span>
-          {commentMode && !fileComposerOpen && (
-            <button
-              className="btn btn--micro"
-              title="Comment on the file as a whole"
-              onClick={() => setFileComposerOpen(true)}
-            >
-              COMMENT ON FILE
-            </button>
+          {file.previousPath && (
+            <span className="pr-diff__origin">
+              {file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} {file.previousPath}
+            </span>
           )}
         </div>
-      )}
+        {commentMode && !fileComposerOpen && (
+          <button
+            className="btn btn--micro"
+            title="Comment on the file as a whole"
+            onClick={() => setFileComposerOpen(true)}
+          >
+            COMMENT ON FILE
+          </button>
+        )}
+      </div>
       {fileThreads.map((thread) => fileRow(
         thread.id,
         <CommentThread thread={thread} pendingReviewId={pendingReviewId} />

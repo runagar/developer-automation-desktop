@@ -713,9 +713,28 @@
   border-bottom: 1px solid var(--c-dark);
 }
 
-.pr-diff__origin {
+.pr-diff__file-title {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pr-diff__title-path {
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.pr-diff__title-dir {
+  color: var(--c-mid);
+}
+
+.pr-diff__title-name {
+  color: var(--c-bright);
+}
+
+.pr-diff__origin {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   color: var(--c-mid);
