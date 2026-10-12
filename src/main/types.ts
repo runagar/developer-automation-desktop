@@ -515,7 +515,7 @@ export interface PrList {
 export interface PrLists {
   created: PrList;
   reviewing: PrList;
-  /** Hand-picked via the Open Pull Request dialog; never populated by a search. */
+  /** Hand-picked via the Track Pull Request dialog; never populated by a search. */
   other: PrList;
 }
 

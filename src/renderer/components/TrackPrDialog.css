@@ -1,4 +1,4 @@
-.open-pr-dialog {
+.track-pr-dialog {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -10,26 +10,26 @@
   box-shadow: var(--glow-sm);
 }
 
-.open-pr-dialog__title-bar {
+.track-pr-dialog__title-bar {
   font-size: 0.78rem;
   letter-spacing: 0.15em;
   color: var(--c-bright);
 }
 
-.open-pr-dialog__controls {
+.track-pr-dialog__controls {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.open-pr-dialog__label {
+.track-pr-dialog__label {
   font-size: 0.62rem;
   letter-spacing: 0.15em;
   color: var(--c-mid);
 }
 
-.open-pr-dialog__toggle {
+.track-pr-dialog__toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -39,24 +39,24 @@
   user-select: none;
 }
 
-.open-pr-dialog__toggle:hover {
+.track-pr-dialog__toggle:hover {
   color: var(--c-bright);
 }
 
-.open-pr-dialog__toggle input {
+.track-pr-dialog__toggle input {
   margin: 0;
   accent-color: var(--c-bright);
   cursor: pointer;
 }
 
-.open-pr-dialog__list {
+.track-pr-dialog__list {
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
   border: 1px solid var(--c-dark);
 }
 
-.open-pr-dialog__row {
+.track-pr-dialog__row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -72,18 +72,18 @@
   cursor: pointer;
 }
 
-.open-pr-dialog__row:hover,
-.open-pr-dialog__row:focus-visible {
+.track-pr-dialog__row:hover,
+.track-pr-dialog__row:focus-visible {
   background: var(--c-panel-hover);
   outline: none;
 }
 
-.open-pr-dialog__branches {
+.track-pr-dialog__branches {
   flex: 0 0 auto;
   max-width: 40%;
 }
 
-.open-pr-dialog__title {
+.track-pr-dialog__title {
   flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
@@ -91,27 +91,27 @@
   color: var(--c-bright);
 }
 
-.open-pr-dialog__meta {
+.track-pr-dialog__meta {
   flex-shrink: 0;
   color: var(--c-mid);
 }
 
-.open-pr-dialog__notice {
+.track-pr-dialog__notice {
   padding: 6px 8px;
   font-size: 0.68rem;
   letter-spacing: 0.1em;
   color: var(--c-mid);
 }
 
-.open-pr-dialog__notice--loading {
+.track-pr-dialog__notice--loading {
   color: var(--c-checking);
 }
 
-.open-pr-dialog__notice--warn {
+.track-pr-dialog__notice--warn {
   color: var(--c-warn);
 }
 
-.open-pr-dialog__buttons {
+.track-pr-dialog__buttons {
   display: flex;
   justify-content: flex-end;
 }

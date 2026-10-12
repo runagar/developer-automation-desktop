@@ -22,7 +22,7 @@ import {
 } from './githubQueries';
 import { TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline } from './githubTimeline';
 import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState } from './githubPrs';
-import { OPEN_PR_OWNER, toPrState } from './githubPrLists';
+import { TRACK_PR_OWNER, toPrState } from './githubPrLists';
 import {
   PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor, PrCommit,
   PrCommitCommentAnchor,
@@ -372,7 +372,7 @@ export async function getDiff(ref: PrRef, diffRef: PrDiffRef, changedFiles: numb
 }
 
 // ---------------------------------------------------------------------------
-// A repository's pull requests (Open Pull Request dialog, GIT4)
+// A repository's pull requests (Track Pull Request dialog, GIT4)
 // ---------------------------------------------------------------------------
 
 const CLOSED_CANDIDATE_LIMIT = 50;
@@ -399,7 +399,7 @@ interface CandidateResponse {
 
 function toCandidate(node: CandidateNode): PrCandidate | null {
   if (!node?.id || node.number === undefined) return null;
-  const owner = node.repository?.owner?.login ?? OPEN_PR_OWNER;
+  const owner = node.repository?.owner?.login ?? TRACK_PR_OWNER;
   const repo = node.repository?.name ?? '';
   return {
     id: node.id,
@@ -420,10 +420,10 @@ function toCandidate(node: CandidateNode): PrCandidate | null {
 }
 
 export async function listRepoPullRequests(repo: string, which: 'open' | 'closed'): Promise<PrCandidateResult> {
-  const nameWithOwner = `${OPEN_PR_OWNER}/${repo}`;
+  const nameWithOwner = `${TRACK_PR_OWNER}/${repo}`;
   if (typeof repo !== 'string' || !REPO_NAME.test(repo)) return { kind: 'not-found', nameWithOwner };
 
-  const base = { owner: OPEN_PR_OWNER, repo };
+  const base = { owner: TRACK_PR_OWNER, repo };
   try {
     if (which === 'open') {
       const page = await collect<CandidateNode>(

@@ -31,7 +31,7 @@ const DIFF_MODE_KEY = 'dad-git-diff-mode';
 const MERGE_ACTION_KEY = 'dad-git-merge-action';
 const UPDATE_BRANCH_ACTION_KEY = 'dad-git-update-branch-action';
 const OTHER_KEY = 'dad-git-other-prs';
-const OPEN_PR_WORKSPACE_KEY = 'dad-git-open-pr-workspace';
+const TRACK_PR_WORKSPACE_KEY = 'dad-git-track-pr-workspace';
 /** A runaway-payload guard only: `OTHER` itself is uncapped. */
 const OTHER_LIMIT = 1024 * 1024;
 const REF_SEGMENT = /^[^/\s]+$/;
@@ -188,9 +188,9 @@ function saveOtherEntries(entries: PrOtherEntry[]): void {
   }
 }
 
-function loadOpenPrWorkspace(): string | null {
+function loadTrackPrWorkspace(): string | null {
   try {
-    return localStorage.getItem(OPEN_PR_WORKSPACE_KEY);
+    return localStorage.getItem(TRACK_PR_WORKSPACE_KEY);
   } catch {
     return null;
   }
@@ -250,8 +250,8 @@ interface GitHubStore {
   otherEntries: PrOtherEntry[];
   /** Entries a successful refresh asked for and did not get back. */
   otherUnavailable: string[];
-  /** Workspace key last picked in the Open Pull Request dialog. */
-  openPrWorkspace: string | null;
+  /** Workspace key last picked in the Track Pull Request dialog. */
+  trackPrWorkspace: string | null;
 
   // --- selection & detail ------------------------------------------------
   selection: PrRef | null;
@@ -318,7 +318,7 @@ interface GitHubStore {
   refreshLists: (force?: boolean, background?: boolean) => Promise<void>;
   addOther: (candidate: PrCandidate) => void;
   removeOther: (id: string) => void;
-  setOpenPrWorkspace: (key: string) => void;
+  setTrackPrWorkspace: (key: string) => void;
   select: (ref: PrRef | null) => void;
   reloadDetail: (background?: boolean) => Promise<void>;
   /** Unconditional background pass, driven by the poll interval. */
@@ -380,7 +380,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   listsError: null,
   otherEntries: loadOtherEntries(),
   otherUnavailable: [],
-  openPrWorkspace: loadOpenPrWorkspace(),
+  trackPrWorkspace: loadTrackPrWorkspace(),
 
   selection: loadSelection(),
   detail: null,
@@ -482,13 +482,13 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     if (sameRef(selection, entry) || detail?.summary.id === id) get().select(null);
   },
 
-  setOpenPrWorkspace(key) {
+  setTrackPrWorkspace(key) {
     try {
-      localStorage.setItem(OPEN_PR_WORKSPACE_KEY, key);
+      localStorage.setItem(TRACK_PR_WORKSPACE_KEY, key);
     } catch {
       // A full quota only costs remembering the choice across restarts.
     }
-    set({ openPrWorkspace: key });
+    set({ trackPrWorkspace: key });
   },
 
   /**

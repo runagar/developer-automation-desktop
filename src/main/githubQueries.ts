@@ -73,7 +73,7 @@ query PrBadges($ids: [ID!]!) {
 }
 `;
 
-/** One repository's pull requests, for the Open Pull Request dialog (GIT4). */
+/** One repository's pull requests, for the Track Pull Request dialog (GIT4). */
 export const REPO_PULL_REQUESTS_QUERY = `
 query RepoPullRequests(
   $owner: String!, $repo: String!, $states: [PullRequestState!], $first: Int!,

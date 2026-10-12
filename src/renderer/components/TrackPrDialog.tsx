@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PrCandidate, PrCandidateResult, WorkspaceEntry } from '../../main/types';
-import { OPEN_PR_OWNER, orderCandidates } from '../../main/githubPrLists';
+import { TRACK_PR_OWNER, orderCandidates } from '../../main/githubPrLists';
 import { useGitHubStore, pickWorkspace } from '../stores/githubStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEscape } from '../hooks/useEscape';
@@ -8,7 +8,7 @@ import { useTopLayer } from './dropdown';
 import WorkspacePicker from './WorkspacePicker';
 import BranchPair from './BranchPair';
 import { absoluteTime } from '../utils/absoluteTime';
-import './OpenPrDialog.css';
+import './TrackPrDialog.css';
 
 type Which = 'open' | 'closed';
 
@@ -36,13 +36,13 @@ interface RowProps {
 
 function CandidateRow({ candidate, added, onPick }: RowProps): React.ReactElement {
   return (
-    <button className="open-pr-dialog__row" title={candidate.title} onClick={() => onPick(candidate)}>
+    <button className="track-pr-dialog__row" title={candidate.title} onClick={() => onPick(candidate)}>
       <BranchPair
         head={candidate.headRefName}
         base={candidate.baseRefName}
-        className="open-pr-dialog__branches"
+        className="track-pr-dialog__branches"
       />
-      <span className="open-pr-dialog__title">#{candidate.number} {candidate.title}</span>
+      <span className="track-pr-dialog__title">#{candidate.number} {candidate.title}</span>
       {candidate.state === 'OPEN' && candidate.isDraft && (
         <span className="state-chip state-chip--neutral">DRAFT</span>
       )}
@@ -50,17 +50,17 @@ function CandidateRow({ candidate, added, onPick }: RowProps): React.ReactElemen
         <span className="state-chip state-chip--neutral">{candidate.state}</span>
       )}
       {added && <span className="state-chip state-chip--neutral">ADDED</span>}
-      <span className="open-pr-dialog__meta">
+      <span className="track-pr-dialog__meta">
         {candidate.author ?? 'ghost'} {absoluteTime(candidate.createdAt)}
       </span>
     </button>
   );
 }
 
-export default function OpenPrDialog({ onClose, onPick }: Props): React.ReactElement {
+export default function TrackPrDialog({ onClose, onPick }: Props): React.ReactElement {
   const groups = useWorkspaceStore((s) => s.groups);
-  const rememberedKey = useGitHubStore((s) => s.openPrWorkspace);
-  const setRemembered = useGitHubStore((s) => s.setOpenPrWorkspace);
+  const rememberedKey = useGitHubStore((s) => s.trackPrWorkspace);
+  const setRemembered = useGitHubStore((s) => s.setTrackPrWorkspace);
   const otherEntries = useGitHubStore((s) => s.otherEntries);
 
   const workspace = pickWorkspace(groups, rememberedKey);
@@ -164,22 +164,22 @@ export default function OpenPrDialog({ onClose, onPick }: Props): React.ReactEle
     >
       <div
         ref={dialogRef}
-        className="open-pr-dialog"
+        className="track-pr-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Open pull request"
+        aria-label="Track pull request"
         data-focus-trap=""
       >
-        <div className="open-pr-dialog__title-bar">OPEN PULL REQUEST</div>
+        <div className="track-pr-dialog__title-bar">TRACK PULL REQUEST</div>
 
-        <div className="open-pr-dialog__controls">
-          <span className="open-pr-dialog__label">REPOSITORY</span>
+        <div className="track-pr-dialog__controls">
+          <span className="track-pr-dialog__label">REPOSITORY</span>
           <WorkspacePicker groups={groups} selected={workspace} onSelect={selectWorkspace} autoFocus />
-          <label className="open-pr-dialog__toggle">
+          <label className="track-pr-dialog__toggle">
             <input type="checkbox" checked={showDrafts} onChange={(e) => setShowDrafts(e.target.checked)} />
             show drafts
           </label>
-          <label className="open-pr-dialog__toggle">
+          <label className="track-pr-dialog__toggle">
             <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
             show closed
           </label>
@@ -192,18 +192,18 @@ export default function OpenPrDialog({ onClose, onPick }: Props): React.ReactEle
           </div>
         )}
 
-        <div className="open-pr-dialog__list">
-          {!workspace && <div className="open-pr-dialog__notice">No workspaces registered</div>}
-          {open.loading && <div className="open-pr-dialog__notice open-pr-dialog__notice--loading">LOADING…</div>}
+        <div className="track-pr-dialog__list">
+          {!workspace && <div className="track-pr-dialog__notice">No workspaces registered</div>}
+          {open.loading && <div className="track-pr-dialog__notice track-pr-dialog__notice--loading">LOADING…</div>}
           {notFound && (
-            <div className="open-pr-dialog__notice open-pr-dialog__notice--warn">
-              Not a {OPEN_PR_OWNER} GitHub repository
+            <div className="track-pr-dialog__notice track-pr-dialog__notice--warn">
+              Not a {TRACK_PR_OWNER} GitHub repository
             </div>
           )}
           {openFound && (
             <>
               {candidates.length === 0 && !closed.loading && (
-                <div className="open-pr-dialog__notice">nothing here</div>
+                <div className="track-pr-dialog__notice">nothing here</div>
               )}
               {candidates.map((candidate) => (
                 <CandidateRow
@@ -214,10 +214,10 @@ export default function OpenPrDialog({ onClose, onPick }: Props): React.ReactEle
                 />
               ))}
               {showClosed && closed.loading && (
-                <div className="open-pr-dialog__notice open-pr-dialog__notice--loading">LOADING…</div>
+                <div className="track-pr-dialog__notice track-pr-dialog__notice--loading">LOADING…</div>
               )}
               {openFound.truncated && (
-                <div className="open-pr-dialog__notice open-pr-dialog__notice--warn">
+                <div className="track-pr-dialog__notice track-pr-dialog__notice--warn">
                   Only the newest open pull requests are shown
                 </div>
               )}
@@ -225,7 +225,7 @@ export default function OpenPrDialog({ onClose, onPick }: Props): React.ReactEle
           )}
         </div>
 
-        <div className="open-pr-dialog__buttons">
+        <div className="track-pr-dialog__buttons">
           <button className="btn btn--micro" onClick={onClose}>CANCEL</button>
         </div>
       </div>

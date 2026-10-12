@@ -30,7 +30,7 @@
 }
 
 /* Workspace picker menus (`WorkspaceMenuItems`): grouped `KEY  repo` rows.
-   Shared by the Sessions panel's NEW SESSION menu and the Open Pull Request
+   Shared by the Sessions panel's NEW SESSION menu and the Track Pull Request
    dialog. Scrolls rather than overflowing — it has no submenus to clip. */
 .dropdown.dropdown--workspaces {
   max-height: 60vh;

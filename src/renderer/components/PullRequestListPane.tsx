@@ -6,7 +6,7 @@ import {
 import { useGitHubStore, sameRef } from '../stores/githubStore';
 import ConfirmDialog from './ConfirmDialog';
 import BranchPair from './BranchPair';
-import OpenPrDialog from './OpenPrDialog';
+import TrackPrDialog from './TrackPrDialog';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import './PullRequestListPane.css';
@@ -379,7 +379,7 @@ export default function PullRequestListPane(): React.ReactElement {
                 className="btn btn--micro pull-request-list__section-action"
                 onClick={() => setDialogOpen(true)}
               >
-                + OPEN PR
+                + TRACK PR
               </button>
             )}
           >
@@ -399,7 +399,7 @@ export default function PullRequestListPane(): React.ReactElement {
         ))}
       </div>
 
-      {dialogOpen && <OpenPrDialog onClose={closeDialog} onPick={handlePick} />}
+      {dialogOpen && <TrackPrDialog onClose={closeDialog} onPick={handlePick} />}
 
       {confirmSwitch && (
         <ConfirmDialog

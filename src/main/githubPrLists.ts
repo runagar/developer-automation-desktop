@@ -8,7 +8,7 @@
 import { PrCandidate, PrList, PrListItem, PrLists, PrState } from './types';
 
 /** Every workspace is assumed to live under this owner (GIT4, ambiguity 1). */
-export const OPEN_PR_OWNER = 'Nykredit';
+export const TRACK_PR_OWNER = 'Nykredit';
 
 /**
  * Per-list cap for the searched lists (requirement 2.1, ambiguity 9).
@@ -188,7 +188,7 @@ export interface CandidateFilter {
 }
 
 /**
- * The Open Pull Request dialog's list: drafts, then open, then closed/merged,
+ * The Track Pull Request dialog's list: drafts, then open, then closed/merged,
  * each newest first (requirements 2.2.2.1 and 2.2.2.3).
  */
 export function orderCandidates(

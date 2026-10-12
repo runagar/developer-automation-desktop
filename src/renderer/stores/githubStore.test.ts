@@ -1187,11 +1187,11 @@ describe('OTHER section', () => {
 
   it('remembers the workspace picked in the dialog', () => {
     // When
-    useGitHubStore.getState().setOpenPrWorkspace('CON');
+    useGitHubStore.getState().setTrackPrWorkspace('CON');
 
     // Then
-    expect(store['dad-git-open-pr-workspace']).toBe('CON');
-    expect(useGitHubStore.getState().openPrWorkspace).toBe('CON');
+    expect(store['dad-git-track-pr-workspace']).toBe('CON');
+    expect(useGitHubStore.getState().trackPrWorkspace).toBe('CON');
   });
 });
 
