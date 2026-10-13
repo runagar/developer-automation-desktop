@@ -6,6 +6,7 @@ import { useGitHubStore } from '../stores/githubStore';
 import { Trash2 } from 'lucide-react';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
+import { OverviewThreadPlacement, placeOverviewThreads } from '../utils/overviewThreads';
 import CommentComposer from './CommentComposer';
 import CommentThread from './CommentThread';
 import ConfirmDialog from './ConfirmDialog';
@@ -119,24 +120,19 @@ function DismissalRow({ row }: { row: Extract<PrTimelineRow, { kind: 'dismissal'
  * the body leaves the row stating a verdict with no reasoning.
  */
 function ReviewRow(
-  { row, threads, pendingReviewId, onDelete }: {
+  { row, placement, pendingReviewId, onDelete }: {
     row: Extract<PrTimelineRow, { kind: 'review' }>;
-    threads: PrReviewThread[];
+    placement: OverviewThreadPlacement;
     pendingReviewId: string | null;
     onDelete: (id: string, kind: 'review' | 'issue') => void;
   }
-): React.ReactElement {
+): React.ReactElement | null {
   const openFileInDiff = useGitHubStore((s) => s.openFileInDiff);
 
-  /**
-   * The thread a review comment started, when this review started it.
-   *
-   * Matching on the thread's *first* comment keeps a thread under the review
-   * that opened it — a later reply from another review must not reprint the
-   * whole thread a second time further down the timeline.
-   */
-  const threadStartedHere = (commentId: string): PrReviewThread | null =>
-    threads.find((t) => t.comments[0]?.id === commentId) ?? null;
+  const visibleComments = row.comments.filter((c) => !placement.hiddenCommentIds.has(c.id));
+  const isReplyOnlyComment = row.state === 'COMMENTED' && !row.body
+    && visibleComments.length === 0 && row.moreComments === 0;
+  if (isReplyOnlyComment) return null;
 
   return (
     <div className={cn('pr-overview__comment', `pr-overview__comment--${row.state.toLowerCase()}`)}>
@@ -152,8 +148,8 @@ function ReviewRow(
         </div>
       )}
 
-      {row.comments.map((comment) => {
-        const thread = threadStartedHere(comment.id);
+      {visibleComments.map((comment) => {
+        const thread = placement.threadByAnchorCommentId.get(comment.id) ?? null;
         return (
           <div key={comment.id} className="pr-overview__review-comment">
             <button
@@ -201,15 +197,14 @@ function ReviewRow(
 interface RowProps {
   row: PrTimelineRow;
   threads: PrReviewThread[];
-  /** Threads already printed under the review that started them. */
-  claimedThreadIds: Set<string>;
+  placement: OverviewThreadPlacement;
   pendingReviewId: string | null;
   onQuote: (author: string | null, body: string) => void;
   onDelete: (id: string, kind: 'review' | 'issue') => void;
 }
 
 function Row({
-  row, threads, claimedThreadIds, pendingReviewId, onQuote, onDelete,
+  row, threads, placement, pendingReviewId, onQuote, onDelete,
 }: RowProps): React.ReactElement | null {
   switch (row.kind) {
     case 'commit':
@@ -257,7 +252,7 @@ function Row({
       return (
         <ReviewRow
           row={row}
-          threads={threads}
+          placement={placement}
           pendingReviewId={pendingReviewId}
           onDelete={onDelete}
         />
@@ -266,7 +261,7 @@ function Row({
     case 'outdated-thread': {
       // Already printed in full under the review that opened it; printing it
       // again here would duplicate the whole conversation.
-      if (claimedThreadIds.has(row.id)) return null;
+      if (placement.claimedThreadIds.has(row.id)) return null;
       // An outdated thread has no line left in the diff to render against, so
       // this is the only place it can be read — and replied to.
       const thread = threads.find((t) => t.id === row.id) ?? null;
@@ -334,26 +329,7 @@ export default function PrOverview({ detail }: Props): React.ReactElement {
    */
   const [quote, setQuote] = useState<{ seq: number; body: string }>({ seq: 0, body: '' });
 
-  /**
-   * Threads rendered under a review, so the outdated-thread rows can skip
-   * them. Matching is on the thread's first comment, exactly as `ReviewRow`
-   * decides what to claim.
-   */
-  const claimedThreadIds = React.useMemo(() => {
-    const firstCommentIds = new Set(
-      threads.map((t) => t.comments[0]?.id).filter((id): id is string => !!id)
-    );
-    const claimed = new Set<string>();
-    for (const row of timeline) {
-      if (row.kind !== 'review') continue;
-      for (const comment of row.comments) {
-        if (!firstCommentIds.has(comment.id)) continue;
-        const thread = threads.find((t) => t.comments[0]?.id === comment.id);
-        if (thread) claimed.add(thread.id);
-      }
-    }
-    return claimed;
-  }, [threads, timeline]);
+  const placement = React.useMemo(() => placeOverviewThreads(timeline, threads), [threads, timeline]);
 
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; kind: 'review' | 'issue' } | null>(null);
 
@@ -435,7 +411,7 @@ export default function PrOverview({ detail }: Props): React.ReactElement {
           key={row.id}
           row={row}
           threads={threads}
-          claimedThreadIds={claimedThreadIds}
+          placement={placement}
           pendingReviewId={pending?.id ?? null}
           onQuote={handleQuote}
           onDelete={handleDelete}
