@@ -705,11 +705,18 @@
   overflow: auto;
 }
 
+/* Pinned to the top of `.pr-diff__viewer` so the file name and COMMENT ON FILE
+   stay reachable however far the diff is scrolled. Opaque and above the `+`
+   affordance (z-index 1) so scrolled lines pass beneath it. */
 .pr-diff__file-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
+  background: var(--c-bg);
   border-bottom: 1px solid var(--c-dark);
 }
 
