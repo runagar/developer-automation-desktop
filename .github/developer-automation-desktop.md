@@ -853,6 +853,10 @@ The interface is themed after the Fallout Pip-Boy terminal aesthetic:
 - Terminal autocomplete suggestions use ANSI `brightBlack` (mapped to `--c-mid`-equivalent values in `xterm-theme.ts`).
 - `xterm-theme.ts` is imported by **`preload.ts` as well as the renderer**, so it must stay free of React and DOM-only dependencies. `getXtermTheme()` reads `data-theme` off the document; `getXtermThemeById()` is the DOM-free variant preload uses to resolve the saved theme (including the legacy `pipboy-3000*` ids) before the renderer has mounted.
 
+### Mouse wheel scrolling (WSLg)
+
+**`src/main/index.ts` sets the Chromium switch `disable-high-precision-scrolling`, and it must stay.** Under WSLg the window runs on XWayland, whose pointer exposes XI2 scroll valuators. Chromium then ignores the legacy wheel-button events and scrolls from valuator deltas, but resets the valuator baseline on every pointer Enter and every XI2 slave-device switch (XWayland alternates its absolute and relative pointer devices as the mouse moves). The next notch only re-establishes the baseline and is dropped, so the first scroll after any mouse movement did nothing in every scrollable panel. The switch makes Chromium use the wheel-button events instead: a fixed step per notch that is never dropped. The trade-off is no sub-notch smooth scrolling from touchpads.
+
 ### Menus and the top layer
 
 **Every dropdown, popup or context menu must be raised into the browser's top layer via `useTopLayer` (`components/dropdown/useTopLayer.ts`). A `z-index` will not work.**

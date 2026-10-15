@@ -104,6 +104,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 
 - The app runs under **WSLg** (Windows Subsystem for Linux with GUI). Some Electron behaviours differ from native Linux:
   - `in-process-gpu` flag is set to prevent GPU process crashes on WSLg.
+  - `disable-high-precision-scrolling` flag is set because Chromium's XI2 smooth-scroll path under XWayland drops the first wheel notch after every mouse movement. Do not remove it.
   - `mainWindow.setBounds(display.workArea)` must be deferred with `setImmediate` inside the `maximize` event — calling it synchronously crashes.
   - The app window is frameless (`frame: false`); window controls are handled by `TitleBar.tsx` via IPC.
 - Native modules (`node-pty`, `better-sqlite3`) must be compiled against the exact Electron version. The `postinstall` script runs `electron-builder install-app-deps` to handle this automatically.

@@ -277,6 +277,10 @@ async function checkDependencies(): Promise<void> {
 
 // WSLg: run GPU thread in-process to prevent separate GPU process crash.
 app.commandLine.appendSwitch('in-process-gpu');
+// XWayland: Chromium resets its XI2 scroll-valuator baseline whenever the pointer
+// enters or switches source device, silently dropping the next wheel notch.
+// Fall back to legacy wheel-button events, which are never dropped.
+app.commandLine.appendSwitch('disable-high-precision-scrolling');
 
 app.on('ready', async () => {
   await initialize();
