@@ -22,6 +22,7 @@ import NotesSettingsDialog from './components/NotesSettingsDialog';
 import ManageWorkspacesDialog from './components/ManageWorkspacesDialog';
 import WorkspaceDiscoveryDialog from './components/WorkspaceDiscoveryDialog';
 import TitleBar from './components/TitleBar';
+import TooltipLayer from './components/TooltipLayer';
 import { useZoomKeyboard } from './components/ZoomControl';
 import { initCrtEffects } from './components/crtEffects';
 import { useJiraStore, initJiraStore } from './stores/jiraStore';
@@ -482,6 +483,7 @@ export default function App(): React.ReactElement {
           onClose={closeDiscovery}
         />
       )}
+      <TooltipLayer />
     </div>
   );
 }

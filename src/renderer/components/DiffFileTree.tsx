@@ -22,8 +22,9 @@ const INDENT = 12;
 /**
  * The changed files, as a collapsible tree.
  *
- * Rows show the base name only; the directory is conveyed by the tree itself
- * and the full path is on the row's tooltip. A flat list of full paths is
+ * Rows show the base name only; the directory is conveyed by the tree itself.
+ * A name cut off by the panel's width is on the row's tooltip. A flat list of
+ * full paths is
  * unreadable in a narrow panel — every row ellipsises in the middle of the
  * part that identifies it.
  */
@@ -80,7 +81,7 @@ export default function DiffFileTree({
               key={`dir:${node.path}`}
               className={cn('pr-diff__dir', alt)}
               style={{ paddingLeft: depth * INDENT + 4 }}
-              title={node.path}
+              title={node.name}
               aria-expanded={!isCollapsed}
               onClick={() => toggleDir(node.path)}
             >
@@ -89,7 +90,7 @@ export default function DiffFileTree({
               <span className="pr-diff__dir-caret">
                 {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
               </span>
-              <span className="pr-diff__dir-name">{node.name}</span>
+              <span className="pr-diff__dir-name" data-tooltip-overflow>{node.name}</span>
             </button>
           );
         }
@@ -118,11 +119,10 @@ export default function DiffFileTree({
             </button>
             <button
               className="pr-diff__file-name"
-              // The full path, since the row shows only the base name.
-              title={node.path}
+              title={node.name}
               onClick={() => onSelect(node.path)}
             >
-              <span className="pr-diff__file-path">{node.name}</span>
+              <span className="pr-diff__file-path" data-tooltip-overflow>{node.name}</span>
               {/* Only where there is discussion — a "(0)" on every other row
                   would be noise. */}
               {commentCounts[node.path] > 0 && (

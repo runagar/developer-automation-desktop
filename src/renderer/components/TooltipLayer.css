@@ -1,0 +1,18 @@
+/* Above dialogs and dropdown menus (10000/10001), below the session drag
+   ghost. Never takes the pointer, so it cannot become the next hover target. */
+.tooltip-layer {
+  position: fixed;
+  z-index: 10002;
+  max-width: min(480px, calc(100vw - 8px));
+  padding: 3px 6px;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--c-bright);
+  background: var(--c-panel);
+  border: 1px solid var(--c-dim);
+  /* Titles may carry line breaks (the checks rollup does). */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
