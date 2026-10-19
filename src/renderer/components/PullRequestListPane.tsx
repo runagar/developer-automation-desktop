@@ -7,6 +7,7 @@ import { useGitHubStore, sameRef } from '../stores/githubStore';
 import ConfirmDialog from './ConfirmDialog';
 import BranchPair from './BranchPair';
 import TrackPrDialog from './TrackPrDialog';
+import PrContextMenu, { MenuPosition } from './PrContextMenu';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import './PullRequestListPane.css';
@@ -85,6 +86,11 @@ interface RowProps {
 }
 
 const Row = React.memo(function Row({ item, active, onSelect, onRemove }: RowProps): React.ReactElement {
+  const [menuAt, setMenuAt] = useState<MenuPosition | null>(null);
+  const menu = menuAt && (
+    <PrContextMenu {...menuAt} url={item.url} onClose={() => setMenuAt(null)} />
+  );
+
   const row = (
     <button
       className={cn(
@@ -93,6 +99,10 @@ const Row = React.memo(function Row({ item, active, onSelect, onRemove }: RowPro
         onRemove && 'pull-request-list__row--removable'
       )}
       onClick={() => onSelect(item)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuAt({ x: e.clientX, y: e.clientY });
+      }}
       title={item.title}
     >
       <span className="pull-request-list__title">
@@ -119,11 +129,12 @@ const Row = React.memo(function Row({ item, active, onSelect, onRemove }: RowPro
     </button>
   );
 
-  if (!onRemove) return row;
+  if (!onRemove) return <>{row}{menu}</>;
   return (
     <div className="pull-request-list__row-wrap">
       {row}
       <RemoveButton id={item.id} onRemove={onRemove} />
+      {menu}
     </div>
   );
 });

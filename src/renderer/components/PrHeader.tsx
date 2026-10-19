@@ -8,6 +8,7 @@ import EditButton from './EditButton';
 import PrTitleEditor from './PrTitleEditor';
 import ReviewersMenu from './ReviewersMenu';
 import BranchPair from './BranchPair';
+import PrContextMenu, { MenuPosition } from './PrContextMenu';
 
 interface Props {
   summary: PrSummary;
@@ -114,6 +115,7 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
   const [confirmUpdate, setConfirmUpdate] = useState<PrBranchUpdateMethod | null>(null);
   const [editingTitleOf, setEditingTitleOf] = useState<string | null>(null);
   const editingTitle = editingTitleOf === summary.id;
+  const [titleMenuAt, setTitleMenuAt] = useState<MenuPosition | null>(null);
   const reviewersRef = useRef<HTMLSpanElement>(null);
 
   // The ref wraps the button *and* the popover: watching the popover alone
@@ -191,7 +193,17 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
             onClose={() => setEditingTitleOf(null)}
           />
         ) : (
-          <a className="pr-viewer__title" href={summary.url} target="_blank" rel="noreferrer" title={summary.title}>
+          <a
+            className="pr-viewer__title"
+            href={summary.url}
+            target="_blank"
+            rel="noreferrer"
+            title={summary.title}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setTitleMenuAt({ x: e.clientX, y: e.clientY });
+            }}
+          >
             <span className="pr-viewer__number">#{summary.number}</span>
             {summary.title}
           </a>
@@ -286,6 +298,10 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
           <span className={chipClass('neutral')}>◇ {summary.milestone}</span>
         )}
       </div>
+
+      {titleMenuAt && (
+        <PrContextMenu {...titleMenuAt} url={summary.url} onClose={() => setTitleMenuAt(null)} />
+      )}
 
       {confirmUpdate && (
         <ConfirmDialog

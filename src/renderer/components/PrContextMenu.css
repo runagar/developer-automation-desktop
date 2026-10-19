@@ -1,0 +1,4 @@
+/* The default dropdown width wraps the menu's single, longer item. */
+.pr-context-menu {
+  white-space: nowrap;
+}

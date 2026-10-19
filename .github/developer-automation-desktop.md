@@ -141,6 +141,7 @@ Three lists: `CREATED`, `REVIEWING` and `OTHER`. The first two are searched acro
 - Reviewer chips pair a glyph with the login. Text glyphs are used where `Roboto Mono` has one; `COMMENTED` uses a lucide icon because the speech-balloon emoji is outside the font and rendered as a tofu box.
 - Refreshed by the auto-refresh loop below, and on demand. One in-flight guard stops focus storms stacking requests.
 - **Section headers are a flex row, not a button**: a toggle button plus an optional action slot (`OTHER`'s `+ TRACK PR`). A button cannot contain a button, and the action must work whether the section is open or collapsed. Collapse state is held by the pane, memory-only, so adding a PR can expand `OTHER`.
+- **Right-click a row → `Copy link to GitHub`** (`PrContextMenu`, shared with the viewer title). Each `Row` owns its menu state and renders the menu as a sibling of the row button, which cannot contain it. The minimal `OTHER` rows (not loaded yet, or unavailable) have no `url` and so no menu.
 
 ### OTHER section and the Track Pull Request dialog (GIT4)
 **Persistence.** `OTHER` stores identities only: `PrOtherEntry { id, owner, repo, number }` in `localStorage` key `dad-git-other-prs`. Row data is never stored, because it would go stale. The key is loaded through `parseOtherEntries`, which validates every field, de-duplicates by node id and degrades a corrupt payload to an empty list. Its only size guard is a 1 MB runaway ceiling; the list itself is uncapped.
@@ -170,7 +171,7 @@ Three lists: `CREATED`, `REVIEWING` and `OTHER`. The first two are searched acro
 ### PR Viewer panel
 Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
 
-**Status row.** Refresh, title edit (when `viewerCanUpdate` — see GIT5), title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, the `UPDATE BRANCH` split button, the branch pair (`<head> → <base>`, the same `BranchPair` the list rows use), `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
+**Status row.** Refresh, title edit (when `viewerCanUpdate` — see GIT5), title (right-click → `Copy link to GitHub` via `PrContextMenu`), a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, the `UPDATE BRANCH` split button, the branch pair (`<head> → <base>`, the same `BranchPair` the list rows use), `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
 
 **UPDATE BRANCH is gated on `compare.behindBy`, not on `mergeStateStatus` (GIT2).** `BEHIND` only ever appears when branch protection *requires* an up-to-date branch, so a branch 12 commits behind an unprotected base reports `CLEAN`; gating on it would hide the button precisely where the user chooses to update voluntarily. `compare` is also what renders the `↓y` beside it, so button and count cannot disagree, and a null `compare` (still loading, or the compare request failed) hides the button rather than offering an update that may not be needed. It is hidden outright on a merged or closed PR — `behindBy` can still be non-zero there — and shown **disabled with the reason in `title`** when the branch conflicts or `viewerCanUpdate` is false. Its own success removes it: the post-mutation reload drops `behindBy` to 0.
 
@@ -839,6 +840,7 @@ Renderer process
 ├── EditableMarkdown     comment/description body that becomes its own editor while an edit session is open (GIT5)
 ├── EditButton           the `PenLine` edit icon button (GIT5)
 ├── PrTitleEditor        inline PR title editor in the viewer header; no save on blur (GIT5)
+├── PrContextMenu        right-click menu on a PR (list row, viewer title): Copy link to GitHub; opens at the pointer, clamped to the viewport
 ├── UpdateIndicator      inline titlebar notification for available app updates
 ├── CredentialRow        shared credential field component (used by JiraSettingsDialog)
 ├── JiraSettingsDialog   Jira vault path + Atlassian credentials
@@ -922,6 +924,7 @@ Requires Chromium 114+ (Popover API) and 125+ (anchor positioning); Electron 33 
 | **Tab** / **Shift+Tab** | Cycle within the focused panel (sessions: select session; terminal: shell tab) |
 | **Double-click** (session in list) | Spawn Terminal + Shell + Jira + Notes panels for that session |
 | **Right-click** (session in list) | Context menu: New Panel (Terminal/Shell/Jira/Notes), Rename |
+| **Right-click** (PR in list, PR viewer title) | Context menu: Copy link to GitHub |
 | **Ctrl+n** | New session |
 | **Ctrl+c** | Copy selection to clipboard (if text is selected); otherwise send SIGINT |
 | **Ctrl+v** | Paste from clipboard |
