@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { PrReviewThread } from '../../main/types';
-import { useGitHubStore } from '../stores/githubStore';
+import { canEditComment, useGitHubStore } from '../stores/githubStore';
 import { Trash2 } from 'lucide-react';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import CommentComposer from './CommentComposer';
 import ConfirmDialog from './ConfirmDialog';
+import EditButton from './EditButton';
+import EditableMarkdown from './EditableMarkdown';
 
 interface Props {
   thread: PrReviewThread;
@@ -28,6 +28,8 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
   const appendThreadComment = useGitHubStore((s) => s.appendThreadComment);
   const bumpPendingCount = useGitHubStore((s) => s.bumpPendingCount);
   const removeComment = useGitHubStore((s) => s.removeComment);
+  const startEdit = useGitHubStore((s) => s.startEdit);
+  const editComment = useGitHubStore((s) => s.editComment);
 
   const [replying, setReplying] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -99,21 +101,32 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
             <div key={comment.id} className="pr-thread__comment">
               <div className="pr-thread__meta">
                 <span className="pr-thread__author">{comment.author ?? 'unknown'}</span>
-                <span className="pr-thread__time">{relativeTime(comment.createdAt)}</span>
+                <span className="pr-thread__time">
+                  {relativeTime(comment.createdAt)}
+                  {comment.lastEditedAt && ' · edited'}
+                </span>
                 {comment.state === 'PENDING' && <span className="pr-thread__pending">PENDING</span>}
-                {comment.viewerCanDelete && (
-                  <button
-                    className="pr-thread__delete"
-                    title="Delete this comment"
-                    onClick={() => setConfirmDelete(comment.id)}
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                )}
+                <span className="pr-thread__actions">
+                  {canEditComment(comment) && (
+                    <EditButton className="pr-thread__edit" onClick={() => startEdit(comment.id, comment.body)} />
+                  )}
+                  {comment.viewerCanDelete && (
+                    <button
+                      className="pr-thread__delete"
+                      title="Delete this comment"
+                      onClick={() => setConfirmDelete(comment.id)}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </span>
               </div>
-              <div className="pr-thread__body markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{comment.body}</ReactMarkdown>
-              </div>
+              <EditableMarkdown
+                id={comment.id}
+                body={comment.body}
+                bodyClassName="pr-thread__body"
+                onSave={(body) => editComment(comment.id, 'review', body)}
+              />
             </div>
           ))}
 

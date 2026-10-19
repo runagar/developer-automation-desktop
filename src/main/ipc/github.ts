@@ -3,12 +3,13 @@ import { githubErrorMessage } from '../github';
 import { getOwners } from '../githubOwners';
 import { listPullRequests } from '../githubPrs';
 import {
-  addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, getDiff,
+  addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, editComment, getDiff,
   getPullRequest, listRepoPullRequests, mergePullRequest, replyToThread, setAutoMerge, setDraft,
-  setFileViewed, setReviewers, setThreadResolved, submitReview, updatePullRequestBranch,
+  setFileViewed, setReviewers, setThreadResolved, submitReview, updatePullRequest, updatePullRequestBranch,
 } from '../githubPr';
 import {
-  PrBranchUpdateMethod, PrCommentAnchor, PrDiffRef, PrMergeOptions, PrRef, PrReviewEvent,
+  PrBranchUpdateMethod, PrCommentAnchor, PrCommentKind, PrDiffRef, PrEditKind, PrMergeOptions, PrRef,
+  PrReviewEvent, PrUpdate,
 } from '../types';
 
 /**
@@ -87,7 +88,17 @@ export function registerGitHubHandlers(ipcMain: IpcMain, dataDir: string): void 
 
   ipcMain.handle(
     'github:deleteComment',
-    handled((_e, id: string, kind: 'review' | 'issue') => deleteComment(id, kind))
+    handled((_e, id: string, kind: PrCommentKind) => deleteComment(id, kind))
+  );
+
+  ipcMain.handle(
+    'github:editComment',
+    handled((_e, id: string, kind: PrEditKind, body: string) => editComment(id, kind, body))
+  );
+
+  ipcMain.handle(
+    'github:updatePullRequest',
+    handled((_e, pullRequestId: string, patch: PrUpdate) => updatePullRequest(pullRequestId, patch))
   );
 
   ipcMain.handle(

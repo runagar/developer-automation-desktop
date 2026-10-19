@@ -20,6 +20,16 @@ interface Props {
   /** Resolving to `false` reports the submit failed, so the text is kept for another try. */
   onSubmit: (body: string) => void | boolean | Promise<void | boolean>;
   onCancel?: () => void;
+  /**
+   * Controlled mode: the text is the caller's, with no local copy and no
+   * draft hand-over. Used by edits, whose text must be live in the store.
+   */
+  value?: string;
+  onChange?: (body: string) => void;
+  /** The text being edited; submitting is disabled while it is unchanged. */
+  original?: string;
+  /** Lets an empty body be submitted — clearing a description, say. */
+  allowEmpty?: boolean;
 }
 
 /**
@@ -32,12 +42,19 @@ interface Props {
  */
 export default function CommentComposer({
   draftKey, initialBody, placeholder, submitLabel, disabled, autoFocus, onSubmit, onCancel,
+  value, onChange, original, allowEmpty,
 }: Props): React.ReactElement {
   // Read once, non-reactively: a draft restored here must not make this
   // component re-render whenever any other composer saves.
-  const [body, setBody] = useState(
+  const [localBody, setLocalBody] = useState(
     () => initialBody || (draftKey ? useGitHubStore.getState().drafts[draftKey] ?? '' : '')
   );
+  const controlled = value !== undefined;
+  const body = controlled ? value : localBody;
+  const setBody = (next: string): void => {
+    if (controlled) onChange?.(next);
+    else setLocalBody(next);
+  };
   const [sending, setSending] = useState(false);
 
   // The unmount cleanup runs once and would otherwise close over the body as
@@ -65,12 +82,16 @@ export default function CommentComposer({
     onCancel?.();
   };
 
+  const trimmed = body.trim();
+  const submittable = (trimmed.length > 0 || allowEmpty === true)
+    && (original === undefined || trimmed !== original.trim());
+
   const send = async (fn: (body: string) => void | boolean | Promise<void | boolean>): Promise<void> => {
-    const trimmed = body.trim();
-    if (!trimmed || sending) return;
+    if (!submittable || sending) return;
     setSending(true);
     try {
       if ((await fn(trimmed)) === false) return;
+      if (controlled) return;
       setBody('');
       // Sent: the draft is no longer unfinished work.
       if (draftKey) useGitHubStore.getState().setDraft(draftKey, '');
@@ -111,7 +132,7 @@ export default function CommentComposer({
         )}
         <button
           className="btn btn--micro btn--primary"
-          disabled={busy || body.trim().length === 0}
+          disabled={busy || !submittable}
           onClick={() => void send(onSubmit)}
         >
           {submitLabel}

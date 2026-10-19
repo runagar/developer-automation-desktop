@@ -28,6 +28,8 @@ function thread(id: string, commentIds: string[]): PrReviewThread {
       outdated: true,
       state: 'SUBMITTED',
       viewerCanDelete: false,
+      viewerCanUpdate: false,
+      lastEditedAt: null,
     })),
   };
 }
@@ -40,7 +42,13 @@ function review(id: string, at: string, commentIds: string[]): PrTimelineRow {
     author: null,
     state: 'COMMENTED',
     body: '',
-    comments: commentIds.map((cid) => ({ id: cid, path: 'src/A.java', line: 93, body: cid, viewerCanDelete: true })),
+    viewerDidAuthor: false,
+    viewerCanUpdate: false,
+    lastEditedAt: null,
+    comments: commentIds.map((cid) => ({
+      id: cid, path: 'src/A.java', line: 93, body: cid, viewerDidAuthor: false, viewerCanDelete: true,
+      viewerCanUpdate: false, lastEditedAt: null,
+    })),
     moreComments: 0,
   };
 }

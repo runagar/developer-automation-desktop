@@ -142,6 +142,7 @@ query PrSummary($owner: String!, $repo: String!, $number: Int!) {
       isCrossRepository
       viewerCanUpdate
       viewerDidAuthor
+      lastEditedAt
       viewerMergeHeadlineText
       viewerMergeBodyText
       autoMergeRequest {
@@ -292,6 +293,8 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
             author { login }
             viewerDidAuthor
             viewerCanDelete
+            viewerCanUpdate
+            lastEditedAt
           }
           ... on PullRequestReview {
             id
@@ -299,6 +302,9 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
             state
             body
             author { login }
+            viewerDidAuthor
+            viewerCanUpdate
+            lastEditedAt
             # A review that requests changes commonly carries an empty body and
             # says everything in its inline comments. Without these the
             # Overview shows "changes requested" and none of the substance.
@@ -311,7 +317,10 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
                 originalLine
                 diffHunk
                 body
+                viewerDidAuthor
                 viewerCanDelete
+                viewerCanUpdate
+                lastEditedAt
               }
             }
           }
@@ -321,7 +330,7 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
             isOutdated
             path
             comments(first: 1) {
-              nodes { id createdAt body author { login } }
+              nodes { id createdAt body author { login } viewerDidAuthor viewerCanUpdate lastEditedAt }
             }
           }
           ... on ReviewDismissedEvent {
@@ -412,6 +421,8 @@ const REVIEW_THREAD_FIELDS = `
               viewerDidAuthor
               outdated
               viewerCanDelete
+              viewerCanUpdate
+              lastEditedAt
               # The first comment's commit is the one the thread was written
               # against, which is what lets a single-commit diff show it.
               originalCommit { oid }
@@ -599,6 +610,8 @@ mutation ReplyThread($threadId: ID!, $body: String!, $reviewId: ID) {
       viewerDidAuthor
       outdated
       viewerCanDelete
+      viewerCanUpdate
+      lastEditedAt
       pullRequestReview { id state }
     }
   }
@@ -609,7 +622,7 @@ export const ADD_ISSUE_COMMENT_MUTATION = `
 mutation AddIssueComment($subjectId: ID!, $body: String!) {
   addComment(input: { subjectId: $subjectId, body: $body }) {
     commentEdge {
-      node { id createdAt body author { login } viewerDidAuthor }
+      node { id createdAt body author { login } viewerDidAuthor viewerCanUpdate lastEditedAt }
     }
   }
 }
@@ -635,6 +648,51 @@ export const DELETE_ISSUE_COMMENT_MUTATION = `
 mutation DeleteIssueComment($id: ID!) {
   deleteIssueComment(input: { id: $id }) {
     clientMutationId
+  }
+}
+`;
+
+export const UPDATE_ISSUE_COMMENT_MUTATION = `
+mutation UpdateIssueComment($id: ID!, $body: String!) {
+  updateIssueComment(input: { id: $id, body: $body }) {
+    issueComment { id body lastEditedAt }
+  }
+}
+`;
+
+export const UPDATE_REVIEW_COMMENT_MUTATION = `
+mutation UpdateReviewComment($id: ID!, $body: String!) {
+  updatePullRequestReviewComment(input: { pullRequestReviewCommentId: $id, body: $body }) {
+    pullRequestReviewComment { id body lastEditedAt }
+  }
+}
+`;
+
+export const UPDATE_REVIEW_BODY_MUTATION = `
+mutation UpdateReviewBody($id: ID!, $body: String!) {
+  updatePullRequestReview(input: { pullRequestReviewId: $id, body: $body }) {
+    pullRequestReview { id body lastEditedAt }
+  }
+}
+`;
+
+/*
+ * Separate title and body mutations rather than one with optional variables:
+ * each sends only the field being edited, so the other can never be cleared
+ * by a variable GitHub reads as null.
+ */
+export const UPDATE_PULL_REQUEST_TITLE_MUTATION = `
+mutation UpdatePullRequestTitle($pullRequestId: ID!, $title: String!) {
+  updatePullRequest(input: { pullRequestId: $pullRequestId, title: $title }) {
+    pullRequest { id title body lastEditedAt }
+  }
+}
+`;
+
+export const UPDATE_PULL_REQUEST_BODY_MUTATION = `
+mutation UpdatePullRequestBody($pullRequestId: ID!, $body: String!) {
+  updatePullRequest(input: { pullRequestId: $pullRequestId, body: $body }) {
+    pullRequest { id title body lastEditedAt }
   }
 }
 `;

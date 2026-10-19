@@ -198,11 +198,11 @@ export interface IpcApi {
     pullRequestId: string, reviewId: string | null, anchor: PrCommentAnchor, body: string
   ) => Promise<{ thread: PrReviewThread; pendingReviewId: string | null }>;
   githubReplyThread: (threadId: string, reviewId: string | null, body: string) => Promise<PrThreadComment>;
-  githubAddComment: (
-    subjectId: string, body: string
-  ) => Promise<{ id: string; createdAt: string; body: string; author: string | null }>;
+  githubAddComment: (subjectId: string, body: string) => Promise<PrAddedComment>;
   githubSetThreadResolved: (threadId: string, resolved: boolean) => Promise<PrThreadState>;
-  githubDeleteComment: (id: string, kind: 'review' | 'issue') => Promise<void>;
+  githubDeleteComment: (id: string, kind: PrCommentKind) => Promise<void>;
+  githubEditComment: (id: string, kind: PrEditKind, body: string) => Promise<PrEdited>;
+  githubUpdatePullRequest: (pullRequestId: string, patch: PrUpdate) => Promise<PrUpdated>;
   githubSetFileViewed: (pullRequestId: string, path: string, viewed: boolean) => Promise<void>;
   githubMerge: (pullRequestId: string, options: PrMergeOptions) => Promise<void>;
   /** Resolves to the branch's new head, or null if GitHub did not report one. */
@@ -631,6 +631,8 @@ export interface PrSummary {
   isCrossRepository: boolean;
   viewerCanUpdate: boolean;
   viewerDidAuthor: boolean;
+  /** When the description was last edited; a title rename does not set it. */
+  lastEditedAt: string | null;
   mergeHeadline: string;
   mergeBody: string;
   autoMerge: PrAutoMerge | null;
@@ -670,7 +672,10 @@ export interface PrReviewComment {
   /** Null once the anchor no longer exists in the current diff. */
   line: number | null;
   body: string;
+  viewerDidAuthor: boolean;
   viewerCanDelete: boolean;
+  viewerCanUpdate: boolean;
+  lastEditedAt: string | null;
 }
 
 export type PrTimelineRow =
@@ -678,10 +683,11 @@ export type PrTimelineRow =
   | { kind: 'force-push'; id: string; at: string; actor: string | null; force: PrForcePush }
   | {
     kind: 'comment'; id: string; at: string; author: string | null; body: string;
-    viewerDidAuthor: boolean; viewerCanDelete: boolean;
+    viewerDidAuthor: boolean; viewerCanDelete: boolean; viewerCanUpdate: boolean; lastEditedAt: string | null;
   }
   | {
     kind: 'review'; id: string; at: string; author: string | null; state: string; body: string;
+    viewerDidAuthor: boolean; viewerCanUpdate: boolean; lastEditedAt: string | null;
     comments: PrReviewComment[];
     /** Comments beyond the page fetched, so a huge review is not silently cut. */
     moreComments: number;
@@ -689,6 +695,8 @@ export type PrTimelineRow =
   | {
     kind: 'outdated-thread'; id: string; at: string; author: string | null; path: string;
     body: string; isResolved: boolean;
+    /** The thread's first comment, whose body this row shows. */
+    commentId: string; viewerDidAuthor: boolean; viewerCanUpdate: boolean; lastEditedAt: string | null;
   }
   | {
     kind: 'dismissal'; id: string; at: string; actor: string | null;
@@ -715,6 +723,32 @@ export interface PrThreadComment {
   /** `PENDING` while the comment is part of an unsubmitted review. */
   state: string;
   viewerCanDelete: boolean;
+  viewerCanUpdate: boolean;
+  lastEditedAt: string | null;
+}
+
+/** Where a comment lives decides which mutation deletes or edits it. */
+export type PrCommentKind = 'issue' | 'review';
+
+/** `review-body` is a submitted review's own text, not one of its comments. */
+export type PrEditKind = PrCommentKind | 'review-body';
+
+export interface PrEdited {
+  body: string;
+  lastEditedAt: string | null;
+}
+
+export interface PrAddedComment extends PrEdited {
+  id: string;
+  createdAt: string;
+  author: string | null;
+  viewerCanUpdate: boolean;
+}
+
+export type PrUpdate = { title: string } | { body: string };
+
+export interface PrUpdated extends PrEdited {
+  title: string;
 }
 
 export interface PrReviewThread {

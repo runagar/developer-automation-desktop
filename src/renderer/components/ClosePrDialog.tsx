@@ -54,6 +54,8 @@ export default function ClosePrDialog({ summary, onClose }: Props): React.ReactE
             viewerDidAuthor: true,
             // Just authored it, so it is deletable; the reload confirms.
             viewerCanDelete: true,
+            viewerCanUpdate: posted.viewerCanUpdate,
+            lastEditedAt: posted.lastEditedAt,
           });
         }
       }

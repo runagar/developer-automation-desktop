@@ -4,6 +4,8 @@ import { PrBranchUpdateMethod, PrSummary } from '../../main/types';
 import { useGitHubStore } from '../stores/githubStore';
 import { SplitButton, SplitButtonOption, useDismiss } from './dropdown';
 import ConfirmDialog from './ConfirmDialog';
+import EditButton from './EditButton';
+import PrTitleEditor from './PrTitleEditor';
 import ReviewersMenu from './ReviewersMenu';
 import BranchPair from './BranchPair';
 
@@ -105,10 +107,13 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
   const run = useGitHubStore((s) => s.run);
   const updateBranchAction = useGitHubStore((s) => s.updateBranchAction);
   const setUpdateBranchAction = useGitHubStore((s) => s.setUpdateBranchAction);
+  const updatePullRequest = useGitHubStore((s) => s.updatePullRequest);
   const [reviewersOpen, setReviewersOpen] = useState(false);
   // One piece of state for both strategies, so the two confirmations can
   // never be open at once.
   const [confirmUpdate, setConfirmUpdate] = useState<PrBranchUpdateMethod | null>(null);
+  const [editingTitleOf, setEditingTitleOf] = useState<string | null>(null);
+  const editingTitle = editingTitleOf === summary.id;
   const reviewersRef = useRef<HTMLSpanElement>(null);
 
   // The ref wraps the button *and* the popover: watching the popover alone
@@ -171,10 +176,26 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
           <RefreshCw size={12} />
         </button>
 
-        <a className="pr-viewer__title" href={summary.url} target="_blank" rel="noreferrer" title={summary.title}>
-          <span className="pr-viewer__number">#{summary.number}</span>
-          {summary.title}
-        </a>
+        {summary.viewerCanUpdate && !editingTitle && (
+          <EditButton
+            className="btn btn--micro pr-viewer__title-edit-button"
+            title="Edit the title"
+            onClick={() => setEditingTitleOf(summary.id)}
+          />
+        )}
+
+        {editingTitle ? (
+          <PrTitleEditor
+            title={summary.title}
+            onSave={(title) => updatePullRequest({ title })}
+            onClose={() => setEditingTitleOf(null)}
+          />
+        ) : (
+          <a className="pr-viewer__title" href={summary.url} target="_blank" rel="noreferrer" title={summary.title}>
+            <span className="pr-viewer__number">#{summary.number}</span>
+            {summary.title}
+          </a>
+        )}
 
         {/* Lifecycle state and divergence in one chip, directly after the
             title: both describe the pull request itself, as opposed to the

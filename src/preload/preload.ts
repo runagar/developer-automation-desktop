@@ -207,6 +207,8 @@ const api: IpcApi = {
     ipcRenderer.invoke('github:replyThread', threadId, reviewId, body),
   githubAddComment: (subjectId, body) => ipcRenderer.invoke('github:addComment', subjectId, body),
   githubDeleteComment: (id, kind) => ipcRenderer.invoke('github:deleteComment', id, kind),
+  githubEditComment: (id, kind, body) => ipcRenderer.invoke('github:editComment', id, kind, body),
+  githubUpdatePullRequest: (pullRequestId, patch) => ipcRenderer.invoke('github:updatePullRequest', pullRequestId, patch),
   githubSetThreadResolved: (threadId, resolved) =>
     ipcRenderer.invoke('github:setThreadResolved', threadId, resolved),
   githubSetFileViewed: (pullRequestId, path, viewed) =>

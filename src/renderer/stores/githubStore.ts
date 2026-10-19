@@ -17,9 +17,10 @@
 
 import { create } from 'zustand';
 import {
-  PrBranchUpdateMethod, PrCandidate, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrLineCommentAnchor,
-  PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrOtherEntry, PrRef, PrReviewEvent,
-  PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, WorkspaceEntry, WorkspaceGroup,
+  PrBranchUpdateMethod, PrCandidate, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited,
+  PrLineCommentAnchor, PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrOtherEntry, PrRef,
+  PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, PrUpdate, WorkspaceEntry,
+  WorkspaceGroup,
 } from '../../main/types';
 import {
   candidateToListItem, emptyLists, sortByUpdatedDesc, toPrState,
@@ -314,6 +315,18 @@ interface GitHubStore {
    */
   diffSelections: Record<string, DiffLineSelection>;
 
+  /**
+   * Open edits of existing comments, review bodies and the description,
+   * keyed by GitHub node id, holding the live unsaved text.
+   *
+   * Unlike `drafts`, this *is* subscribed to — per id — and written on every
+   * keystroke: the same diff comment is shown in both the Overview and the
+   * Diff, and a view mounted by a subtab switch renders before the old one's
+   * unmount cleanup could hand text over. Presence alone means "editing", so
+   * an edit emptied to `''` stays open.
+   */
+  edits: Record<string, string>;
+
   // --- actions -----------------------------------------------------------
   refreshLists: (force?: boolean, background?: boolean) => Promise<void>;
   addOther: (candidate: PrCandidate) => void;
@@ -347,6 +360,12 @@ interface GitHubStore {
   bumpPendingCount: (by: number) => void;
   appendTimelineRow: (row: PrTimelineRow) => void;
   removeComment: (commentId: string) => void;
+  startEdit: (id: string, body: string) => void;
+  setEdit: (id: string, body: string) => void;
+  endEdit: (id: string) => void;
+  patchComment: (id: string, edited: PrEdited) => void;
+  editComment: (id: string, kind: PrEditKind, body: string) => Promise<boolean>;
+  updatePullRequest: (patch: PrUpdate) => Promise<boolean>;
   invalidateLists: () => void;
   syncListRow: (summary: PrSummary) => void;
 }
@@ -404,6 +423,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
   diffNotice: null,
   drafts: {},
   diffSelections: {},
+  edits: {},
 
   // -------------------------------------------------------------------------
   // Lists
@@ -570,9 +590,10 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
       diffNotice: null,
       // Locally-tracked viewed files belong to the pull request that was open.
       localViewed: new Map(),
-      // As do unsent drafts and the selections they hang off.
+      // As do unsent drafts, the selections they hang off, and open edits.
       drafts: {},
       diffSelections: {},
+      edits: {},
     });
 
     if (ref) void get().reloadDetail();
@@ -848,6 +869,7 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
    * removed too; GitHub does the same.
    */
   removeComment(commentId) {
+    get().endEdit(commentId);
     const detail = get().detail;
     if (!detail) return;
     set({
@@ -869,6 +891,71 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     const detail = get().detail;
     if (!detail) return;
     set({ detail: { ...detail, timeline: [...detail.timeline, row] } });
+  },
+
+  startEdit(id, body) {
+    const { edits } = get();
+    if (id in edits) return;
+    set({ edits: { ...edits, [id]: body } });
+  },
+
+  setEdit(id, body) {
+    const { edits } = get();
+    if (!(id in edits)) return;
+    set({ edits: { ...edits, [id]: body } });
+  },
+
+  endEdit(id) {
+    const { edits } = get();
+    if (!(id in edits)) return;
+    const next = { ...edits };
+    delete next[id];
+    set({ edits: next });
+  },
+
+  patchComment(id, edited) {
+    const detail = get().detail;
+    if (!detail) return;
+    const patch = { body: edited.body, lastEditedAt: edited.lastEditedAt };
+    set({
+      detail: {
+        ...detail,
+        timeline: detail.timeline.map((row) => {
+          if (row.kind === 'comment' && row.id === id) return { ...row, ...patch };
+          if (row.kind === 'outdated-thread' && row.commentId === id) return { ...row, ...patch };
+          if (row.kind !== 'review') return row;
+          const own = row.id === id ? patch : {};
+          return {
+            ...row,
+            ...own,
+            comments: row.comments.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+          };
+        }),
+        threads: detail.threads.map((t) => (t.comments.some((c) => c.id === id)
+          ? { ...t, comments: t.comments.map((c) => (c.id === id ? { ...c, ...patch } : c)) }
+          : t)),
+      },
+    });
+  },
+
+  async editComment(id, kind, body) {
+    const edited = await get().run(() => window.dad.githubEditComment(id, kind, body));
+    if (!edited) return false;
+    get().patchComment(id, edited);
+    get().endEdit(id);
+    return true;
+  },
+
+  async updatePullRequest(patch) {
+    const detail = get().detail;
+    if (!detail) return false;
+    const updated = await get().run(() => window.dad.githubUpdatePullRequest(detail.summary.id, patch));
+    if (!updated) return false;
+    get().patchSummary(updated);
+    const summary = get().detail?.summary;
+    if (summary) get().syncListRow(summary);
+    if ('body' in patch) get().endEdit(detail.summary.id);
+    return true;
   },
 
   /**
@@ -1015,6 +1102,10 @@ export function nextSelectedPath(current: string | null, files: PrDiffFile[]): s
 // ---------------------------------------------------------------------------
 // Derived helpers
 // ---------------------------------------------------------------------------
+
+export function canEditComment(comment: { viewerDidAuthor: boolean; viewerCanUpdate: boolean }): boolean {
+  return comment.viewerDidAuthor && comment.viewerCanUpdate;
+}
 
 /** Whether a file counts as viewed in the current diff scope. */
 export function isFileViewed(

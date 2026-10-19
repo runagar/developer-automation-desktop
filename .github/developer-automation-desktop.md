@@ -170,7 +170,7 @@ Three lists: `CREATED`, `REVIEWING` and `OTHER`. The first two are searched acro
 ### PR Viewer panel
 Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that apply across all three.
 
-**Status row.** Refresh, title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, the `UPDATE BRANCH` split button, the branch pair (`<head> → <base>`, the same `BranchPair` the list rows use), `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
+**Status row.** Refresh, title edit (when `viewerCanUpdate` — see GIT5), title, a consolidated `[OPEN|DRAFT ↑x ↓y]` chip, the `UPDATE BRANCH` split button, the branch pair (`<head> → <base>`, the same `BranchPair` the list rows use), `REVIEWERS ▾`, then state markers. **`mergeable` only answers "does it conflict?"** — GitHub reports `MERGEABLE` for a draft, for one missing required reviews and for one with failing required checks — so it drives the `Conflicts!` / `No conflicts` chip alone, while **merge readiness comes from `mergeStateStatus`** and gates the MERGE button. Its enum has no `DRAFT` member: a draft reports `BLOCKED`, alongside missing reviews and failing checks, so the button's tooltip unpacks which. Mergeable states are exactly `CLEAN`, `HAS_HOOKS`, `UNSTABLE`.
 
 **UPDATE BRANCH is gated on `compare.behindBy`, not on `mergeStateStatus` (GIT2).** `BEHIND` only ever appears when branch protection *requires* an up-to-date branch, so a branch 12 commits behind an unprotected base reports `CLEAN`; gating on it would hide the button precisely where the user chooses to update voluntarily. `compare` is also what renders the `↓y` beside it, so button and count cannot disagree, and a null `compare` (still loading, or the compare request failed) hides the button rather than offering an update that may not be needed. It is hidden outright on a merged or closed PR — `behindBy` can still be non-zero there — and shown **disabled with the reason in `title`** when the branch conflicts or `viewerCanUpdate` is false. Its own success removes it: the post-mutation reload drops `behindBy` to 0.
 
@@ -227,6 +227,27 @@ Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that appl
 
 **Drafts survive.** Composer text is kept in local state while typing — writing each keystroke to the store would re-run every selector — and handed over on unmount, which is what a subtab switch does. Diff drafts need their line *selection* persisted too, or the restored text has no composer to render into. Cancel and Escape discard.
 
+### Editing comments, the title and the description (GIT5)
+A `PenLine` (`EditButton`) beside the delete icon edits, in place: conversation comments, diff comments (published and `PENDING`), a submitted review's body (only when it has one — an approval with no text has nothing to edit), the Overview's fallback rows (a review comment with no matched thread, an outdated thread not loaded), the description ("opened this pull request") and the title (header, directly after the refresh button).
+
+**Who may edit what.** A *comment* requires **both** `viewerDidAuthor` and `viewerCanUpdate` — `canEditComment()` in `githubStore.ts`. Permission alone is not enough: a repository admin may update anyone's comment, and the edit button must only appear on the viewer's own. The **title and description** need only the pull request's `viewerCanUpdate`, author or not.
+
+**One mutation, every copy.** Each kind has its own mutation — `updateIssueComment`, `updatePullRequestReviewComment`, `updatePullRequestReview` (review body) — selected by `PrEditKind` (`issue` | `review` | `review-body`; `issue`/`review` mean what they mean for delete, via the shared `PrCommentKind`). The result is applied by `patchComment(id)`, which mirrors `removeComment`: one diff comment is drawn in its thread on the Diff, in the same thread under its review in the Overview, under the review as a bare fallback, and as an outdated-thread row (matched on `commentId`, the row's first comment). Title and description use **separate** `updatePullRequest` mutations, each sending only its own field, so saving one can never clear the other through a variable GitHub reads as null; the result goes through `patchSummary`, then `syncListRow(detail.summary)` so the PR list shows a new title at once.
+
+**Edit sessions live in the store, not in `drafts`.** `edits: Record<id, text>` holds the **live** text of every open edit, written on each keystroke and subscribed to per id by `EditableMarkdown`, which renders either the markdown or a *controlled* `CommentComposer` (`value`/`onChange`). `drafts` cannot do this job, for two reasons found in review:
+- A subtab switch renders the destination **before** the source's unmount cleanup hands its text to `drafts`, so a diff comment being edited in the Overview would open closed in the Diff (and vice versa).
+- `drafts` deletes empty values and the composer trims on hand-over, so an edit emptied to `''` — a description being cleared — would silently close.
+
+Presence in `edits` *is* "editing", `''` included. `startEdit` is a no-op on an open session (a second click must not reset typed text). A successful save ends the session; a failed one keeps it, text intact, with the error in the usual banner. Sessions end with the comment (`removeComment`) and are wiped with `drafts` when another pull request is opened.
+
+**Composer rules for edits.** `original` disables SAVE while the text is unchanged; `allowEmpty` lets only the description be saved empty (there is no delete for it, so emptying is how it is removed — an empty description renders as dimmed `No description provided.` when it can be edited, so there is something to click). Comments refuse an empty body: deleting is what delete is for.
+
+**The title editor does not save on blur**, unlike the app's other inline renames (`NotesPane`, `SessionList`): a title is published to GitHub, and blur fires before a click on CANCEL, so saving on blur would publish the very edit being cancelled. Enter saves, Escape cancels; the open state is keyed by pull request id, so switching PR discards it without a reset effect.
+
+**`· edited`** follows the time on any text GitHub reports a `lastEditedAt` for, whoever edited it and wherever. A pull request's `lastEditedAt` tracks **description** edits only — verified against live PRs with dozens of title renames and a null `lastEditedAt` — so a rename never marks the description edited; renames appear in the timeline as their own event.
+
+**Known gap:** a *manual* refresh already in flight when an edit is saved can land afterwards with the pre-edit text, until the next refresh. Pre-existing and shared by reply, delete and resolve — only background reads check `mutationEpoch`. Tracked in `feature-overview.md` (Known Issue 3).
+
 ### PR auto-refresh (GIT3)
 While the `PULL!` tab is the active tab **and** the window has focus, `useTabPolling` refreshes the lists and the open pull request every `STALE_MS` (5 minutes), plus once on activation. Both conditions matter: tool tabs never unmount their panels, so a panel-owned timer would keep polling on every other tab, and polling behind another window spends rate limit on data nobody is reading. Clearing the timer on blur also means a machine that slept for hours performs exactly one catch-up tick rather than a backlog.
 
@@ -249,7 +270,7 @@ Three ordering hazards the guards exist for, each covered by a test:
 
 When the selected file leaves the diff, `nextSelectedPath` falls back to `files[0]` as before, the file's drafts and line selection are dropped, and **`diffNotice`** explains why. It renders as a third dismissible `panel-error` banner beside `error` and `actionError` — a separate field rather than reusing `actionError`, which `run()` owns and would overwrite. The notice fires on manual refresh too, not just background: silently dropping a draft is equally bad either way. It cannot misfire on a diff-ref *switch*, because `setDiffRef` nulls `selectedPath` before loading.
 
-**IPC channels:** `github:listPullRequests`, `github:listRepoPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers`, `github:getOwners` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
+**IPC channels:** `github:listPullRequests`, `github:listRepoPullRequests`, `github:getPullRequest`, `github:getDiff`, `github:submitReview`, `github:discardReview`, `github:addReviewComment`, `github:replyThread`, `github:addComment`, `github:deleteComment`, `github:editComment`, `github:updatePullRequest`, `github:setThreadResolved`, `github:setFileViewed`, `github:merge`, `github:setAutoMerge`, `github:setDraft`, `github:close`, `github:setReviewers`, `github:getOwners` — registered in `ipc/github.ts`, bound in `preload.ts`, typed in `IpcApi`.
 
 **Reviewer edits are replace-set.** `requestReviewsByLogin` takes `userLogins` and **`teamSlugs`** (not `teamLogins`), and a team must be the **`org/team-slug`** form — the bare slug is rejected — so reviewers carry a `requestKey` alongside their display name. Only reviewers with an *outstanding request* belong in the submitted set: including past reviewers would re-request everyone and invalidate their approvals. Bots are excluded; the mutation rejects the whole call when given one.
 
@@ -770,7 +791,7 @@ Renderer process
 │   ├── layoutStore.ts   tabs: Record<ToolTabId, DashboardState>; spawn/destroy/promote/switchDefault; contentId lookups
 │   ├── restStore.ts     API Picker navigation + favorites + REST Crafter state, method override, selection carry-over, draft
 │   ├── restCraft.ts     pure request composition: header/parameter rows, path substitution, query string
-│   ├── githubStore.ts   PR lists/detail/diff, generation-guarded reads, background refresh + poll ticks, drafts
+│   ├── githubStore.ts   PR lists/detail/diff, generation-guarded reads, background refresh + poll ticks, drafts, edit sessions
 │   └── responseTree.ts  pure JSON tree flattening + content-type classification for the Response panel
 ├── hooks/
 │   ├── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
@@ -815,6 +836,9 @@ Renderer process
 ├── WorkspaceDiscoveryDialog  first-launch / on-demand workspace discovery (inert backdrop, ESC = ✕)
 ├── TitleBar             frameless window controls + update indicator
 ├── TooltipLayer         app-wide replacement for native `title` tooltips (see Tooltips)
+├── EditableMarkdown     comment/description body that becomes its own editor while an edit session is open (GIT5)
+├── EditButton           the `PenLine` edit icon button (GIT5)
+├── PrTitleEditor        inline PR title editor in the viewer header; no save on blur (GIT5)
 ├── UpdateIndicator      inline titlebar notification for available app updates
 ├── CredentialRow        shared credential field component (used by JiraSettingsDialog)
 ├── JiraSettingsDialog   Jira vault path + Atlassian credentials

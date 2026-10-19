@@ -46,7 +46,8 @@
   color: var(--c-amber);
 }
 
-.pr-viewer__refresh {
+.pr-viewer__refresh,
+.pr-viewer__title-edit-button {
   display: flex;
   align-items: center;
 }
@@ -85,6 +86,23 @@
 
 .pr-viewer__title:hover {
   text-decoration: underline;
+}
+
+/* Takes the space the title had, and more: the input should be wide enough
+   to read the whole title while it is being edited. */
+.pr-viewer__title-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pr-viewer__title-input {
+  flex: 1 1 auto;
+  min-width: 10ch;
+  width: auto;
+  font-size: 0.78rem;
 }
 
 .pr-viewer__number {
@@ -222,7 +240,9 @@
 }
 
 .pr-overview__delete,
-.pr-thread__delete {
+.pr-thread__delete,
+.pr-overview__edit,
+.pr-thread__edit {
   display: flex;
   align-items: center;
   padding: 0 2px;
@@ -237,7 +257,17 @@
   color: var(--c-error);
 }
 
-.pr-thread__delete {
+.pr-overview__edit:hover,
+.pr-thread__edit:hover {
+  color: var(--c-bright);
+}
+
+/* QUOTE REPLY, edit and delete travel together at the right of a meta row. */
+.pr-overview__actions,
+.pr-thread__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
 }
 
@@ -281,6 +311,11 @@
   line-height: 1.5;
   color: var(--c-mid);
   overflow-wrap: anywhere;
+}
+
+.pr-overview__comment-body--empty {
+  font-style: italic;
+  color: var(--c-dim);
 }
 
 
@@ -330,7 +365,8 @@
 .pr-composer__input,
 .pr-merge-dialog__input,
 .pr-merge-dialog__textarea,
-.pr-reviewers__input {
+.pr-reviewers__input,
+.pr-viewer__title-input {
   width: 100%;
   padding: 4px 6px;
   font-family: var(--font);
@@ -344,7 +380,8 @@
 .pr-composer__input:focus,
 .pr-merge-dialog__input:focus,
 .pr-merge-dialog__textarea:focus,
-.pr-reviewers__input:focus {
+.pr-reviewers__input:focus,
+.pr-viewer__title-input:focus {
   outline: none;
   border-color: var(--c-bright);
 }

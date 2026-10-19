@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import {
-  STALE_MS, diffRefKey, diffRefOptions, formatRef, isFileViewed, nextSelectedPath,
+  STALE_MS, canEditComment, diffRefKey, diffRefOptions, formatRef, isFileViewed, nextSelectedPath,
   commentCountsByFile, parseOtherEntries, parseRef, pickWorkspace, reconcileOther, sameRef,
   threadsForCommit, threadsForFile, useGitHubStore,
 } from './githubStore';
@@ -615,7 +615,7 @@ describe('store patches', () => {
   it('does not append the same reply twice', () => {
     const comment = {
       id: 'c1', databaseId: null, body: 'hi', createdAt: '', author: 'ada',
-      viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true,
+      viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null,
     };
     useGitHubStore.getState().appendThreadComment('t1', comment);
     useGitHubStore.getState().appendThreadComment('t1', comment);
@@ -748,8 +748,8 @@ describe('removeComment', () => {
         threads: [thread({
           id: 't1',
           comments: [
-            { id: 'c1', databaseId: null, body: 'a', createdAt: '', author: 'ada', viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true },
-            { id: 'c2', databaseId: null, body: 'b', createdAt: '', author: 'bob', viewerDidAuthor: false, outdated: false, state: '', viewerCanDelete: false },
+            { id: 'c1', databaseId: null, body: 'a', createdAt: '', author: 'ada', viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null },
+            { id: 'c2', databaseId: null, body: 'b', createdAt: '', author: 'bob', viewerDidAuthor: false, outdated: false, state: '', viewerCanDelete: false, viewerCanUpdate: false, lastEditedAt: null },
           ],
         })],
       }),
@@ -765,7 +765,7 @@ describe('removeComment', () => {
         threads: [thread({
           id: 't1',
           comments: [
-            { id: 'c1', databaseId: null, body: 'a', createdAt: '', author: 'ada', viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true },
+            { id: 'c1', databaseId: null, body: 'a', createdAt: '', author: 'ada', viewerDidAuthor: true, outdated: false, state: '', viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null },
           ],
         })],
       }),
@@ -780,10 +780,14 @@ describe('removeComment', () => {
     useGitHubStore.setState({
       detail: detail({
         timeline: [
-          { kind: 'comment', id: 'ic1', at: '', author: 'ada', body: 'x', viewerDidAuthor: true, viewerCanDelete: true },
+          { kind: 'comment', id: 'ic1', at: '', author: 'ada', body: 'x', viewerDidAuthor: true, viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null },
           {
             kind: 'review', id: 'r1', at: '', author: 'bob', state: 'COMMENTED', body: '',
-            comments: [{ id: 'rc1', path: 'a.ts', line: 1, body: 'y', viewerCanDelete: true }],
+            viewerDidAuthor: false, viewerCanUpdate: false, lastEditedAt: null,
+            comments: [{
+              id: 'rc1', path: 'a.ts', line: 1, body: 'y', viewerDidAuthor: true, viewerCanDelete: true,
+              viewerCanUpdate: true, lastEditedAt: null,
+            }],
             moreComments: 0,
           },
         ],
@@ -794,6 +798,196 @@ describe('removeComment', () => {
     const rows = useGitHubStore.getState().detail!.timeline;
     expect(rows.some((r) => r.kind === 'comment')).toBe(false);
     expect((rows[0] as Extract<typeof rows[number], { kind: 'review' }>).comments).toHaveLength(0);
+  });
+});
+
+describe('comment edits', () => {
+  type Row = PrDetail['timeline'][number];
+  const comment = (id: string, body: string): PrReviewThread['comments'][number] => ({
+    id, databaseId: null, body, createdAt: '', author: 'ada', viewerDidAuthor: true, outdated: false,
+    state: '', viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null,
+  });
+  const issueRow = (id: string, body: string): Row => ({
+    kind: 'comment', id, at: '', author: 'ada', body, viewerDidAuthor: true, viewerCanDelete: true,
+    viewerCanUpdate: true, lastEditedAt: null,
+  });
+  const reviewRow = (id: string, body: string, commentIds: string[]): Row => ({
+    kind: 'review', id, at: '', author: 'ada', state: 'COMMENTED', body,
+    viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: null,
+    comments: commentIds.map((cid) => ({
+      id: cid, path: 'a.ts', line: 1, body: 'old', viewerDidAuthor: true, viewerCanDelete: true,
+      viewerCanUpdate: true, lastEditedAt: null,
+    })),
+    moreComments: 0,
+  });
+  const outdatedRow = (id: string, commentId: string): Row => ({
+    kind: 'outdated-thread', id, at: '', author: 'ada', path: 'a.ts', body: 'old', isResolved: false,
+    commentId, viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: null,
+  });
+  const edited = { body: 'new', lastEditedAt: '2026-10-19T10:00:00Z' };
+
+  let dad: Record<string, unknown>;
+
+  beforeEach(() => {
+    dad = {};
+    vi.stubGlobal('window', { dad });
+    useGitHubStore.setState({ edits: {}, busy: false, actionError: null, selection: null });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('offers edit only on a comment the viewer both wrote and may update', () => {
+    // Given
+    const cases = [
+      { viewerDidAuthor: true, viewerCanUpdate: true },
+      { viewerDidAuthor: false, viewerCanUpdate: true },
+      { viewerDidAuthor: true, viewerCanUpdate: false },
+    ];
+
+    // When
+    const editable = cases.map(canEditComment);
+
+    // Then
+    expect(editable).toEqual([true, false, false]);
+  });
+
+  it('patches every rendered copy of a diff comment and nothing else', () => {
+    // Given
+    useGitHubStore.setState({
+      detail: detail({
+        timeline: [reviewRow('r1', 'review text', ['c1', 'c2']), outdatedRow('t2', 'c1'), issueRow('i1', 'old')],
+        threads: [thread({ id: 't1', comments: [comment('c1', 'old'), comment('c2', 'old')] })],
+      }),
+    });
+
+    // When
+    useGitHubStore.getState().patchComment('c1', edited);
+
+    // Then
+    const { timeline, threads } = useGitHubStore.getState().detail!;
+    expect(threads[0].comments.map((c) => [c.body, c.lastEditedAt])).toEqual([['new', edited.lastEditedAt], ['old', null]]);
+    const review = timeline[0] as Extract<Row, { kind: 'review' }>;
+    expect(review.body).toBe('review text');
+    expect(review.comments.map((c) => c.body)).toEqual(['new', 'old']);
+    expect(timeline[1]).toMatchObject({ kind: 'outdated-thread', body: 'new', lastEditedAt: edited.lastEditedAt });
+    expect(timeline[2]).toMatchObject({ body: 'old', lastEditedAt: null });
+  });
+
+  it('patches a conversation comment and a review body by their own ids', () => {
+    // Given
+    useGitHubStore.setState({ detail: detail({ timeline: [issueRow('i1', 'old'), reviewRow('r1', 'old', ['c1'])] }) });
+
+    // When
+    useGitHubStore.getState().patchComment('i1', edited);
+    useGitHubStore.getState().patchComment('r1', edited);
+
+    // Then
+    const [issue, review] = useGitHubStore.getState().detail!.timeline as [
+      Extract<Row, { kind: 'comment' }>, Extract<Row, { kind: 'review' }>,
+    ];
+    expect(issue.body).toBe('new');
+    expect(review.body).toBe('new');
+    expect(review.comments[0].body).toBe('old');
+  });
+
+  it('does not reset an open edit when edit is clicked again', () => {
+    // Given
+    useGitHubStore.getState().startEdit('c1', 'old');
+    useGitHubStore.getState().setEdit('c1', 'typed');
+
+    // When
+    useGitHubStore.getState().startEdit('c1', 'old');
+
+    // Then
+    expect(useGitHubStore.getState().edits.c1).toBe('typed');
+  });
+
+  it('keeps an edit open when its text is emptied', () => {
+    // Given
+    useGitHubStore.getState().startEdit('PR_1', 'description');
+
+    // When
+    useGitHubStore.getState().setEdit('PR_1', '');
+
+    // Then
+    expect(useGitHubStore.getState().edits).toEqual({ PR_1: '' });
+  });
+
+  it('ends the edit once saved, and keeps it with its text when saving fails', async () => {
+    // Given
+    useGitHubStore.setState({ detail: detail({ timeline: [issueRow('i1', 'old'), issueRow('i2', 'old')] }) });
+    useGitHubStore.getState().startEdit('i1', 'old');
+    useGitHubStore.getState().startEdit('i2', 'old');
+    useGitHubStore.getState().setEdit('i2', 'rejected');
+    dad.githubEditComment = vi.fn()
+      .mockResolvedValueOnce(edited)
+      .mockRejectedValueOnce(new Error('locked'));
+
+    // When
+    const saved = await useGitHubStore.getState().editComment('i1', 'issue', 'new');
+    const failed = await useGitHubStore.getState().editComment('i2', 'issue', 'rejected');
+
+    // Then
+    expect([saved, failed]).toEqual([true, false]);
+    expect(useGitHubStore.getState().edits).toEqual({ i2: 'rejected' });
+    expect(useGitHubStore.getState().actionError).toBe('locked');
+    expect(dad.githubEditComment).toHaveBeenCalledWith('i1', 'issue', 'new');
+  });
+
+  it('ends an open edit when the comment is deleted or another pull request is opened', () => {
+    // Given
+    useGitHubStore.setState({ detail: detail(), selection: { owner: 'o', repo: 'r', number: 1 } });
+    useGitHubStore.getState().startEdit('c1', 'old');
+    useGitHubStore.getState().startEdit('c2', 'old');
+
+    // When
+    useGitHubStore.getState().removeComment('c1');
+    const afterDelete = useGitHubStore.getState().edits;
+    useGitHubStore.getState().select(null);
+
+    // Then
+    expect(afterDelete).toEqual({ c2: 'old' });
+    expect(useGitHubStore.getState().edits).toEqual({});
+  });
+
+  it('applies a title edit to the viewer and its list row, leaving the row otherwise alone', async () => {
+    // Given
+    const summary: PrSummary = { ...({} as PrSummary), id: 'PR_1', title: 'old', body: 'desc', state: 'OPEN', isDraft: true };
+    const listRow: PrListItem = { ...({} as PrListItem), id: 'PR_1', title: 'old', number: 7, state: 'OPEN', isDraft: true };
+    useGitHubStore.setState({
+      detail: detail({ summary }),
+      lists: {
+        created: { items: [listRow], more: 0, moreIsApproximate: false },
+        reviewing: { items: [], more: 0, moreIsApproximate: false },
+        other: { items: [], more: 0, moreIsApproximate: false },
+      },
+    });
+    dad.githubUpdatePullRequest = vi.fn().mockResolvedValue({ title: 'new', body: 'desc', lastEditedAt: null });
+
+    // When
+    const ok = await useGitHubStore.getState().updatePullRequest({ title: 'new' });
+
+    // Then
+    expect(ok).toBe(true);
+    expect(dad.githubUpdatePullRequest).toHaveBeenCalledWith('PR_1', { title: 'new' });
+    expect(useGitHubStore.getState().detail!.summary).toMatchObject({ title: 'new', body: 'desc' });
+    expect(useGitHubStore.getState().lists.created.items[0]).toMatchObject({ id: 'PR_1', title: 'new', number: 7 });
+  });
+
+  it('ends the description edit once the description is saved', async () => {
+    // Given
+    useGitHubStore.setState({ detail: detail({ summary: { ...({} as PrSummary), id: 'PR_1', body: 'old' } }) });
+    useGitHubStore.getState().startEdit('PR_1', 'old');
+    dad.githubUpdatePullRequest = vi.fn().mockResolvedValue({ title: 't', body: '', lastEditedAt: edited.lastEditedAt });
+
+    // When
+    await useGitHubStore.getState().updatePullRequest({ body: '' });
+
+    // Then
+    expect(useGitHubStore.getState().edits).toEqual({});
+    expect(useGitHubStore.getState().detail!.summary).toMatchObject({ body: '', lastEditedAt: edited.lastEditedAt });
   });
 });
 

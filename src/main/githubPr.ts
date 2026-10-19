@@ -18,16 +18,17 @@ import {
   READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, REPO_PULL_REQUESTS_QUERY, RESOLVE_THREAD_MUTATION,
   SET_REVIEWERS_MUTATION, START_PENDING_REVIEW_MUTATION, SUBMIT_REVIEW_MUTATION,
   SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNRESOLVE_THREAD_MUTATION,
-  UPDATE_BRANCH_MUTATION,
+  UPDATE_BRANCH_MUTATION, UPDATE_ISSUE_COMMENT_MUTATION, UPDATE_PULL_REQUEST_BODY_MUTATION,
+  UPDATE_PULL_REQUEST_TITLE_MUTATION, UPDATE_REVIEW_BODY_MUTATION, UPDATE_REVIEW_COMMENT_MUTATION,
 } from './githubQueries';
 import { TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline } from './githubTimeline';
 import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState } from './githubPrs';
 import { TRACK_PR_OWNER, toPrState } from './githubPrLists';
 import {
-  PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor, PrCommit,
-  PrCommitCommentAnchor,
-  PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef,
-  PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrThreadState,
+  PrAddedComment, PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor,
+  PrCommentKind, PrCommit, PrCommitCommentAnchor,
+  PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef,
+  PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrThreadState, PrUpdate, PrUpdated,
 } from './types';
 
 /**
@@ -144,6 +145,7 @@ async function fetchSummary(ref: PrRef): Promise<PrSummary> {
     isCrossRepository: pr.isCrossRepository === true,
     viewerCanUpdate: pr.viewerCanUpdate === true,
     viewerDidAuthor: pr.viewerDidAuthor === true,
+    lastEditedAt: pr.lastEditedAt ?? null,
     mergeHeadline: pr.viewerMergeHeadlineText ?? '',
     mergeBody: pr.viewerMergeBodyText ?? '',
     autoMerge: toAutoMerge(pr.autoMergeRequest),
@@ -221,6 +223,8 @@ function toThreadComment(raw: any): PrThreadComment {
     outdated: raw?.outdated === true,
     state: raw?.state ?? '',
     viewerCanDelete: raw?.viewerCanDelete === true,
+    viewerCanUpdate: raw?.viewerCanUpdate === true,
+    lastEditedAt: raw?.lastEditedAt ?? null,
   };
 }
 
@@ -603,9 +607,7 @@ export async function replyToThread(
   return toThreadComment(comment);
 }
 
-export async function addIssueComment(subjectId: string, body: string): Promise<{
-  id: string; createdAt: string; body: string; author: string | null;
-}> {
+export async function addIssueComment(subjectId: string, body: string): Promise<PrAddedComment> {
   const data = await ghGraphql<any>(ADD_ISSUE_COMMENT_MUTATION, { subjectId, body });
   const node = data?.addComment?.commentEdge?.node;
   return {
@@ -613,6 +615,8 @@ export async function addIssueComment(subjectId: string, body: string): Promise<
     createdAt: node?.createdAt ?? new Date().toISOString(),
     body: node?.body ?? body,
     author: node?.author?.login ?? null,
+    viewerCanUpdate: node?.viewerCanUpdate === true,
+    lastEditedAt: node?.lastEditedAt ?? null,
   };
 }
 
@@ -631,11 +635,37 @@ export async function addIssueComment(subjectId: string, body: string): Promise<
  * conversation. The caller says which because only it knows where the
  * comment was rendered.
  */
-export async function deleteComment(id: string, kind: 'review' | 'issue'): Promise<void> {
+export async function deleteComment(id: string, kind: PrCommentKind): Promise<void> {
   await ghGraphql(
     kind === 'review' ? DELETE_REVIEW_COMMENT_MUTATION : DELETE_ISSUE_COMMENT_MUTATION,
     { id }
   );
+}
+
+const EDIT_MUTATIONS: Record<PrEditKind, { mutation: string; payload: string; node: string }> = {
+  issue: { mutation: UPDATE_ISSUE_COMMENT_MUTATION, payload: 'updateIssueComment', node: 'issueComment' },
+  review: {
+    mutation: UPDATE_REVIEW_COMMENT_MUTATION,
+    payload: 'updatePullRequestReviewComment',
+    node: 'pullRequestReviewComment',
+  },
+  'review-body': { mutation: UPDATE_REVIEW_BODY_MUTATION, payload: 'updatePullRequestReview', node: 'pullRequestReview' },
+};
+
+export async function editComment(id: string, kind: PrEditKind, body: string): Promise<PrEdited> {
+  const { mutation, payload, node } = EDIT_MUTATIONS[kind];
+  const data = await ghGraphql<any>(mutation, { id, body });
+  const edited = data?.[payload]?.[node];
+  return { body: edited?.body ?? body, lastEditedAt: edited?.lastEditedAt ?? null };
+}
+
+export async function updatePullRequest(pullRequestId: string, patch: PrUpdate): Promise<PrUpdated> {
+  const data = 'title' in patch
+    ? await ghGraphql<any>(UPDATE_PULL_REQUEST_TITLE_MUTATION, { pullRequestId, title: patch.title })
+    : await ghGraphql<any>(UPDATE_PULL_REQUEST_BODY_MUTATION, { pullRequestId, body: patch.body });
+  const pr = data?.updatePullRequest?.pullRequest;
+  if (!pr) throw new GitHubError('GitHub did not return the updated pull request');
+  return { title: pr.title ?? '', body: pr.body ?? '', lastEditedAt: pr.lastEditedAt ?? null };
 }
 
 export async function setThreadResolved(threadId: string, resolved: boolean): Promise<PrThreadState> {

@@ -192,6 +192,47 @@ describe('normalizeTimeline', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('carries authorship, edit permission and edited time for every editable text', () => {
+    // Given
+    const editedAt = '2026-10-19T08:00:00Z';
+    const nodes = [
+      {
+        __typename: 'IssueComment', id: 'i1', createdAt: '2026-09-01T00:00:00Z', body: 'hi',
+        author: { login: 'ada' }, viewerCanUpdate: true, lastEditedAt: editedAt,
+      },
+      {
+        __typename: 'PullRequestReview', id: 'r1', createdAt: '2026-09-02T00:00:00Z', state: 'COMMENTED',
+        body: 'summary', author: { login: 'ada' }, viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: null,
+        comments: {
+          totalCount: 1,
+          nodes: [{ id: 'rc1', path: 'a.ts', line: 1, body: 'x', viewerDidAuthor: false, viewerCanUpdate: false, lastEditedAt: editedAt }],
+        },
+      },
+      {
+        __typename: 'PullRequestReviewThread', id: 't1', isOutdated: true, path: 'a.ts',
+        comments: {
+          nodes: [{
+            id: 't1-c', createdAt: '2026-09-03T00:00:00Z', body: 'old', author: { login: 'ada' },
+            viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: editedAt,
+          }],
+        },
+      },
+    ];
+
+    // When
+    const { rows } = normalizeTimeline(nodes);
+
+    // Then
+    expect(rows[0]).toMatchObject({ kind: 'comment', viewerCanUpdate: true, lastEditedAt: editedAt });
+    expect(rows[1]).toMatchObject({
+      kind: 'review', viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: null,
+      comments: [{ id: 'rc1', viewerDidAuthor: false, viewerCanUpdate: false, lastEditedAt: editedAt }],
+    });
+    expect(rows[2]).toMatchObject({
+      kind: 'outdated-thread', commentId: 't1-c', viewerDidAuthor: true, viewerCanUpdate: true, lastEditedAt: editedAt,
+    });
+  });
+
   it('renders merge-queue and auto-merge events, so a toggle leaves a trace', () => {
     const { rows } = normalizeTimeline([
       { __typename: 'AutoMergeEnabledEvent', id: 'e1', createdAt: '2026-09-05T00:00:00Z', actor: { login: 'ada' } },
@@ -347,7 +388,10 @@ describe('review rows', () => {
         line: 42,
         body: 'initialise these',
         // Absent from the recorded payload, so it must default to "no".
+        viewerDidAuthor: false,
         viewerCanDelete: false,
+        viewerCanUpdate: false,
+        lastEditedAt: null,
       },
     ]);
     expect(row.moreComments).toBe(0);

@@ -1,8 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { PrDetail, PrReviewThread, PrTimelineRow } from '../../main/types';
-import { useGitHubStore } from '../stores/githubStore';
+import { PrDetail, PrReviewThread, PrSummary, PrTimelineRow } from '../../main/types';
+import { canEditComment, useGitHubStore } from '../stores/githubStore';
 import { Trash2 } from 'lucide-react';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
@@ -10,6 +8,8 @@ import { OverviewThreadPlacement, placeOverviewThreads } from '../utils/overview
 import CommentComposer from './CommentComposer';
 import CommentThread from './CommentThread';
 import ConfirmDialog from './ConfirmDialog';
+import EditButton from './EditButton';
+import EditableMarkdown from './EditableMarkdown';
 
 interface Props {
   detail: PrDetail;
@@ -128,6 +128,8 @@ function ReviewRow(
   }
 ): React.ReactElement | null {
   const openFileInDiff = useGitHubStore((s) => s.openFileInDiff);
+  const startEdit = useGitHubStore((s) => s.startEdit);
+  const editComment = useGitHubStore((s) => s.editComment);
 
   const visibleComments = row.comments.filter((c) => !placement.hiddenCommentIds.has(c.id));
   const isReplyOnlyComment = row.state === 'COMMENTED' && !row.body
@@ -139,47 +141,73 @@ function ReviewRow(
       <div className="pr-overview__comment-meta">
         <span className="pr-overview__actor">{row.author ?? 'unknown'}</span>
         <span className="pr-overview__review-state">{row.state.replace(/_/g, ' ').toLowerCase()}</span>
-        <span className="pr-overview__time">{relativeTime(row.at)}</span>
+        <span className="pr-overview__time">
+          {relativeTime(row.at)}
+          {row.lastEditedAt && ' · edited'}
+        </span>
+        {canEditComment(row) && row.body && (
+          <span className="pr-overview__actions">
+            <EditButton
+              className="pr-overview__edit"
+              title="Edit this review's comment"
+              onClick={() => startEdit(row.id, row.body)}
+            />
+          </span>
+        )}
       </div>
 
-      {row.body && (
-        <div className="pr-overview__comment-body markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.body}</ReactMarkdown>
-        </div>
-      )}
+      <EditableMarkdown
+        id={row.id}
+        body={row.body}
+        bodyClassName="pr-overview__comment-body"
+        onSave={(body) => editComment(row.id, 'review-body', body)}
+      />
 
       {visibleComments.map((comment) => {
         const thread = placement.threadByAnchorCommentId.get(comment.id) ?? null;
         return (
           <div key={comment.id} className="pr-overview__review-comment">
-            <button
-              className="pr-overview__file-link"
-              title={`Open ${comment.path} in the diff`}
-              onClick={() => openFileInDiff(comment.path)}
-            >
-              {comment.path.split('/').pop()}
-              {comment.line !== null && `:${comment.line}`}
-            </button>
-            {/* Only when the thread is not rendered below — that carries its
-                own per-comment delete. */}
-            {!thread && comment.viewerCanDelete && (
+            <div className="pr-overview__comment-meta">
               <button
-                className="pr-overview__delete"
-                title="Delete this comment"
-                onClick={() => onDelete(comment.id, 'review')}
+                className="pr-overview__file-link"
+                title={`Open ${comment.path} in the diff`}
+                onClick={() => openFileInDiff(comment.path)}
               >
-                <Trash2 size={11} />
+                {comment.path.split('/').pop()}
+                {comment.line !== null && `:${comment.line}`}
               </button>
-            )}
+              {/* Only when the thread is not rendered below — that carries its
+                  own per-comment edit, delete and edited marker. */}
+              {!thread && comment.lastEditedAt && <span className="pr-overview__time">edited</span>}
+              {!thread && (canEditComment(comment) || comment.viewerCanDelete) && (
+                <span className="pr-overview__actions">
+                  {canEditComment(comment) && (
+                    <EditButton className="pr-overview__edit" onClick={() => startEdit(comment.id, comment.body)} />
+                  )}
+                  {comment.viewerCanDelete && (
+                    <button
+                      className="pr-overview__delete"
+                      title="Delete this comment"
+                      onClick={() => onDelete(comment.id, 'review')}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
             {/* The full thread where one is known, so it can be replied to and
                 resolved from here; the bare body only when it cannot be
                 matched (e.g. the thread page cap was hit). */}
             {thread ? (
               <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
             ) : (
-              <div className="pr-overview__comment-body markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{comment.body}</ReactMarkdown>
-              </div>
+              <EditableMarkdown
+                id={comment.id}
+                body={comment.body}
+                bodyClassName="pr-overview__comment-body"
+                onSave={(body) => editComment(comment.id, 'review', body)}
+              />
             )}
           </div>
         );
@@ -206,6 +234,9 @@ interface RowProps {
 function Row({
   row, threads, placement, pendingReviewId, onQuote, onDelete,
 }: RowProps): React.ReactElement | null {
+  const startEdit = useGitHubStore((s) => s.startEdit);
+  const editComment = useGitHubStore((s) => s.editComment);
+
   switch (row.kind) {
     case 'commit':
       return <CommitRow row={row} />;
@@ -221,30 +252,41 @@ function Row({
         <div className="pr-overview__comment">
           <div className="pr-overview__comment-meta">
             <span className="pr-overview__actor">{row.author ?? 'unknown'}</span>
-            <span className="pr-overview__time">{relativeTime(row.at)}</span>
-            {/* Issue comments have no threading on GitHub — there is no reply
-                mutation for them. Quoting into a new comment is what
-                github.com offers and what "respond" can mean here. */}
-            <button
-              className="pr-overview__quote"
-              title="Quote reply"
-              onClick={() => onQuote(row.author, row.body)}
-            >
-              QUOTE REPLY
-            </button>
-            {row.viewerCanDelete && (
+            <span className="pr-overview__time">
+              {relativeTime(row.at)}
+              {row.lastEditedAt && ' · edited'}
+            </span>
+            <span className="pr-overview__actions">
+              {/* Issue comments have no threading on GitHub — there is no reply
+                  mutation for them. Quoting into a new comment is what
+                  github.com offers and what "respond" can mean here. */}
               <button
-                className="pr-overview__delete"
-                title="Delete this comment"
-                onClick={() => onDelete(row.id, 'issue')}
+                className="pr-overview__quote"
+                title="Quote reply"
+                onClick={() => onQuote(row.author, row.body)}
               >
-                <Trash2 size={11} />
+                QUOTE REPLY
               </button>
-            )}
+              {canEditComment(row) && (
+                <EditButton className="pr-overview__edit" onClick={() => startEdit(row.id, row.body)} />
+              )}
+              {row.viewerCanDelete && (
+                <button
+                  className="pr-overview__delete"
+                  title="Delete this comment"
+                  onClick={() => onDelete(row.id, 'issue')}
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </span>
           </div>
-          <div className="pr-overview__comment-body markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.body}</ReactMarkdown>
-          </div>
+          <EditableMarkdown
+            id={row.id}
+            body={row.body}
+            bodyClassName="pr-overview__comment-body"
+            onSave={(body) => editComment(row.id, 'issue', body)}
+          />
         </div>
       );
 
@@ -272,14 +314,25 @@ function Row({
             <span className="pr-overview__review-state">
               outdated comment on {row.path}
             </span>
-            <span className="pr-overview__time">{relativeTime(row.at)}</span>
+            <span className="pr-overview__time">
+              {relativeTime(row.at)}
+              {!thread && row.lastEditedAt && ' · edited'}
+            </span>
+            {!thread && canEditComment(row) && (
+              <span className="pr-overview__actions">
+                <EditButton className="pr-overview__edit" onClick={() => startEdit(row.commentId, row.body)} />
+              </span>
+            )}
           </div>
           {thread ? (
             <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
           ) : (
-            <div className="pr-overview__comment-body markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{row.body}</ReactMarkdown>
-            </div>
+            <EditableMarkdown
+              id={row.commentId}
+              body={row.body}
+              bodyClassName="pr-overview__comment-body"
+              onSave={(body) => editComment(row.commentId, 'review', body)}
+            />
           )}
         </div>
       );
@@ -300,6 +353,43 @@ function Row({
       // crashing the panel.
       return null;
   }
+}
+
+function DescriptionBlock({ summary }: { summary: PrSummary }): React.ReactElement | null {
+  const startEdit = useGitHubStore((s) => s.startEdit);
+  const updatePullRequest = useGitHubStore((s) => s.updatePullRequest);
+
+  if (!summary.body && !summary.viewerCanUpdate) return null;
+
+  return (
+    <div className="pr-overview__comment">
+      <div className="pr-overview__comment-meta">
+        <span className="pr-overview__actor">{summary.author ?? 'unknown'}</span>
+        <span className="pr-overview__review-state">opened this pull request</span>
+        <span className="pr-overview__time">
+          {relativeTime(summary.createdAt)}
+          {summary.lastEditedAt && ' · edited'}
+        </span>
+        {summary.viewerCanUpdate && (
+          <span className="pr-overview__actions">
+            <EditButton
+              className="pr-overview__edit"
+              title="Edit the description"
+              onClick={() => startEdit(summary.id, summary.body)}
+            />
+          </span>
+        )}
+      </div>
+      <EditableMarkdown
+        id={summary.id}
+        body={summary.body}
+        bodyClassName="pr-overview__comment-body"
+        allowEmpty
+        emptyText="No description provided."
+        onSave={(body) => updatePullRequest({ body })}
+      />
+    </div>
+  );
 }
 
 /**
@@ -357,6 +447,8 @@ export default function PrOverview({ detail }: Props): React.ReactElement {
         viewerDidAuthor: true,
         // Just authored it, so it is deletable; the reload confirms.
         viewerCanDelete: true,
+        viewerCanUpdate: comment.viewerCanUpdate,
+        lastEditedAt: comment.lastEditedAt,
       });
     }
   };
@@ -387,18 +479,7 @@ export default function PrOverview({ detail }: Props): React.ReactElement {
 
   return (
     <div className="pr-overview">
-      {summary.body && (
-        <div className="pr-overview__comment">
-          <div className="pr-overview__comment-meta">
-            <span className="pr-overview__actor">{summary.author ?? 'unknown'}</span>
-            <span className="pr-overview__review-state">opened this pull request</span>
-            <span className="pr-overview__time">{relativeTime(summary.createdAt)}</span>
-          </div>
-          <div className="pr-overview__comment-body markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary.body}</ReactMarkdown>
-          </div>
-        </div>
-      )}
+      <DescriptionBlock summary={summary} />
 
       {historyTruncated && (
         <div className="pr-overview__truncated">

@@ -199,6 +199,8 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           body: (node.body as string) ?? '',
           viewerDidAuthor: node.viewerDidAuthor === true,
           viewerCanDelete: node.viewerCanDelete === true,
+          viewerCanUpdate: node.viewerCanUpdate === true,
+          lastEditedAt: (node.lastEditedAt as string | null) ?? null,
         });
         break;
 
@@ -218,7 +220,10 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           // still says where the comment was written.
           line: (c.line as number | null) ?? (c.originalLine as number | null) ?? null,
           body: (c.body as string) ?? '',
+          viewerDidAuthor: c.viewerDidAuthor === true,
           viewerCanDelete: c.viewerCanDelete === true,
+          viewerCanUpdate: c.viewerCanUpdate === true,
+          lastEditedAt: (c.lastEditedAt as string | null) ?? null,
         }));
 
         // A review that requests changes often has no body at all and says
@@ -230,6 +235,9 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           author: login(node.author),
           state,
           body,
+          viewerDidAuthor: node.viewerDidAuthor === true,
+          viewerCanUpdate: node.viewerCanUpdate === true,
+          lastEditedAt: (node.lastEditedAt as string | null) ?? null,
           comments,
           moreComments: Math.max(0, (raw?.totalCount ?? nodes.length) - nodes.length),
         });
@@ -251,6 +259,10 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           path: (node.path as string) ?? '',
           body: (first.body as string) ?? '',
           isResolved: node.isResolved === true,
+          commentId: (first.id as string) ?? '',
+          viewerDidAuthor: first.viewerDidAuthor === true,
+          viewerCanUpdate: first.viewerCanUpdate === true,
+          lastEditedAt: (first.lastEditedAt as string | null) ?? null,
         });
         break;
       }
