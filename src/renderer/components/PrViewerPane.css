@@ -773,13 +773,19 @@
 }
 
 .pr-diff__line--add {
-  color: var(--c-diff-add);
   background: var(--c-diff-add-bg);
 }
 
 .pr-diff__line--del {
-  color: var(--c-diff-del);
   background: var(--c-diff-del-bg);
+}
+
+.pr-diff__line--add .pr-diff__marker {
+  color: var(--c-diff-add);
+}
+
+.pr-diff__line--del .pr-diff__marker {
+  color: var(--c-diff-del);
 }
 
 /*
@@ -869,8 +875,25 @@
   flex: 1;
   min-width: 0;
   padding-right: 8px;
+  color: var(--c-code-fg);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* --- syntax tokens (see utils/diffSyntax.ts) --- */
+
+.pr-diff__tok--keyword    { color: var(--c-syn-keyword); }
+.pr-diff__tok--string     { color: var(--c-syn-string); }
+.pr-diff__tok--number     { color: var(--c-syn-number); }
+.pr-diff__tok--comment    { color: var(--c-syn-comment); }
+.pr-diff__tok--annotation { color: var(--c-syn-annotation); }
+.pr-diff__tok--function   { color: var(--c-syn-function); }
+.pr-diff__tok--property   { color: var(--c-syn-field); }
+.pr-diff__tok--tag        { color: var(--c-syn-tag); }
+
+.pr-diff__tok--constant {
+  color: var(--c-syn-field);
+  font-style: italic;
 }
 
 .pr-diff__split-row {

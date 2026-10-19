@@ -66,13 +66,25 @@
   --c-code-bg:       rgba(255, 255, 255, 0.15);
   --c-code-block-bg: rgba(255, 255, 255, 0.15);
 
-  /* Diff tints. Phosphor green is itself the "added" colour, so an added line
-     is marked by a wash rather than by hue; deletions borrow the red already
-     used for destructive actions. */
+  /* Syntax colours for diffs, after IntelliJ's dark scheme so code reads the
+     way it does in the IDE. Shared by both themes for the same reason as
+     --c-code-fg: code is presented neutrally, not in the phosphor hue. */
+  --c-syn-keyword:    #cf8e6d;
+  --c-syn-string:     #6aab73;
+  --c-syn-number:     #2aacb8;
+  --c-syn-comment:    #7a7e85;
+  --c-syn-annotation: #b3ae60;
+  --c-syn-function:   #56a8f5;
+  --c-syn-field:      #c77dbb;
+  --c-syn-tag:        #d5b778;
+
+  /* Diff tints. Diff text is syntax-coloured, so a changed line is marked by
+     its background wash alone; the +/- marker keeps the hue. Deletions borrow
+     the red already used for destructive actions. */
   --c-diff-add:     #00ff00;
-  --c-diff-add-bg:  #00ff0014;
+  --c-diff-add-bg:  #00ff0026;
   --c-diff-del:     #ff6b6b;
-  --c-diff-del-bg:  #ff444414;
+  --c-diff-del-bg:  #ff444430;
 
   --glow:         0 0 6px var(--c-bright), 0 0 12px var(--c-dim);
   --glow-sm:      0 0 4px var(--c-bright);
@@ -114,9 +126,9 @@
   /* Amber has no green in its palette, so an added line can use one without
      colliding with the theme's own hue. */
   --c-diff-add:     #7ddc6b;
-  --c-diff-add-bg:  #7ddc6b1f;
+  --c-diff-add-bg:  #7ddc6b30;
   --c-diff-del:     #ff6b6b;
-  --c-diff-del-bg:  #ff444414;
+  --c-diff-del-bg:  #ff444430;
 }
 
 /* --- CRT effect: subtle phosphor center glow --- */

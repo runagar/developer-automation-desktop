@@ -198,6 +198,13 @@ Header, subtab strip (`OVERVIEW` / `COMMITS` / `DIFF`) and the actions that appl
 
 **Diff.** File tree with base names only (full path on hover), single-directory chains compressed, comment counts per file, and viewed checkmarks — synced to GitHub in full-PR mode, tracked locally per commit otherwise (`viewerViewedState` is defined against the full PR diff only). Comments are opened by a `[+]` that appears on line hover; **mousedown starts a drag**, so a click and a drag are one gesture and clicking the diff text never spawns a composer. Drags are clamped to one hunk. Inline threads and composers render beneath their line, in the right-hand column in split view. `toSplitRows` puts the **same `DiffLine` object** on both sides of a context row, so anything collected per side must be de-duplicated or every thread on an unchanged line appears twice.
 
+**Syntax highlighting.** Diff text is coloured after IntelliJ's dark scheme (`--c-syn-*` in `pipboy.css`, shared by both themes like `--c-code-fg`); an added or removed line is marked by its background wash alone, with the `+`/`-` marker keeping the hue. `utils/diffSyntax.ts` picks the grammar by file name from `@codemirror/language-data` (loaded lazily, cached per language — `useDiffSyntax` renders plain text until it arrives) and highlights with Lezer outside any editor. Tokens are keyed by `DiffLine`, and `DiffFileView` builds the token spans once per highlight, so a drag's re-renders reuse them.
+- **Each hunk is parsed per side.** The pre-image (context + deletions) and post-image (context + additions) are each coherent source, where the interleaved unified view is not; context lines take the post-image tokens. Hunks are parsed apart so a construct left open at the end of one cannot swallow the next.
+- **A hunk is a fragment.** Java only accepts a method declaration inside a class body, so a Java hunk is also parsed inside `class _{` and `class _{void _(){`, keeping whichever has the fewest syntax errors — errors at the very end are ignored, since a fragment routinely ends with blocks unclosed. Ties go to the bare fragment.
+- **A hunk may open mid-comment.** When the first line starts with `*` and a `*/` closes before any `/*` (or every line starts with `*`), the hunk is parsed behind a virtual `/*`. Only for C-style languages: a leading `*` is a markdown bullet or a SQL `* FROM`.
+- **Java needs more than its grammar's tags.** Annotations are untagged and method/constructor names share `Definition` with every variable. Annotations are tagged through `styleTags` on `MarkerAnnotation`/`Annotation`; names under them and under `MethodDeclaration`/`ConstructorDeclaration` are re-kinded by a `Parent/Child` tree walk (`nodeKinds`), **not** a contextual `styleTags` rule — merged into a grammar, such a rule is ordered behind the grammar's own rule for the node and never applies.
+- **Syntactic only.** Constants are ALL_CAPS identifiers (a class named `UUID` shows as one); fields, static calls and usages need semantic analysis an IDE has and a diff does not.
+
 **A missing patch is not always "too large".** GitHub omits `patch` for a pure rename or copy exactly as it does for binary and oversized files. `missingPatchReason` (`githubDiff.ts`) separates them on `status` plus zero additions/deletions, so a module-move PR shows `FILE RENAMED WITHOUT CHANGES` rather than a wall of "binary / too large". Any file with a `previousPath` shows `RENAMED FROM` / `COPIED FROM` in its file header.
 
 **File header.** Every file in the viewer opens with a header showing its full path (folder dimmed, file name bright), the rename origin beneath, and `COMMENT ON FILE` on the right where commenting is possible. It is `position: sticky` at the top of `.pr-diff__viewer` (the scroll container), opaque and at `z-index: 2` so diff lines and the `+` affordance scroll beneath it; file-level threads and the file composer below it scroll normally. Its classes are `pr-diff__title-*`, deliberately **not** `pr-diff__file-name`/`pr-diff__file-path`: the file tree already owns those (`file-name` is a flex row), and reusing them broke the path across lines and restyled the tree.
@@ -250,7 +257,7 @@ When the selected file leaves the diff, `nextSelectedPath` falls back to `files[
 
 **An empty owner list is an answer, not a failure.** `NOT_ORG_OWNED_REPO` (a personal repository holds no custom properties at all), `NOT_FOUND` and `FORBIDDEN` mean "this repository names no owners I can list"; anything else still surfaces. Telling them apart needs GraphQL's `errors[].type`, which is why **`GitHubError` carries `type`** and why `ghGraphql` reads the envelope *before* the exit status — `gh api graphql` exits non-zero on a top-level error while still printing the typed envelope to stdout, so rejecting on the exit status alone left only the first line of stderr, prose GitHub is free to reword. The result is cached per repository for the process lifetime; membership changes far more slowly than a session lives, and the menu re-opens constantly.
 
-**Not built (deferred):** merge queue (removed — no repo here uses it), applying a suggested change (**GitHub exposes no API**; the "Commit suggestion" button is web-UI-only), syntax highlighting in diffs, and `gh pr checkout` into a DAD session.
+**Not built (deferred):** merge queue (removed — no repo here uses it), applying a suggested change (**GitHub exposes no API**; the "Commit suggestion" button is web-UI-only), and `gh pr checkout` into a DAD session.
 
 ### Splash screen
 On startup, a full-viewport splash screen displays a DAD joke:
@@ -765,7 +772,8 @@ Renderer process
 │   └── responseTree.ts  pure JSON tree flattening + content-type classification for the Response panel
 ├── hooks/
 │   ├── useXterm.ts      shared xterm creation/fit/theme/addons/keys (fitAndMeasure returns null when unlaid-out)
-│   └── useTabPolling.ts interval + on-activation ticks, gated on activeTab AND window focus (GIT3 auto-refresh)
+│   ├── useTabPolling.ts interval + on-activation ticks, gated on activeTab AND window focus (GIT3 auto-refresh)
+│   └── useDiffSyntax.ts lazily loads a file's grammar and memoizes its diff highlighting (utils/diffSyntax.ts)
 ├── dashboard/           grid layout system (framework-agnostic)
 │   ├── layout.ts        24×24 grid math, PanelInstance types, ToolTabDef (panelTypes + defaultInstances), spawn placement algorithm
 │   ├── layout.test.ts   unit tests for tab definitions, defaultState and validateState

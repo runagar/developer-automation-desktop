@@ -6,7 +6,9 @@ import {
   missingPatchReason, parsePatch, toSplitRows,
 } from '../../main/githubDiff';
 import { DiffLineSelection, DiffViewMode, useGitHubStore } from '../stores/githubStore';
+import { useDiffSyntax } from '../hooks/useDiffSyntax';
 import { cn } from '../utils/cn';
+import { DiffSyntax } from '../utils/diffSyntax';
 import CommentThread from './CommentThread';
 import CommentComposer from './CommentComposer';
 
@@ -49,6 +51,17 @@ function lineClass(kind: DiffLine['kind']): string {
   return `pr-diff__line pr-diff__line--${kind}`;
 }
 
+function renderSyntax(syntax: DiffSyntax | null): Map<DiffLine, React.ReactNode> | null {
+  if (!syntax) return null;
+  const nodes = new Map<DiffLine, React.ReactNode>();
+  syntax.forEach((tokens, line) => {
+    nodes.set(line, tokens.map((token, i) => (token.kind
+      ? <span key={i} className={cn('pr-diff__tok', `pr-diff__tok--${token.kind}`)}>{token.text}</span>
+      : token.text)));
+  });
+  return nodes;
+}
+
 function inRange(range: { from: number; to: number } | null, index: number): boolean {
   if (!range) return false;
   return index >= Math.min(range.from, range.to) && index <= Math.max(range.from, range.to);
@@ -64,6 +77,13 @@ export default function DiffFileView({
   file, mode, threads, commentMode, pendingReviewId, onComment,
 }: Props): React.ReactElement {
   const parsed = useMemo(() => parsePatch(file.patch), [file.patch]);
+  const syntax = useDiffSyntax(file.path, parsed.hunks);
+  const highlightedContent = useMemo(() => renderSyntax(syntax), [syntax]);
+
+  const lineContent = (line: DiffLine | null): React.ReactNode => {
+    if (!line?.content) return '\u00a0';
+    return highlightedContent?.get(line) ?? line.content;
+  };
 
   /**
    * Restored non-reactively on mount.
@@ -338,7 +358,7 @@ export default function DiffFileView({
                   <span className="pr-diff__marker">
                     {line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}
                   </span>
-                  <span className="pr-diff__content">{line.content || '\u00a0'}</span>
+                  <span className="pr-diff__content">{lineContent(line)}</span>
                 </div>
                 {threadsAt(line).map((thread) => inlineRow(
                   thread.id,
@@ -382,7 +402,7 @@ export default function DiffFileView({
                   >
                     <span className="pr-diff__gutter">{gutter(row.left, 'old')}</span>
                     {row.left && leftIndex >= 0 && addButton(hunkIndex, leftIndex, 'LEFT', row.left)}
-                    <span className="pr-diff__content">{row.left?.content || '\u00a0'}</span>
+                    <span className="pr-diff__content">{lineContent(row.left)}</span>
                   </div>
                   <div
                     className={cn(
@@ -396,7 +416,7 @@ export default function DiffFileView({
                   >
                     <span className="pr-diff__gutter">{gutter(row.right, 'new')}</span>
                     {row.right && rightIndex >= 0 && addButton(hunkIndex, rightIndex, 'RIGHT', row.right)}
-                    <span className="pr-diff__content">{row.right?.content || '\u00a0'}</span>
+                    <span className="pr-diff__content">{lineContent(row.right)}</span>
                   </div>
                 </div>
                 {rowThreads.map((thread) => inlineRow(
