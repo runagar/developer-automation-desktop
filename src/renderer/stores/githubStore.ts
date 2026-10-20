@@ -26,6 +26,7 @@ import {
   candidateToListItem, emptyLists, sortByUpdatedDesc, toPrState,
 } from '../../main/githubPrLists';
 import { DiffSide, parsePatch, positionForNewLine } from '../../main/githubDiff';
+import { buildFileTree, nextFileAfter } from '../utils/fileTree';
 
 const SELECTION_KEY = 'dad-git-selection';
 const DIFF_MODE_KEY = 'dad-git-diff-mode';
@@ -1109,10 +1110,13 @@ async function loadDiff(
  * Keep the selected file where it still exists, otherwise fall back to the
  * first (requirement 3.2.3.3.1). Resetting unconditionally would scroll the
  * user back to the top on every refresh.
+ *
+ * "First" is the top of the file tree, folders before files — not GitHub's
+ * flat path order, which would open a file from the middle of the list.
  */
 export function nextSelectedPath(current: string | null, files: PrDiffFile[]): string | null {
   if (current && files.some((f) => f.path === current)) return current;
-  return files[0]?.path ?? null;
+  return nextFileAfter(buildFileTree(files), null, () => true);
 }
 
 // ---------------------------------------------------------------------------

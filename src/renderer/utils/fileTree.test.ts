@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { FileTreeDir, allDirPaths, buildFileTree, flattenVisible } from './fileTree';
+import {
+  FileTreeDir, allDirPaths, buildFileTree, dirPathsContaining, flattenVisible, nextFileAfter,
+} from './fileTree';
 
 const f = (path: string): { path: string } => ({ path });
 
@@ -103,6 +105,94 @@ describe('allDirPaths', () => {
 
   it('returns nothing for a flat list', () => {
     expect(allDirPaths(buildFileTree([f('a.ts')]))).toEqual([]);
+  });
+});
+
+describe('dirPathsContaining', () => {
+  const unviewed = (paths: string[]) => (item: { path: string }): boolean => paths.includes(item.path);
+
+  it('marks every ancestor of a matching file, including compressed chains', () => {
+    // Given
+    const tree = buildFileTree([
+      f('src/main/java/dk/A.java'), f('src/main/java/dk/B.java'), f('src/test/C.java'), f('README.md'),
+    ]);
+
+    // When
+    const dirs = dirPathsContaining(tree, unviewed(['src/main/java/dk/A.java']));
+
+    // Then
+    expect([...dirs].sort()).toEqual(['src', 'src/main/java/dk']);
+  });
+
+  it('leaves out folders whose files all fail the predicate, after a match in a sibling', () => {
+    // Given
+    const tree = buildFileTree([f('a/x.ts'), f('a/b/y.ts'), f('a/c/z.ts')]);
+
+    // When
+    const dirs = dirPathsContaining(tree, unviewed(['a/b/y.ts']));
+
+    // Then
+    expect([...dirs].sort()).toEqual(['a', 'a/b']);
+  });
+
+  it('returns nothing when no file inside a folder matches', () => {
+    // Given
+    const tree = buildFileTree([f('a/x.ts'), f('b/y.ts'), f('root.ts')]);
+
+    // When
+    const dirs = dirPathsContaining(tree, unviewed(['root.ts']));
+
+    // Then
+    expect(dirs.size).toBe(0);
+  });
+});
+
+describe('nextFileAfter', () => {
+  const tree = buildFileTree([f('b.ts'), f('src/a.ts'), f('src/c.ts'), f('a.ts')]);
+  const unviewed = (paths: string[]) => (item: { path: string }): boolean => paths.includes(item.path);
+
+  it('follows the tree order, folders before files', () => {
+    // Given
+    const current = 'src/c.ts';
+
+    // When
+    const next = nextFileAfter(tree, current, unviewed(['src/a.ts', 'a.ts', 'b.ts']));
+
+    // Then
+    expect(next).toBe('a.ts');
+  });
+
+  it('wraps round to the top past the last file', () => {
+    // Given
+    const current = 'b.ts';
+
+    // When
+    const next = nextFileAfter(tree, current, unviewed(['src/c.ts', 'b.ts']));
+
+    // Then
+    expect(next).toBe('src/c.ts');
+  });
+
+  it('returns null when only the current file matches', () => {
+    // Given
+    const current = 'a.ts';
+
+    // When
+    const next = nextFileAfter(tree, current, unviewed(['a.ts']));
+
+    // Then
+    expect(next).toBeNull();
+  });
+
+  it('starts from the top when the current file is not in the tree', () => {
+    // Given
+    const current = 'gone.ts';
+
+    // When
+    const next = nextFileAfter(tree, current, unviewed(['b.ts', 'src/c.ts']));
+
+    // Then
+    expect(next).toBe('src/c.ts');
   });
 });
 

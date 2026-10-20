@@ -2,9 +2,10 @@ import React, { useMemo } from 'react';
 import { PrCommentAnchor, PrDetail, PrLineCommentAnchor } from '../../main/types';
 import {
   DiffViewMode, commentCountsByFile, commitCommentPosition, countCommentsByFile, diffRefKey, diffRefOptions,
-  threadsForCommit, threadsForFile, useGitHubStore,
+  isFileViewed, threadsForCommit, threadsForFile, useGitHubStore,
 } from '../stores/githubStore';
 import { cn } from '../utils/cn';
+import { buildFileTree, nextFileAfter } from '../utils/fileTree';
 import DiffFileView, { DiffCommentMode } from './DiffFileView';
 import DiffFileTree from './DiffFileTree';
 import DiffRefPicker from './DiffRefPicker';
@@ -60,6 +61,14 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
   );
 
   const file = diff?.files.find((f) => f.path === selectedPath) ?? null;
+  const tree = useMemo(() => buildFileTree(diff?.files ?? []), [diff]);
+
+  const setViewed = (path: string, viewed: boolean): void => {
+    void toggleViewed(path, viewed);
+    if (!viewed) return;
+    const next = nextFileAfter(tree, path, (f) => !isFileViewed(f, diffRef, localViewed));
+    if (next) setSelectedPath(next);
+  };
   const threads = isFullPr
     ? threadsForFile(detail.threads, selectedPath)
     : commitThreads.filter((t) => t.path === selectedPath);
@@ -152,7 +161,6 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
               localViewed={localViewed}
               commentCounts={commentCounts}
               onSelect={setSelectedPath}
-              onToggleViewed={(path, viewed) => void toggleViewed(path, viewed)}
             />
           )}
           {!loading && diff?.files.length === 0 && <div className="pr-diff__files-status">No files</div>}
@@ -174,6 +182,8 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
               commentMode={commentMode}
               pendingReviewId={pendingReviewId}
               onComment={postComment}
+              viewed={isFileViewed(file, diffRef, localViewed)}
+              onToggleViewed={(viewed) => setViewed(file.path, viewed)}
             />
           ) : (
             <div className="pr-diff__placeholder">{loading ? 'LOADING…' : 'Select a file'}</div>

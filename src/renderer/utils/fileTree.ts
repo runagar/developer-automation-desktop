@@ -130,3 +130,29 @@ export function allDirPaths<T>(nodes: FileTreeNode<T>[]): string[] {
   }
   return out;
 }
+
+/** Every directory path holding at least one matching file, at any depth beneath it. */
+export function dirPathsContaining<T>(nodes: FileTreeNode<T>[], matches: (item: T) => boolean): Set<string> {
+  const out = new Set<string>();
+  const visit = (list: FileTreeNode<T>[]): boolean => list.reduce((found, node) => {
+    if (node.kind === 'file') return matches(node.item) || found;
+    const inside = visit(node.children);
+    if (inside) out.add(node.path);
+    return inside || found;
+  }, false);
+  visit(nodes);
+  return out;
+}
+
+/**
+ * The first matching file after `currentPath` in the tree's display order,
+ * wrapping round to the top; never `currentPath` itself.
+ */
+export function nextFileAfter<T>(
+  nodes: FileTreeNode<T>[], currentPath: string | null, matches: (item: T) => boolean
+): string | null {
+  const files = flattenVisible(nodes, new Set()).flatMap(({ node }) => (node.kind === 'file' ? [node] : []));
+  const current = files.findIndex((file) => file.path === currentPath);
+  const ordered = current < 0 ? files : [...files.slice(current + 1), ...files.slice(0, current)];
+  return ordered.find((file) => matches(file.item))?.path ?? null;
+}

@@ -420,8 +420,7 @@
   border-bottom: 1px solid var(--c-dark);
 }
 
-.pr-commits__copy,
-.pr-diff__viewed {
+.pr-commits__copy {
   display: flex;
   align-items: center;
   flex-shrink: 0;
@@ -434,12 +433,7 @@
   cursor: pointer;
 }
 
-.pr-commits__copy:hover,
-.pr-diff__viewed:hover {
-  color: var(--c-bright);
-}
-
-.pr-diff__viewed--on {
+.pr-commits__copy:hover {
   color: var(--c-bright);
 }
 
@@ -627,6 +621,12 @@
   white-space: nowrap;
 }
 
+/* Unread-inbox style: a folder is bold while anything beneath it is unviewed. */
+.pr-diff__file-path--unviewed,
+.pr-diff__dir-name--unviewed {
+  font-weight: bold;
+}
+
 /* --- file tree --- */
 
 .pr-diff__tree-header {
@@ -639,7 +639,8 @@
   flex: none;
 }
 
-.pr-diff__tree-toggle {
+.pr-diff__tree-toggle,
+.pr-diff__file-action {
   display: flex;
   align-items: center;
 }
@@ -747,7 +748,7 @@
   overflow: auto;
 }
 
-/* Pinned to the top of `.pr-diff__viewer` so the file name and COMMENT ON FILE
+/* Pinned to the top of `.pr-diff__viewer` so the file name and its actions
    stay reachable however far the diff is scrolled. Opaque and above the `+`
    affordance (z-index 1) so scrolled lines pass beneath it. */
 .pr-diff__file-header {
@@ -760,6 +761,12 @@
   padding: 4px 6px;
   background: var(--c-bg);
   border-bottom: 1px solid var(--c-dark);
+}
+
+.pr-diff__file-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .pr-diff__file-title {

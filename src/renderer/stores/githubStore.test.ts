@@ -109,6 +109,20 @@ describe('nextSelectedPath', () => {
   it('returns null for an empty diff', () => {
     expect(nextSelectedPath('a.ts', [])).toBeNull();
   });
+
+  it('falls back to the top of the file tree rather than GitHub\'s path order', () => {
+    // Given
+    const files = [
+      file('component-test/pom.xml'),
+      file('component-test/src/test/java/dk/nykredit/consent/componenttest/steps/defs/CommonStepDefs.java'),
+    ];
+
+    // When
+    const selected = nextSelectedPath(null, files);
+
+    // Then
+    expect(selected).toBe('component-test/src/test/java/dk/nykredit/consent/componenttest/steps/defs/CommonStepDefs.java');
+  });
 });
 
 describe('diffRefOptions', () => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Eye, EyeClosed, MessageSquareText, Plus } from 'lucide-react';
 import { PrCommentAnchor, PrDiffFile, PrLineCommentAnchor, PrReviewThread } from '../../main/types';
 import {
   DiffLine, DiffHunk, DiffSide, MissingPatchReason, anchorForLine, anchorForRange, lineMatchesAnchor,
@@ -30,6 +30,8 @@ interface Props {
   pendingReviewId: string | null;
   /** Resolves to whether the comment was posted. */
   onComment: (anchor: PrCommentAnchor, body: string) => Promise<boolean>;
+  viewed: boolean;
+  onToggleViewed: (viewed: boolean) => void;
 }
 
 /** An in-progress drag from the `+` affordance, in one hunk. */
@@ -74,7 +76,7 @@ const MISSING_PATCH_LABELS: Record<MissingPatchReason, string> = {
 };
 
 export default function DiffFileView({
-  file, mode, threads, commentMode, pendingReviewId, onComment,
+  file, mode, threads, commentMode, pendingReviewId, onComment, viewed, onToggleViewed,
 }: Props): React.ReactElement {
   const parsed = useMemo(() => parsePatch(file.patch), [file.patch]);
   const syntax = useDiffSyntax(file.path, parsed.hunks);
@@ -158,15 +160,24 @@ export default function DiffFileView({
             </span>
           )}
         </div>
-        {commentMode && !fileComposerOpen && (
+        <div className="pr-diff__file-actions">
+          {commentMode && !fileComposerOpen && (
+            <button
+              className="btn btn--micro pr-diff__file-action"
+              title="Comment on the file as a whole"
+              onClick={() => setFileComposerOpen(true)}
+            >
+              <MessageSquareText size={16} />
+            </button>
+          )}
           <button
-            className="btn btn--micro"
-            title="Comment on the file as a whole"
-            onClick={() => setFileComposerOpen(true)}
+            className="btn btn--micro pr-diff__file-action"
+            title={viewed ? 'Mark as unviewed' : 'Mark as viewed'}
+            onClick={() => onToggleViewed(!viewed)}
           >
-            COMMENT ON FILE
+            {viewed ? <EyeClosed size={16} /> : <Eye size={16} />}
           </button>
-        )}
+        </div>
       </div>
       {fileThreads.map((thread) => fileRow(
         thread.id,

@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { PrDiffFile, PrDiffRef } from '../../main/types';
-import { allDirPaths, buildFileTree, flattenVisible } from '../utils/fileTree';
+import { allDirPaths, buildFileTree, dirPathsContaining, flattenVisible } from '../utils/fileTree';
 import { isFileViewed } from '../stores/githubStore';
 import { cn } from '../utils/cn';
 
@@ -13,11 +13,16 @@ interface Props {
   /** Comments per path. Empty outside full-PR mode, where none render. */
   commentCounts: Record<string, number>;
   onSelect: (path: string) => void;
-  onToggleViewed: (path: string, viewed: boolean) => void;
 }
 
 /** Indent per level, in px. Kept tight: the panel is narrow. */
 const INDENT = 12;
+
+/** A folder row's padding before its chevron, in px. */
+const DIR_INSET = 4;
+
+/** A folder's chevron plus its gap, in px; skipped on file rows so names line up with folder names. */
+const CHEVRON_COLUMN = 15;
 
 /**
  * The changed files, as a collapsible tree.
@@ -29,7 +34,7 @@ const INDENT = 12;
  * part that identifies it.
  */
 export default function DiffFileTree({
-  files, selectedPath, diffRef, localViewed, commentCounts, onSelect, onToggleViewed,
+  files, selectedPath, diffRef, localViewed, commentCounts, onSelect,
 }: Props): React.ReactElement {
   const tree = useMemo(() => buildFileTree(files), [files]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -43,7 +48,32 @@ export default function DiffFileTree({
     });
   };
 
+  const activeRowRef = useRef<HTMLDivElement | null>(null);
+  const pendingRevealRef = useRef(false);
+
+  useEffect(() => {
+    if (!selectedPath) return;
+    pendingRevealRef.current = true;
+    setCollapsed((prev) => {
+      const hiding = [...prev].filter((dir) => selectedPath.startsWith(`${dir}/`));
+      if (hiding.length === 0) return prev;
+      const next = new Set(prev);
+      hiding.forEach((dir) => next.delete(dir));
+      return next;
+    });
+  }, [selectedPath]);
+
+  useEffect(() => {
+    if (!pendingRevealRef.current || !activeRowRef.current) return;
+    pendingRevealRef.current = false;
+    activeRowRef.current.scrollIntoView({ block: 'nearest' });
+  });
+
   const dirPaths = useMemo(() => allDirPaths(tree), [tree]);
+  const unviewedDirs = useMemo(
+    () => dirPathsContaining(tree, (file) => !isFileViewed(file, diffRef, localViewed)),
+    [tree, diffRef, localViewed]
+  );
   const allCollapsed = dirPaths.length > 0 && dirPaths.every((p) => collapsed.has(p));
 
   // Flat, so striping follows visible order and stays correct as folders open
@@ -80,7 +110,7 @@ export default function DiffFileTree({
             <button
               key={`dir:${node.path}`}
               className={cn('pr-diff__dir', alt)}
-              style={{ paddingLeft: depth * INDENT + 4 }}
+              style={{ paddingLeft: depth * INDENT + DIR_INSET }}
               title={node.name}
               aria-expanded={!isCollapsed}
               onClick={() => toggleDir(node.path)}
@@ -90,7 +120,12 @@ export default function DiffFileTree({
               <span className="pr-diff__dir-caret">
                 {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
               </span>
-              <span className="pr-diff__dir-name" data-tooltip-overflow>{node.name}</span>
+              <span
+                className={cn('pr-diff__dir-name', unviewedDirs.has(node.path) && 'pr-diff__dir-name--unviewed')}
+                data-tooltip-overflow
+              >
+                {node.name}
+              </span>
             </button>
           );
         }
@@ -99,30 +134,25 @@ export default function DiffFileTree({
         return (
           <div
             key={`file:${node.path}`}
+            ref={node.path === selectedPath ? activeRowRef : undefined}
             className={cn(
               'pr-diff__file-row',
               alt,
               node.path === selectedPath && 'pr-diff__file-row--active'
             )}
-            style={{ paddingLeft: depth * INDENT }}
+            style={{ paddingLeft: depth * INDENT + DIR_INSET + CHEVRON_COLUMN }}
           >
-            <button
-              className={cn('pr-diff__viewed', viewed && 'pr-diff__viewed--on')}
-              title={viewed ? 'Mark as not viewed' : 'Mark as viewed'}
-              // Chromium focuses a clicked button regardless of tab index;
-              // letting focus escape here clears the panel's focus tracking
-              // and silently disables Tab navigation.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onToggleViewed(node.path, !viewed)}
-            >
-              {viewed ? '☑' : '☐'}
-            </button>
             <button
               className="pr-diff__file-name"
               title={node.name}
               onClick={() => onSelect(node.path)}
             >
-              <span className="pr-diff__file-path" data-tooltip-overflow>{node.name}</span>
+              <span
+                className={cn('pr-diff__file-path', !viewed && 'pr-diff__file-path--unviewed')}
+                data-tooltip-overflow
+              >
+                {node.name}
+              </span>
               {/* Only where there is discussion — a "(0)" on every other row
                   would be noise. */}
               {commentCounts[node.path] > 0 && (
