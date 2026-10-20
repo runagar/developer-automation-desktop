@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PrSummary } from '../../main/types';
-import { useGitHubStore } from '../stores/githubStore';
+import { addedCommentRow, useGitHubStore } from '../stores/githubStore';
 import { useEscape } from '../hooks/useEscape';
 
 interface Props {
@@ -44,20 +44,7 @@ export default function ClosePrDialog({ summary, onClose }: Props): React.ReactE
         // Posted before the close, so the timeline reads as a reason followed
         // by its consequence — the order github.com uses.
         const posted = await run(() => window.dad.githubAddComment(summary.id, body));
-        if (posted) {
-          appendTimelineRow({
-            kind: 'comment',
-            id: posted.id,
-            at: posted.createdAt,
-            author: posted.author,
-            body: posted.body,
-            viewerDidAuthor: true,
-            // Just authored it, so it is deletable; the reload confirms.
-            viewerCanDelete: true,
-            viewerCanUpdate: posted.viewerCanUpdate,
-            lastEditedAt: posted.lastEditedAt,
-          });
-        }
+        if (posted) appendTimelineRow(addedCommentRow(posted));
       }
       await run(() => window.dad.githubClose(summary.id));
       await reloadDetail();

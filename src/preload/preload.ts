@@ -211,6 +211,8 @@ const api: IpcApi = {
   githubUpdatePullRequest: (pullRequestId, patch) => ipcRenderer.invoke('github:updatePullRequest', pullRequestId, patch),
   githubSetThreadResolved: (threadId, resolved) =>
     ipcRenderer.invoke('github:setThreadResolved', threadId, resolved),
+  githubSetCommentResolved: (commentId, resolved) =>
+    ipcRenderer.invoke('github:setCommentResolved', commentId, resolved),
   githubSetFileViewed: (pullRequestId, path, viewed) =>
     ipcRenderer.invoke('github:setFileViewed', pullRequestId, path, viewed),
   githubMerge: (pullRequestId, options) => ipcRenderer.invoke('github:merge', pullRequestId, options),

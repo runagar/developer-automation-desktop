@@ -10,6 +10,12 @@
 // Fragments
 // ---------------------------------------------------------------------------
 
+/**
+ * A comment's hidden state. Both permissions are read every time, because
+ * they flip with `isMinimized` (the thread resolve trap).
+ */
+const MINIMIZED_FIELDS = 'isMinimized minimizedReason viewerCanMinimize viewerCanUnminimize';
+
 /** The reviewer-state source for both the list rows and the viewer header. */
 const REVIEW_STATE_FIELDS = `
   reviewRequests(first: 50) {
@@ -295,6 +301,7 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
             viewerCanDelete
             viewerCanUpdate
             lastEditedAt
+            ${MINIMIZED_FIELDS}
           }
           ... on PullRequestReview {
             id
@@ -305,6 +312,7 @@ query PrTimeline($owner: String!, $repo: String!, $number: Int!, $cursor: String
             viewerDidAuthor
             viewerCanUpdate
             lastEditedAt
+            ${MINIMIZED_FIELDS}
             # A review that requests changes commonly carries an empty body and
             # says everything in its inline comments. Without these the
             # Overview shows "changes requested" and none of the substance.
@@ -622,7 +630,10 @@ export const ADD_ISSUE_COMMENT_MUTATION = `
 mutation AddIssueComment($subjectId: ID!, $body: String!) {
   addComment(input: { subjectId: $subjectId, body: $body }) {
     commentEdge {
-      node { id createdAt body author { login } viewerDidAuthor viewerCanUpdate lastEditedAt }
+      node {
+        id createdAt body author { login } viewerDidAuthor viewerCanDelete viewerCanUpdate lastEditedAt
+        ${MINIMIZED_FIELDS}
+      }
     }
   }
 }
@@ -709,6 +720,22 @@ export const UNRESOLVE_THREAD_MUTATION = `
 mutation UnresolveThread($threadId: ID!) {
   unresolveReviewThread(input: { threadId: $threadId }) {
     thread { id isResolved viewerCanResolve viewerCanUnresolve viewerCanReply }
+  }
+}
+`;
+
+export const MINIMIZE_COMMENT_MUTATION = `
+mutation MinimizeComment($subjectId: ID!) {
+  minimizeComment(input: { subjectId: $subjectId, classifier: RESOLVED }) {
+    minimizedComment { ${MINIMIZED_FIELDS} }
+  }
+}
+`;
+
+export const UNMINIMIZE_COMMENT_MUTATION = `
+mutation UnminimizeComment($subjectId: ID!) {
+  unminimizeComment(input: { subjectId: $subjectId }) {
+    unminimizedComment { ${MINIMIZED_FIELDS} }
   }
 }
 `;

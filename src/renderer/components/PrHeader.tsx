@@ -182,6 +182,7 @@ export default function PrHeader({ summary }: Props): React.ReactElement {
           <EditButton
             className="btn btn--micro pr-viewer__title-edit-button"
             title="Edit the title"
+            size={11}
             onClick={() => setEditingTitleOf(summary.id)}
           />
         )}

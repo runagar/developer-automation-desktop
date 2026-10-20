@@ -10,7 +10,7 @@
  * "undefined".
  */
 
-import { PrCommit, PrForcePush, PrReviewComment, PrTimelineRow } from './types';
+import { PrCommit, PrForcePush, PrMinimizedState, PrReviewComment, PrTimelineRow } from './types';
 
 /**
  * The event types requested from GitHub and rendered in the Overview.
@@ -97,6 +97,19 @@ function reviewerName(value: unknown): string {
   const node = value as { __typename?: string; login?: string; slug?: string } | null | undefined;
   if (!node) return 'someone';
   return node.slug ?? node.login ?? 'someone';
+}
+
+export function toMinimizedState(value: unknown): PrMinimizedState {
+  const node = value as Partial<Record<keyof PrMinimizedState, unknown>> | null | undefined;
+  const isMinimized = node?.isMinimized === true;
+  return {
+    isMinimized,
+    minimizedReason: isMinimized && typeof node?.minimizedReason === 'string'
+      ? node.minimizedReason.toLowerCase()
+      : null,
+    viewerCanMinimize: node?.viewerCanMinimize === true,
+    viewerCanUnminimize: node?.viewerCanUnminimize === true,
+  };
 }
 
 export function commitFromNode(value: unknown): PrCommit | null {
@@ -201,6 +214,7 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           viewerCanDelete: node.viewerCanDelete === true,
           viewerCanUpdate: node.viewerCanUpdate === true,
           lastEditedAt: (node.lastEditedAt as string | null) ?? null,
+          ...toMinimizedState(node),
         });
         break;
 
@@ -240,6 +254,7 @@ export function normalizeTimeline(nodes: unknown[]): NormalizedTimeline {
           lastEditedAt: (node.lastEditedAt as string | null) ?? null,
           comments,
           moreComments: Math.max(0, (raw?.totalCount ?? nodes.length) - nodes.length),
+          ...toMinimizedState(node),
         });
         break;
       }

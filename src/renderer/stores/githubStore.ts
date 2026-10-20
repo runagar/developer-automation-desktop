@@ -17,9 +17,9 @@
 
 import { create } from 'zustand';
 import {
-  PrBranchUpdateMethod, PrCandidate, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited,
-  PrLineCommentAnchor, PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrOtherEntry, PrRef,
-  PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, PrUpdate, WorkspaceEntry,
+  PrAddedComment, PrBranchUpdateMethod, PrCandidate, PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited,
+  PrLineCommentAnchor, PrListId, PrListItem, PrLists, PrMergeMethod, PrMergeOptions, PrMinimizedState, PrOtherEntry,
+  PrRef, PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrTimelineRow, PrUpdate, WorkspaceEntry,
   WorkspaceGroup,
 } from '../../main/types';
 import {
@@ -365,6 +365,7 @@ interface GitHubStore {
   endEdit: (id: string) => void;
   patchComment: (id: string, edited: PrEdited) => void;
   editComment: (id: string, kind: PrEditKind, body: string) => Promise<boolean>;
+  setCommentResolved: (commentId: string, resolved: boolean) => Promise<PrMinimizedState | null>;
   updatePullRequest: (patch: PrUpdate) => Promise<boolean>;
   invalidateLists: () => void;
   syncListRow: (summary: PrSummary) => void;
@@ -946,6 +947,21 @@ export const useGitHubStore = create<GitHubStore>((set, get) => ({
     return true;
   },
 
+  async setCommentResolved(commentId, resolved) {
+    const state = await get().run(() => window.dad.githubSetCommentResolved(commentId, resolved));
+    const detail = get().detail;
+    if (!state || !detail) return state;
+    set({
+      detail: {
+        ...detail,
+        timeline: detail.timeline.map((row) => ((row.kind === 'comment' || row.kind === 'review') && row.id === commentId
+          ? { ...row, ...state }
+          : row)),
+      },
+    });
+    return state;
+  },
+
   async updatePullRequest(patch) {
     const detail = get().detail;
     if (!detail) return false;
@@ -1105,6 +1121,11 @@ export function nextSelectedPath(current: string | null, files: PrDiffFile[]): s
 
 export function canEditComment(comment: { viewerDidAuthor: boolean; viewerCanUpdate: boolean }): boolean {
   return comment.viewerDidAuthor && comment.viewerCanUpdate;
+}
+
+export function addedCommentRow(comment: PrAddedComment): PrTimelineRow {
+  const { createdAt, ...rest } = comment;
+  return { kind: 'comment', at: createdAt, viewerDidAuthor: true, ...rest };
 }
 
 /** Whether a file counts as viewed in the current diff scope. */

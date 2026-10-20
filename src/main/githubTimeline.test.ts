@@ -233,6 +233,34 @@ describe('normalizeTimeline', () => {
     });
   });
 
+  it('carries the hidden state of conversation comments and review bodies, with the reason lower-cased', () => {
+    // Given
+    const comment = { __typename: 'IssueComment', createdAt: '2026-09-01T00:00:00Z', body: 'x', author: { login: 'ada' } };
+    const nodes = [
+      { ...comment, id: 'i1', isMinimized: true, minimizedReason: 'RESOLVED', viewerCanMinimize: false, viewerCanUnminimize: true },
+      { ...comment, id: 'i2', isMinimized: false, minimizedReason: null, viewerCanMinimize: true, viewerCanUnminimize: false },
+      {
+        __typename: 'PullRequestReview', id: 'r1', createdAt: '2026-09-02T00:00:00Z', state: 'COMMENTED', body: 'summary',
+        author: { login: 'ada' }, comments: { totalCount: 0, nodes: [] },
+        isMinimized: true, minimizedReason: 'resolved', viewerCanMinimize: false, viewerCanUnminimize: true,
+      },
+    ];
+
+    // When
+    const { rows } = normalizeTimeline(nodes);
+
+    // Then
+    expect(rows[0]).toMatchObject({
+      kind: 'comment', isMinimized: true, minimizedReason: 'resolved', viewerCanMinimize: false, viewerCanUnminimize: true,
+    });
+    expect(rows[1]).toMatchObject({
+      kind: 'comment', isMinimized: false, minimizedReason: null, viewerCanMinimize: true, viewerCanUnminimize: false,
+    });
+    expect(rows[2]).toMatchObject({
+      kind: 'review', isMinimized: true, minimizedReason: 'resolved', viewerCanMinimize: false, viewerCanUnminimize: true,
+    });
+  });
+
   it('renders merge-queue and auto-merge events, so a toggle leaves a trace', () => {
     const { rows } = normalizeTimeline([
       { __typename: 'AutoMergeEnabledEvent', id: 'e1', createdAt: '2026-09-05T00:00:00Z', actor: { login: 'ada' } },

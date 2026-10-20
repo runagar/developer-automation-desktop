@@ -5,7 +5,7 @@ import {
   threadsForCommit, threadsForFile, useGitHubStore,
 } from './githubStore';
 import {
-  PrCandidate, PrDetail, PrDiffFile, PrDiffRef, PrListItem, PrLists, PrReviewThread, PrSummary,
+  PrCandidate, PrDetail, PrDiffFile, PrDiffRef, PrListItem, PrLists, PrMinimizedState, PrReviewThread, PrSummary,
   WorkspaceGroup,
 } from '../../main/types';
 
@@ -34,6 +34,10 @@ function detail(over: Partial<PrDetail> = {}): PrDetail {
     ...over,
   };
 }
+
+const NOT_MINIMIZED: PrMinimizedState = {
+  isMinimized: false, minimizedReason: null, viewerCanMinimize: true, viewerCanUnminimize: false,
+};
 
 describe('parseRef / formatRef', () => {
   it('round-trips owner/repo#number', () => {
@@ -780,7 +784,10 @@ describe('removeComment', () => {
     useGitHubStore.setState({
       detail: detail({
         timeline: [
-          { kind: 'comment', id: 'ic1', at: '', author: 'ada', body: 'x', viewerDidAuthor: true, viewerCanDelete: true, viewerCanUpdate: true, lastEditedAt: null },
+          {
+            kind: 'comment', id: 'ic1', at: '', author: 'ada', body: 'x', viewerDidAuthor: true, viewerCanDelete: true,
+            viewerCanUpdate: true, lastEditedAt: null, ...NOT_MINIMIZED,
+          },
           {
             kind: 'review', id: 'r1', at: '', author: 'bob', state: 'COMMENTED', body: '',
             viewerDidAuthor: false, viewerCanUpdate: false, lastEditedAt: null,
@@ -788,7 +795,7 @@ describe('removeComment', () => {
               id: 'rc1', path: 'a.ts', line: 1, body: 'y', viewerDidAuthor: true, viewerCanDelete: true,
               viewerCanUpdate: true, lastEditedAt: null,
             }],
-            moreComments: 0,
+            moreComments: 0, ...NOT_MINIMIZED,
           },
         ],
       }),
@@ -809,7 +816,7 @@ describe('comment edits', () => {
   });
   const issueRow = (id: string, body: string): Row => ({
     kind: 'comment', id, at: '', author: 'ada', body, viewerDidAuthor: true, viewerCanDelete: true,
-    viewerCanUpdate: true, lastEditedAt: null,
+    viewerCanUpdate: true, lastEditedAt: null, ...NOT_MINIMIZED,
   });
   const reviewRow = (id: string, body: string, commentIds: string[]): Row => ({
     kind: 'review', id, at: '', author: 'ada', state: 'COMMENTED', body,
@@ -818,7 +825,7 @@ describe('comment edits', () => {
       id: cid, path: 'a.ts', line: 1, body: 'old', viewerDidAuthor: true, viewerCanDelete: true,
       viewerCanUpdate: true, lastEditedAt: null,
     })),
-    moreComments: 0,
+    moreComments: 0, ...NOT_MINIMIZED,
   });
   const outdatedRow = (id: string, commentId: string): Row => ({
     kind: 'outdated-thread', id, at: '', author: 'ada', path: 'a.ts', body: 'old', isResolved: false,
@@ -988,6 +995,43 @@ describe('comment edits', () => {
     // Then
     expect(useGitHubStore.getState().edits).toEqual({});
     expect(useGitHubStore.getState().detail!.summary).toMatchObject({ body: '', lastEditedAt: edited.lastEditedAt });
+  });
+
+  it('applies the returned hidden state and both permissions to the resolved comment and review only', async () => {
+    // Given
+    useGitHubStore.setState({
+      detail: detail({ timeline: [issueRow('i1', 'a'), reviewRow('r1', 'summary', ['c1']), issueRow('i2', 'b')] }),
+    });
+    const resolved: PrMinimizedState = {
+      isMinimized: true, minimizedReason: 'resolved', viewerCanMinimize: false, viewerCanUnminimize: true,
+    };
+    dad.githubSetCommentResolved = vi.fn().mockResolvedValue(resolved);
+
+    // When
+    const state = await useGitHubStore.getState().setCommentResolved('i1', true);
+    await useGitHubStore.getState().setCommentResolved('r1', true);
+
+    // Then
+    expect(state).toEqual(resolved);
+    expect(dad.githubSetCommentResolved).toHaveBeenCalledWith('i1', true);
+    const [issue, review, other] = useGitHubStore.getState().detail!.timeline;
+    expect(issue).toMatchObject({ id: 'i1', body: 'a', ...resolved });
+    expect(review).toMatchObject({ id: 'r1', body: 'summary', comments: [{ id: 'c1' }], ...resolved });
+    expect(other).toMatchObject({ id: 'i2', ...NOT_MINIMIZED });
+  });
+
+  it('leaves the comment as it was when resolving fails', async () => {
+    // Given
+    useGitHubStore.setState({ detail: detail({ timeline: [issueRow('i1', 'a')] }) });
+    dad.githubSetCommentResolved = vi.fn().mockRejectedValue(new Error('forbidden'));
+
+    // When
+    const state = await useGitHubStore.getState().setCommentResolved('i1', true);
+
+    // Then
+    expect(state).toBeNull();
+    expect(useGitHubStore.getState().detail!.timeline[0]).toMatchObject(NOT_MINIMIZED);
+    expect(useGitHubStore.getState().actionError).toBe('forbidden');
   });
 });
 

@@ -4,7 +4,7 @@ import { getOwners } from '../githubOwners';
 import { listPullRequests } from '../githubPrs';
 import {
   addIssueComment, addReviewComment, closePullRequest, deleteComment, discardReview, editComment, getDiff,
-  getPullRequest, listRepoPullRequests, mergePullRequest, replyToThread, setAutoMerge, setDraft,
+  getPullRequest, listRepoPullRequests, mergePullRequest, replyToThread, setAutoMerge, setCommentResolved, setDraft,
   setFileViewed, setReviewers, setThreadResolved, submitReview, updatePullRequest, updatePullRequestBranch,
 } from '../githubPr';
 import {
@@ -104,6 +104,11 @@ export function registerGitHubHandlers(ipcMain: IpcMain, dataDir: string): void 
   ipcMain.handle(
     'github:setThreadResolved',
     handled((_e, threadId: string, resolved: boolean) => setThreadResolved(threadId, resolved))
+  );
+
+  ipcMain.handle(
+    'github:setCommentResolved',
+    handled((_e, commentId: string, resolved: boolean) => setCommentResolved(commentId, resolved))
   );
 
   ipcMain.handle(

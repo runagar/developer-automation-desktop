@@ -50,6 +50,10 @@ function review(id: string, at: string, commentIds: string[]): PrTimelineRow {
       viewerCanUpdate: false, lastEditedAt: null,
     })),
     moreComments: 0,
+    isMinimized: false,
+    minimizedReason: null,
+    viewerCanMinimize: false,
+    viewerCanUnminimize: false,
   };
 }
 

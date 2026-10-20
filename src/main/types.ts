@@ -200,6 +200,7 @@ export interface IpcApi {
   githubReplyThread: (threadId: string, reviewId: string | null, body: string) => Promise<PrThreadComment>;
   githubAddComment: (subjectId: string, body: string) => Promise<PrAddedComment>;
   githubSetThreadResolved: (threadId: string, resolved: boolean) => Promise<PrThreadState>;
+  githubSetCommentResolved: (commentId: string, resolved: boolean) => Promise<PrMinimizedState>;
   githubDeleteComment: (id: string, kind: PrCommentKind) => Promise<void>;
   githubEditComment: (id: string, kind: PrEditKind, body: string) => Promise<PrEdited>;
   githubUpdatePullRequest: (pullRequestId: string, patch: PrUpdate) => Promise<PrUpdated>;
@@ -681,17 +682,17 @@ export interface PrReviewComment {
 export type PrTimelineRow =
   | { kind: 'commit'; id: string; at: string; commit: PrCommit }
   | { kind: 'force-push'; id: string; at: string; actor: string | null; force: PrForcePush }
-  | {
+  | ({
     kind: 'comment'; id: string; at: string; author: string | null; body: string;
     viewerDidAuthor: boolean; viewerCanDelete: boolean; viewerCanUpdate: boolean; lastEditedAt: string | null;
-  }
-  | {
+  } & PrMinimizedState)
+  | ({
     kind: 'review'; id: string; at: string; author: string | null; state: string; body: string;
     viewerDidAuthor: boolean; viewerCanUpdate: boolean; lastEditedAt: string | null;
     comments: PrReviewComment[];
     /** Comments beyond the page fetched, so a huge review is not silently cut. */
     moreComments: number;
-  }
+  } & PrMinimizedState)
   | {
     kind: 'outdated-thread'; id: string; at: string; author: string | null; path: string;
     body: string; isResolved: boolean;
@@ -738,11 +739,24 @@ export interface PrEdited {
   lastEditedAt: string | null;
 }
 
-export interface PrAddedComment extends PrEdited {
+export interface PrAddedComment extends PrEdited, PrMinimizedState {
   id: string;
   createdAt: string;
   author: string | null;
+  viewerCanDelete: boolean;
   viewerCanUpdate: boolean;
+}
+
+/**
+ * A conversation comment's hidden state. GitHub calls hiding "minimizing", and
+ * resolving a conversation comment is hiding it with the reason `resolved`.
+ */
+export interface PrMinimizedState {
+  isMinimized: boolean;
+  /** Lower-cased, e.g. `resolved` or `off-topic`; null while not minimized. */
+  minimizedReason: string | null;
+  viewerCanMinimize: boolean;
+  viewerCanUnminimize: boolean;
 }
 
 export type PrUpdate = { title: string } | { body: string };

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { PrDetail, PrReviewThread, PrSummary, PrTimelineRow } from '../../main/types';
-import { canEditComment, useGitHubStore } from '../stores/githubStore';
-import { Trash2 } from 'lucide-react';
+import { PrDetail, PrMinimizedState, PrReviewThread, PrSummary, PrTimelineRow } from '../../main/types';
+import { addedCommentRow, canEditComment, useGitHubStore } from '../stores/githubStore';
+import { Reply, Trash2 } from 'lucide-react';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import { OverviewThreadPlacement, placeOverviewThreads } from '../utils/overviewThreads';
@@ -10,6 +10,7 @@ import CommentThread from './CommentThread';
 import ConfirmDialog from './ConfirmDialog';
 import EditButton from './EditButton';
 import EditableMarkdown from './EditableMarkdown';
+import ResolveButton from './ResolveButton';
 
 interface Props {
   detail: PrDetail;
@@ -112,6 +113,67 @@ function DismissalRow({ row }: { row: Extract<PrTimelineRow, { kind: 'dismissal'
   );
 }
 
+function minimizedText(reason: string | null): string {
+  return reason ? `This comment was marked as ${reason.replace(/[-_]/g, ' ')}.` : 'This comment was hidden.';
+}
+
+function useResolvable(id: string, state: PrMinimizedState): {
+  open: boolean;
+  toggleOpen: () => void;
+  toggleResolved: () => void;
+} {
+  const setCommentResolved = useGitHubStore((s) => s.setCommentResolved);
+  const editing = useGitHubStore((s) => id in s.edits);
+  const [expanded, setExpanded] = useState(!state.isMinimized);
+  const open = !state.isMinimized || expanded || editing;
+
+  const toggleResolved = async (): Promise<void> => {
+    const next = await setCommentResolved(id, !state.isMinimized);
+    if (next) setExpanded(!next.isMinimized);
+  };
+
+  return {
+    open,
+    toggleOpen: () => setExpanded(!open),
+    toggleResolved: () => void toggleResolved(),
+  };
+}
+
+function MinimizeButton(
+  { state, onClick }: { state: PrMinimizedState; onClick: () => void }
+): React.ReactElement | null {
+  const allowed = state.isMinimized ? state.viewerCanUnminimize : state.viewerCanMinimize;
+  if (!allowed) return null;
+  const title = !state.isMinimized ? 'Resolve: hide this comment as resolved'
+    : state.minimizedReason === 'resolved' ? 'Unresolve: show this comment again'
+      : 'Unhide: show this comment again';
+  return (
+    <ResolveButton className="pr-overview__resolve" resolved={state.isMinimized} title={title} onClick={onClick} />
+  );
+}
+
+function MinimizableBody(
+  { state, open, onToggle, children }: {
+    state: PrMinimizedState;
+    open: boolean;
+    onToggle: () => void;
+    children: React.ReactNode;
+  }
+): React.ReactElement {
+  if (!state.isMinimized) return <>{children}</>;
+  return (
+    <div className="pr-overview__minimizable">
+      <button className="pr-overview__minimized" onClick={onToggle}>
+        <span className="pr-overview__minimized-reason">
+          {open ? '▾' : '▸'} {minimizedText(state.minimizedReason)}
+        </span>
+        <span>{open ? 'Hide comment' : 'Show comment'}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
 /**
  * A submitted review, with its inline comments.
  *
@@ -130,6 +192,7 @@ function ReviewRow(
   const openFileInDiff = useGitHubStore((s) => s.openFileInDiff);
   const startEdit = useGitHubStore((s) => s.startEdit);
   const editComment = useGitHubStore((s) => s.editComment);
+  const resolvable = useResolvable(row.id, row);
 
   const visibleComments = row.comments.filter((c) => !placement.hiddenCommentIds.has(c.id));
   const isReplyOnlyComment = row.state === 'COMMENTED' && !row.body
@@ -145,79 +208,143 @@ function ReviewRow(
           {relativeTime(row.at)}
           {row.lastEditedAt && ' · edited'}
         </span>
-        {canEditComment(row) && row.body && (
+        {row.body && (
           <span className="pr-overview__actions">
-            <EditButton
-              className="pr-overview__edit"
-              title="Edit this review's comment"
-              onClick={() => startEdit(row.id, row.body)}
-            />
+            <MinimizeButton state={row} onClick={resolvable.toggleResolved} />
+            {canEditComment(row) && (
+              <EditButton
+                className="pr-overview__edit"
+                title="Edit this review's comment"
+                onClick={() => startEdit(row.id, row.body)}
+              />
+            )}
           </span>
         )}
       </div>
 
-      <EditableMarkdown
-        id={row.id}
-        body={row.body}
-        bodyClassName="pr-overview__comment-body"
-        onSave={(body) => editComment(row.id, 'review-body', body)}
-      />
+      <MinimizableBody state={row} open={resolvable.open} onToggle={resolvable.toggleOpen}>
+        <EditableMarkdown
+          id={row.id}
+          body={row.body}
+          bodyClassName="pr-overview__comment-body"
+          onSave={(body) => editComment(row.id, 'review-body', body)}
+        />
 
-      {visibleComments.map((comment) => {
-        const thread = placement.threadByAnchorCommentId.get(comment.id) ?? null;
-        return (
-          <div key={comment.id} className="pr-overview__review-comment">
-            <div className="pr-overview__comment-meta">
-              <button
-                className="pr-overview__file-link"
-                title={`Open ${comment.path} in the diff`}
-                onClick={() => openFileInDiff(comment.path)}
-              >
-                {comment.path.split('/').pop()}
-                {comment.line !== null && `:${comment.line}`}
-              </button>
-              {/* Only when the thread is not rendered below — that carries its
-                  own per-comment edit, delete and edited marker. */}
-              {!thread && comment.lastEditedAt && <span className="pr-overview__time">edited</span>}
-              {!thread && (canEditComment(comment) || comment.viewerCanDelete) && (
-                <span className="pr-overview__actions">
-                  {canEditComment(comment) && (
-                    <EditButton className="pr-overview__edit" onClick={() => startEdit(comment.id, comment.body)} />
-                  )}
-                  {comment.viewerCanDelete && (
-                    <button
-                      className="pr-overview__delete"
-                      title="Delete this comment"
-                      onClick={() => onDelete(comment.id, 'review')}
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  )}
-                </span>
+        {visibleComments.map((comment) => {
+          const thread = placement.threadByAnchorCommentId.get(comment.id) ?? null;
+          return (
+            <div key={comment.id} className="pr-overview__review-comment">
+              <div className="pr-overview__comment-meta">
+                <button
+                  className="pr-overview__file-link"
+                  title={`Open ${comment.path} in the diff`}
+                  onClick={() => openFileInDiff(comment.path)}
+                >
+                  {comment.path.split('/').pop()}
+                  {comment.line !== null && `:${comment.line}`}
+                </button>
+                {/* Only when the thread is not rendered below — that carries its
+                    own per-comment edit, delete and edited marker. */}
+                {!thread && comment.lastEditedAt && <span className="pr-overview__time">edited</span>}
+                {!thread && (canEditComment(comment) || comment.viewerCanDelete) && (
+                  <span className="pr-overview__actions">
+                    {canEditComment(comment) && (
+                      <EditButton className="pr-overview__edit" onClick={() => startEdit(comment.id, comment.body)} />
+                    )}
+                    {comment.viewerCanDelete && (
+                      <button
+                        className="pr-overview__delete"
+                        title="Delete this comment"
+                        onClick={() => onDelete(comment.id, 'review')}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </span>
+                )}
+              </div>
+              {/* The full thread where one is known, so it can be replied to and
+                  resolved from here; the bare body only when it cannot be
+                  matched (e.g. the thread page cap was hit). */}
+              {thread ? (
+                <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
+              ) : (
+                <EditableMarkdown
+                  id={comment.id}
+                  body={comment.body}
+                  bodyClassName="pr-overview__comment-body"
+                  onSave={(body) => editComment(comment.id, 'review', body)}
+                />
               )}
             </div>
-            {/* The full thread where one is known, so it can be replied to and
-                resolved from here; the bare body only when it cannot be
-                matched (e.g. the thread page cap was hit). */}
-            {thread ? (
-              <CommentThread thread={thread} pendingReviewId={pendingReviewId} />
-            ) : (
-              <EditableMarkdown
-                id={comment.id}
-                body={comment.body}
-                bodyClassName="pr-overview__comment-body"
-                onSave={(body) => editComment(comment.id, 'review', body)}
-              />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
 
-      {row.moreComments > 0 && (
-        <div className="pr-overview__review-more">
-          {row.moreComments} more comment{row.moreComments === 1 ? '' : 's'} — open the Diff tab
-        </div>
-      )}
+        {row.moreComments > 0 && (
+          <div className="pr-overview__review-more">
+            {row.moreComments} more comment{row.moreComments === 1 ? '' : 's'} — open the Diff tab
+          </div>
+        )}
+      </MinimizableBody>
+    </div>
+  );
+}
+
+function CommentRow(
+  { row, onQuote, onDelete }: {
+    row: Extract<PrTimelineRow, { kind: 'comment' }>;
+    onQuote: (author: string | null, body: string) => void;
+    onDelete: (id: string, kind: 'review' | 'issue') => void;
+  }
+): React.ReactElement {
+  const startEdit = useGitHubStore((s) => s.startEdit);
+  const editComment = useGitHubStore((s) => s.editComment);
+  const resolvable = useResolvable(row.id, row);
+
+  return (
+    <div className="pr-overview__comment">
+      <div className="pr-overview__comment-meta">
+        <span className="pr-overview__actor">{row.author ?? 'unknown'}</span>
+        <span className="pr-overview__time">
+          {relativeTime(row.at)}
+          {row.lastEditedAt && ' · edited'}
+        </span>
+        <span className="pr-overview__actions">
+          {/* Issue comments have no threading on GitHub — there is no reply
+              mutation for them. Quoting into a new comment is what
+              github.com offers and what "respond" can mean here. */}
+          {!row.isMinimized && (
+            <button
+              className="pr-overview__quote"
+              title="Quote reply"
+              onClick={() => onQuote(row.author, row.body)}
+            >
+              <Reply size={16} />
+            </button>
+          )}
+          <MinimizeButton state={row} onClick={resolvable.toggleResolved} />
+          {canEditComment(row) && (
+            <EditButton className="pr-overview__edit" onClick={() => startEdit(row.id, row.body)} />
+          )}
+          {row.viewerCanDelete && (
+            <button
+              className="pr-overview__delete"
+              title="Delete this comment"
+              onClick={() => onDelete(row.id, 'issue')}
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </span>
+      </div>
+      <MinimizableBody state={row} open={resolvable.open} onToggle={resolvable.toggleOpen}>
+        <EditableMarkdown
+          id={row.id}
+          body={row.body}
+          bodyClassName="pr-overview__comment-body"
+          onSave={(body) => editComment(row.id, 'issue', body)}
+        />
+      </MinimizableBody>
     </div>
   );
 }
@@ -248,47 +375,7 @@ function Row({
       return <DismissalRow row={row} />;
 
     case 'comment':
-      return (
-        <div className="pr-overview__comment">
-          <div className="pr-overview__comment-meta">
-            <span className="pr-overview__actor">{row.author ?? 'unknown'}</span>
-            <span className="pr-overview__time">
-              {relativeTime(row.at)}
-              {row.lastEditedAt && ' · edited'}
-            </span>
-            <span className="pr-overview__actions">
-              {/* Issue comments have no threading on GitHub — there is no reply
-                  mutation for them. Quoting into a new comment is what
-                  github.com offers and what "respond" can mean here. */}
-              <button
-                className="pr-overview__quote"
-                title="Quote reply"
-                onClick={() => onQuote(row.author, row.body)}
-              >
-                QUOTE REPLY
-              </button>
-              {canEditComment(row) && (
-                <EditButton className="pr-overview__edit" onClick={() => startEdit(row.id, row.body)} />
-              )}
-              {row.viewerCanDelete && (
-                <button
-                  className="pr-overview__delete"
-                  title="Delete this comment"
-                  onClick={() => onDelete(row.id, 'issue')}
-                >
-                  <Trash2 size={11} />
-                </button>
-              )}
-            </span>
-          </div>
-          <EditableMarkdown
-            id={row.id}
-            body={row.body}
-            bodyClassName="pr-overview__comment-body"
-            onSave={(body) => editComment(row.id, 'issue', body)}
-          />
-        </div>
-      );
+      return <CommentRow row={row} onQuote={onQuote} onDelete={onDelete} />;
 
     case 'review':
       return (
@@ -437,20 +524,7 @@ export default function PrOverview({ detail }: Props): React.ReactElement {
 
   const postComment = async (body: string): Promise<void> => {
     const comment = await run(() => window.dad.githubAddComment(summary.id, body));
-    if (comment) {
-      appendTimelineRow({
-        kind: 'comment',
-        id: comment.id,
-        at: comment.createdAt,
-        author: comment.author,
-        body: comment.body,
-        viewerDidAuthor: true,
-        // Just authored it, so it is deletable; the reload confirms.
-        viewerCanDelete: true,
-        viewerCanUpdate: comment.viewerCanUpdate,
-        lastEditedAt: comment.lastEditedAt,
-      });
-    }
+    if (comment) appendTimelineRow(addedCommentRow(comment));
   };
 
   const discard = async (): Promise<void> => {

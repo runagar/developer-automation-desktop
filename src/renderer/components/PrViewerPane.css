@@ -223,26 +223,27 @@
   border-left: 1px solid var(--c-dim);
 }
 
-.pr-overview__quote {
-  margin-left: auto;
-  padding: 0;
-  font-family: var(--font);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  color: var(--c-mid);
-  background: none;
-  border: none;
-  cursor: pointer;
+/* GitHub's collapsed bar for a resolved (hidden) conversation comment. */
+.pr-overview__minimized {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 0;
 }
 
-.pr-overview__quote:hover {
-  color: var(--c-bright);
+.pr-overview__minimized-reason {
+  font-style: italic;
 }
 
 .pr-overview__delete,
 .pr-thread__delete,
 .pr-overview__edit,
-.pr-thread__edit {
+.pr-thread__edit,
+.pr-overview__resolve,
+.pr-thread__resolve,
+.pr-overview__quote,
+.pr-thread__reply {
   display: flex;
   align-items: center;
   padding: 0 2px;
@@ -258,11 +259,15 @@
 }
 
 .pr-overview__edit:hover,
-.pr-thread__edit:hover {
+.pr-thread__edit:hover,
+.pr-overview__resolve:hover,
+.pr-thread__resolve:hover,
+.pr-overview__quote:hover,
+.pr-thread__reply:hover {
   color: var(--c-bright);
 }
 
-/* QUOTE REPLY, edit and delete travel together at the right of a meta row. */
+/* Reply, resolve, edit and delete travel together at the right of a meta row. */
 .pr-overview__actions,
 .pr-thread__actions {
   display: flex;
@@ -985,7 +990,8 @@
   background: var(--c-panel);
 }
 
-.pr-thread--resolved {
+.pr-thread--resolved,
+.pr-overview__minimizable {
   opacity: 0.7;
 }
 
@@ -997,7 +1003,8 @@
   border-bottom: 1px solid var(--c-dark);
 }
 
-.pr-thread__toggle {
+.pr-thread__toggle,
+.pr-overview__minimized {
   flex: 1;
   font-family: var(--font);
   font-size: 0.66rem;
@@ -1008,7 +1015,8 @@
   cursor: pointer;
 }
 
-.pr-thread__toggle:hover {
+.pr-thread__toggle:hover,
+.pr-overview__minimized:hover {
   color: var(--c-bright);
 }
 
@@ -1030,10 +1038,6 @@
   font-size: 0.6rem;
   color: var(--c-amber);
   border: 1px solid var(--c-amber);
-}
-
-.pr-thread__reply {
-  margin: 4px 6px;
 }
 
 /* --- merge dialog --- */

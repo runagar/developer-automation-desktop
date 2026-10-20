@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { PrReviewThread } from '../../main/types';
 import { canEditComment, useGitHubStore } from '../stores/githubStore';
-import { Trash2 } from 'lucide-react';
+import { Reply, Trash2 } from 'lucide-react';
 import { relativeTime } from '../utils/relativeTime';
 import { cn } from '../utils/cn';
 import CommentComposer from './CommentComposer';
 import ConfirmDialog from './ConfirmDialog';
 import EditButton from './EditButton';
 import EditableMarkdown from './EditableMarkdown';
+import ResolveButton from './ResolveButton';
 
 interface Props {
   thread: PrReviewThread;
@@ -89,15 +90,18 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
           {thread.isOutdated && ' · outdated'}
         </button>
         {canToggleResolved && (
-          <button className="btn btn--micro" onClick={() => void toggleResolved()}>
-            {thread.isResolved ? 'UNRESOLVE' : 'RESOLVE'}
-          </button>
+          <ResolveButton
+            className="pr-thread__resolve"
+            resolved={thread.isResolved}
+            title={thread.isResolved ? 'Unresolve this thread' : 'Resolve this thread'}
+            onClick={() => void toggleResolved()}
+          />
         )}
       </div>
 
       {expanded && (
         <>
-          {thread.comments.map((comment) => (
+          {thread.comments.map((comment, index) => (
             <div key={comment.id} className="pr-thread__comment">
               <div className="pr-thread__meta">
                 <span className="pr-thread__author">{comment.author ?? 'unknown'}</span>
@@ -107,6 +111,11 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
                 </span>
                 {comment.state === 'PENDING' && <span className="pr-thread__pending">PENDING</span>}
                 <span className="pr-thread__actions">
+                  {thread.viewerCanReply && index === thread.comments.length - 1 && (
+                    <button className="pr-thread__reply" title="Reply" onClick={() => setReplying(true)}>
+                      <Reply size={16} />
+                    </button>
+                  )}
                   {canEditComment(comment) && (
                     <EditButton className="pr-thread__edit" onClick={() => startEdit(comment.id, comment.body)} />
                   )}
@@ -116,7 +125,7 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
                       title="Delete this comment"
                       onClick={() => setConfirmDelete(comment.id)}
                     >
-                      <Trash2 size={11} />
+                      <Trash2 size={16} />
                     </button>
                   )}
                 </span>
@@ -130,21 +139,15 @@ export default function CommentThread({ thread, pendingReviewId }: Props): React
             </div>
           ))}
 
-          {thread.viewerCanReply && (
-            replying ? (
-              <CommentComposer
-                draftKey={`reply:${thread.id}`}
-                placeholder="Reply…"
-                submitLabel={pendingReviewId ? 'ADD TO REVIEW' : 'REPLY'}
-                autoFocus
-                onSubmit={reply}
-                onCancel={() => setReplying(false)}
-              />
-            ) : (
-              <button className="btn btn--micro pr-thread__reply" onClick={() => setReplying(true)}>
-                REPLY
-              </button>
-            )
+          {thread.viewerCanReply && replying && (
+            <CommentComposer
+              draftKey={`reply:${thread.id}`}
+              placeholder="Reply…"
+              submitLabel={pendingReviewId ? 'ADD TO REVIEW' : 'REPLY'}
+              autoFocus
+              onSubmit={reply}
+              onCancel={() => setReplying(false)}
+            />
           )}
         </>
       )}

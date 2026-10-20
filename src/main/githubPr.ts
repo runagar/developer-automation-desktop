@@ -13,21 +13,25 @@ import {
   CONVERT_TO_DRAFT_MUTATION, DELETE_ISSUE_COMMENT_MUTATION, DELETE_REVIEW_COMMENT_MUTATION,
   DISABLE_AUTO_MERGE_MUTATION,
   DISCARD_REVIEW_MUTATION, ENABLE_AUTO_MERGE_MUTATION,
-  MARK_FILE_VIEWED_MUTATION, MERGE_MUTATION, PR_COMMITS_QUERY, PR_COMPARE_QUERY,
+  MARK_FILE_VIEWED_MUTATION, MERGE_MUTATION, MINIMIZE_COMMENT_MUTATION, PR_COMMITS_QUERY, PR_COMPARE_QUERY,
   PR_FILE_VIEWED_QUERY, PR_RECENT_THREADS_QUERY, PR_REVIEW_THREADS_QUERY, PR_SUMMARY_QUERY, PR_TIMELINE_QUERY,
   READY_FOR_REVIEW_MUTATION, REPLY_THREAD_MUTATION, REPO_PULL_REQUESTS_QUERY, RESOLVE_THREAD_MUTATION,
   SET_REVIEWERS_MUTATION, START_PENDING_REVIEW_MUTATION, SUBMIT_REVIEW_MUTATION,
-  SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNRESOLVE_THREAD_MUTATION,
+  SUBMIT_STANDALONE_REVIEW_MUTATION, UNMARK_FILE_VIEWED_MUTATION, UNMINIMIZE_COMMENT_MUTATION,
+  UNRESOLVE_THREAD_MUTATION,
   UPDATE_BRANCH_MUTATION, UPDATE_ISSUE_COMMENT_MUTATION, UPDATE_PULL_REQUEST_BODY_MUTATION,
   UPDATE_PULL_REQUEST_TITLE_MUTATION, UPDATE_REVIEW_BODY_MUTATION, UPDATE_REVIEW_COMMENT_MUTATION,
 } from './githubQueries';
-import { TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline } from './githubTimeline';
+import {
+  TIMELINE_ITEM_TYPES, commitFromNode, mergePages, normalizeTimeline, toMinimizedState,
+} from './githubTimeline';
 import { buildReviewers, toCheck, toCheckState, toMergeState, toMergeableState } from './githubPrs';
 import { TRACK_PR_OWNER, toPrState } from './githubPrLists';
 import {
   PrAddedComment, PrAutoMerge, PrBranchUpdateMethod, PrCandidate, PrCandidateResult, PrCommentAnchor,
   PrCommentKind, PrCommit, PrCommitCommentAnchor,
-  PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited, PrFileStatus, PrMergeMethod, PrMergeOptions, PrRef,
+  PrDetail, PrDiff, PrDiffFile, PrDiffRef, PrEditKind, PrEdited, PrFileStatus, PrMergeMethod, PrMergeOptions,
+  PrMinimizedState, PrRef,
   PrReviewEvent, PrReviewThread, PrSummary, PrThreadComment, PrThreadState, PrUpdate, PrUpdated,
 } from './types';
 
@@ -615,8 +619,10 @@ export async function addIssueComment(subjectId: string, body: string): Promise<
     createdAt: node?.createdAt ?? new Date().toISOString(),
     body: node?.body ?? body,
     author: node?.author?.login ?? null,
+    viewerCanDelete: node?.viewerCanDelete === true,
     viewerCanUpdate: node?.viewerCanUpdate === true,
     lastEditedAt: node?.lastEditedAt ?? null,
+    ...toMinimizedState(node),
   };
 }
 
@@ -680,6 +686,16 @@ export async function setThreadResolved(threadId: string, resolved: boolean): Pr
     viewerCanUnresolve: thread?.viewerCanUnresolve === true,
     viewerCanReply: thread?.viewerCanReply === true,
   };
+}
+
+export async function setCommentResolved(commentId: string, resolved: boolean): Promise<PrMinimizedState> {
+  const data = await ghGraphql<any>(
+    resolved ? MINIMIZE_COMMENT_MUTATION : UNMINIMIZE_COMMENT_MUTATION,
+    { subjectId: commentId }
+  );
+  const comment = resolved ? data?.minimizeComment?.minimizedComment : data?.unminimizeComment?.unminimizedComment;
+  if (!comment) throw new GitHubError('GitHub did not return the comment');
+  return toMinimizedState(comment);
 }
 
 export async function setFileViewed(pullRequestId: string, path: string, viewed: boolean): Promise<void> {
