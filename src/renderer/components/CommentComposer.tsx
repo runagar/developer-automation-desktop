@@ -92,8 +92,11 @@ export default function CommentComposer({
     try {
       if ((await fn(trimmed)) === false) return;
       if (controlled) return;
+      // Sent: the draft is no longer unfinished work. The ref is blanked too,
+      // as in `cancel`, because a parent that closes the composer on submit
+      // unmounts it before it re-renders with the empty body.
+      bodyRef.current = '';
       setBody('');
-      // Sent: the draft is no longer unfinished work.
       if (draftKey) useGitHubStore.getState().setDraft(draftKey, '');
     } finally {
       setSending(false);
