@@ -182,10 +182,11 @@ function MinimizableBody(
  * the body leaves the row stating a verdict with no reasoning.
  */
 function ReviewRow(
-  { row, placement, pendingReviewId, onDelete }: {
+  { row, placement, pendingReviewId, onQuote, onDelete }: {
     row: Extract<PrTimelineRow, { kind: 'review' }>;
     placement: OverviewThreadPlacement;
     pendingReviewId: string | null;
+    onQuote: (author: string | null, body: string) => void;
     onDelete: (id: string, kind: 'review' | 'issue') => void;
   }
 ): React.ReactElement | null {
@@ -210,6 +211,15 @@ function ReviewRow(
         </span>
         {row.body && (
           <span className="pr-overview__actions">
+            {!row.isMinimized && (
+              <button
+                className="pr-overview__quote"
+                title="Quote reply"
+                onClick={() => onQuote(row.author, row.body)}
+              >
+                <Reply size={16} />
+              </button>
+            )}
             <MinimizeButton state={row} onClick={resolvable.toggleResolved} />
             {canEditComment(row) && (
               <EditButton
@@ -383,6 +393,7 @@ function Row({
           row={row}
           placement={placement}
           pendingReviewId={pendingReviewId}
+          onQuote={onQuote}
           onDelete={onDelete}
         />
       );
