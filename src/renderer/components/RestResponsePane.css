@@ -1,7 +1,7 @@
 /* =========================================================
    REST RESPONSE PANE — one tab per executed call
-   The tab strip itself is the shared .tab-bar / .tab in
-   pipboy.css; everything here is specific to this panel.
+   The tab strip itself is the shared TabStrip component;
+   everything here is specific to this panel.
    ========================================================= */
 
 .rest-response-pane {

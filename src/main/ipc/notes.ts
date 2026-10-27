@@ -16,6 +16,7 @@ export function registerNotesHandlers(
   ipcMain.handle('notes:createTab', (_event, scope: NotesScope) => notesManager.createTab(scope));
   ipcMain.handle('notes:closeTab', (_event, tabId: string) => notesManager.closeTab(tabId));
   ipcMain.handle('notes:restoreTab', (_event, tabId: string) => notesManager.restoreTab(tabId));
+  ipcMain.handle('notes:deleteTab', (_event, tabId: string) => notesManager.deleteTab(tabId));
   ipcMain.handle('notes:getClosedTabs', (_event, scope: NotesScope) => notesManager.getClosedTabs(scope));
   ipcMain.handle('notes:renameTab', (_event, tabId: string, name: string) => notesManager.renameTab(tabId, name));
   ipcMain.handle('notes:saveContent', (_event, tabId: string, content: string) => notesManager.saveTabContent(tabId, content));

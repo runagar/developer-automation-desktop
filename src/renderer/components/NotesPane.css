@@ -11,97 +11,6 @@
   background: var(--c-bg);
 }
 
-/* Tab bar */
-.notes-pane__tab-bar {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 4px;
-  background: var(--c-panel);
-  border-bottom: 1px solid var(--c-dark);
-  flex-shrink: 0;
-  gap: 2px;
-}
-
-.notes-pane__tabs {
-  display: flex;
-  flex: 1;
-  overflow-x: hidden;
-  gap: 2px;
-}
-
-/* Predates the shared .tab rules in pipboy.css and still carries its own copy;
-   migrating Notes onto them is tracked as a follow-up. */
-.notes-pane__tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 60px;
-  max-width: 90px;
-  padding: 2px 6px;
-  font-family: var(--font);
-  font-size: 0.6rem;
-  color: var(--c-mid);
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.notes-pane__tab:hover {
-  color: var(--c-bright);
-  background: var(--c-dark);
-}
-.notes-pane__tab--active {
-  color: var(--c-bright);
-  border-color: var(--c-dim);
-  background: var(--c-bg);
-}
-
-.notes-pane__tab-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.notes-pane__tab-rename {
-  font-family: var(--font);
-  font-size: 0.6rem;
-  color: var(--c-bright);
-  background: var(--c-bg);
-  border: 1px solid var(--c-bright);
-  padding: 0 2px;
-  width: 100%;
-  outline: none;
-}
-
-.notes-pane__tab-close {
-  font-size: 0.5rem;
-  color: var(--c-mid);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.notes-pane__tab-close:hover {
-  color: var(--c-red);
-}
-
-.notes-pane__scroll-btn {
-  font-size: 0.55rem;
-  color: var(--c-mid);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px 3px;
-  flex-shrink: 0;
-}
-.notes-pane__scroll-btn:hover {
-  color: var(--c-bright);
-}
-
 .notes-pane__add-tab {
   font-size: 0.75rem;
   color: var(--c-mid);
@@ -113,13 +22,6 @@
 }
 .notes-pane__add-tab:hover {
   color: var(--c-bright);
-}
-
-.notes-pane__actions {
-  display: flex;
-  gap: 3px;
-  margin-left: auto;
-  flex-shrink: 0;
 }
 
 /* Editor */
@@ -186,24 +88,18 @@
   flex-shrink: 0;
 }
 
-/* Restore dropdown */
-.notes-pane__restore-container {
+/* Manage tabs dropdown */
+.notes-pane__manage-container {
   position: relative;
   display: flex;
   align-items: stretch;
 }
-.notes-pane__restore-menu {
-  right: 0;
-  left: auto;
+.notes-pane__manage-menu {
+  max-width: 320px;
   max-height: 200px;
   overflow-y: auto;
 }
-.notes-pane__restore-menu .dropdown__item {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.notes-pane__restore-empty {
+.notes-pane__manage-empty {
   padding: 8px 10px;
   font-size: 0.6rem;
   color: var(--c-mid);

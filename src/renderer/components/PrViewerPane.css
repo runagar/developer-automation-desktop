@@ -1097,13 +1097,13 @@
 
 .pr-reviewers {
   position: absolute;
-  top: calc(100% + 2px);
-  /* Anchored to the button's right edge, not its left: the trigger is pushed
-     to the end of the status row by `margin-left: auto`, so a popover growing
-     rightwards leaves the panel. */
-  right: 0;
+  top: calc(anchor(bottom) + 2px);
   left: auto;
-  z-index: 40;
+  right: anchor(right);
+  bottom: auto;
+  margin: 0;
+  overflow: visible;
+  color: inherit;
   display: flex;
   flex-direction: column;
   gap: 3px;

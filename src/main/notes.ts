@@ -213,6 +213,13 @@ export class NotesManager {
     return row ? this.rowToTab(row) : null;
   }
 
+  deleteTab(tabId: string): void {
+    const row = this.db.prepare('SELECT file_path FROM notes_tabs WHERE id = ?').get(tabId) as any;
+    if (!row) return;
+    this.deleteTabFile(row.file_path);
+    this.db.prepare('DELETE FROM notes_tabs WHERE id = ?').run(tabId);
+  }
+
   getClosedTabs(scope: NotesScope): NotesTabInfo[] {
     const rows = this.db.prepare(
       'SELECT * FROM notes_tabs WHERE scope_kind = ? AND scope_id = ? AND is_open = 0 ORDER BY closed_at DESC'

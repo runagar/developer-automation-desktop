@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PrOwners, PrSummary } from '../../main/types';
 import { useGitHubStore } from '../stores/githubStore';
+import { useTopLayer } from './dropdown';
 
 interface Props {
   summary: PrSummary;
@@ -31,6 +32,9 @@ export default function ReviewersMenu({ summary, onClose }: Props): React.ReactE
   const patchSummary = useGitHubStore((s) => s.patchSummary);
   const reloadDetail = useGitHubStore((s) => s.reloadDetail);
   const syncListRow = useGitHubStore((s) => s.syncListRow);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  useTopLayer(rootRef);
 
   const [entry, setEntry] = useState('');
   const [owners, setOwners] = useState<PrOwners | null>(null);
@@ -154,7 +158,7 @@ export default function ReviewersMenu({ summary, onClose }: Props): React.ReactE
     .filter((s) => matchesFilter(s, null));
 
   return (
-    <div className="pr-reviewers" onMouseDown={(e) => e.stopPropagation()}>
+    <div ref={rootRef} className="pr-reviewers" onMouseDown={(e) => e.stopPropagation()}>
       <div className="pr-reviewers__header">
         REVIEWERS
         <button className="btn btn--micro" onClick={onClose}>✕</button>

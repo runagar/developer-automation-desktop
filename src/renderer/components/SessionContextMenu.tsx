@@ -79,6 +79,7 @@ export default function SessionContextMenu({ x, y, onSpawnPanel, onRename, onClo
   return (
     <Dropdown
       ref={ref}
+      anchorToParent={false}
       style={{ ...style, position: 'fixed' }}
       onMouseDown={(e) => e.stopPropagation()}
     >

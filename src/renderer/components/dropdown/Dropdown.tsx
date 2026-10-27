@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from '../../utils/cn';
 import { useTopLayer } from './useTopLayer';
 import './Dropdown.css';
 
@@ -29,7 +30,7 @@ export const Dropdown = React.forwardRef<HTMLDivElement, DropdownProps>(function
   return (
     <div
       ref={innerRef}
-      className={`dropdown${className ? ` ${className}` : ''}`}
+      className={cn('dropdown', anchorToParent && 'dropdown--anchored', className)}
       style={style}
       onMouseDown={onMouseDown ?? ((e) => e.stopPropagation())}
     >
@@ -75,6 +76,59 @@ export function DropdownItem({ children, check, onClick, disabled, className }: 
       <span className="dropdown__check">{check ?? ''}</span>
       {children}
     </button>
+  );
+}
+
+// --- Deletable menu item (click the name to pick, [✕] then [✓] to delete) ---
+
+interface DropdownDeletableItemProps {
+  children: React.ReactNode;
+  labelClassName?: string;
+  confirming: boolean;
+  onSelect: () => void;
+  onConfirmingChange: (confirming: boolean) => void;
+  onDelete: () => void;
+}
+
+export function DropdownDeletableItem({
+  children, labelClassName, confirming, onSelect, onConfirmingChange, onDelete,
+}: DropdownDeletableItemProps): React.ReactElement {
+  const stop = (e: React.MouseEvent): void => e.stopPropagation();
+  const handle = (action: () => void) => (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    action();
+  };
+
+  return (
+    <div className="dropdown__item dropdown__deletable">
+      <span className="dropdown__check"></span>
+      <span className={cn('dropdown__deletable-name', labelClassName)} onClick={onSelect}>
+        {children}
+      </span>
+      {confirming ? (
+        <>
+          <button
+            className="btn btn--micro btn--primary"
+            onMouseDown={stop}
+            onClick={handle(onDelete)}
+            title="Confirm delete"
+          >✓</button>
+          <button
+            className="btn btn--micro"
+            onMouseDown={stop}
+            onClick={handle(() => onConfirmingChange(false))}
+            title="Cancel"
+          >✕</button>
+        </>
+      ) : (
+        <button
+          className="btn btn--micro btn--danger"
+          onMouseDown={stop}
+          onClick={handle(() => onConfirmingChange(true))}
+          title="Delete permanently"
+        >✕</button>
+      )}
+    </div>
   );
 }
 

@@ -407,7 +407,7 @@ export default function RestCrafterPane(): React.ReactElement {
             <ChevronDown size={14} strokeWidth={2.75} />
           </button>
           {methodOpen && (
-            <Menu className="rest-crafter-pane__menu rest-crafter-pane__menu--right">
+            <Menu className="rest-crafter-pane__menu">
               {REST_METHODS.map((option) => (
                 <button
                   key={option}

@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ChevronsDownUp, ChevronsUpDown, ChevronDown, ChevronRight, Copy, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
 import { ResponseTab, useRestStore } from '../stores/restStore';
 import { allExpandableIds, buildRows, classifyBody, topLevelExpandableIds } from '../stores/responseTree';
 import ResponseTree from './ResponseTree';
+import TabStrip from './TabStrip';
 import './RestResponsePane.css';
 
 /**
@@ -42,6 +43,11 @@ export default function RestResponsePane(): React.ReactElement {
   const [expandNotice, setExpandNotice] = useState<string | null>(null);
 
   const active = responses.find((r) => r.id === activeResponseId) ?? null;
+
+  const stripTabs = useMemo(
+    () => responses.map((r) => ({ id: r.id, name: r.title, title: r.url })),
+    [responses]
+  );
 
   const view = useMemo(() => {
     if (!active?.result || !active.result.ok) return null;
@@ -106,8 +112,7 @@ export default function RestResponsePane(): React.ReactElement {
     setExpandedByTab((prev) => ({ ...prev, [activeResponseId]: new Set() }));
   }, [activeResponseId]);
 
-  const handleClose = useCallback((e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const handleClose = useCallback((id: string) => {
     closeResponseTab(id);
     // Drop the closed tab's expansion state, or an unbounded history leaves an
     // unbounded map of orphaned sets behind it.
@@ -136,25 +141,13 @@ export default function RestResponsePane(): React.ReactElement {
 
   return (
     <div className="rest-response-pane" ref={rootRef}>
-      <div className="tab-bar">
-        {responses.map((tab) => (
-          <div
-            key={tab.id}
-            className={cn('tab', tab.id === activeResponseId && 'tab--active')}
-            onClick={() => setActiveResponse(tab.id)}
-            title={tab.url}
-          >
-            <span className="tab__name">{tab.title}</span>
-            <button
-              className="tab__close"
-              onClick={(e) => handleClose(e, tab.id)}
-              title="Close response"
-            >
-              <X size={10} />
-            </button>
-          </div>
-        ))}
-      </div>
+      <TabStrip
+        tabs={stripTabs}
+        activeId={activeResponseId}
+        onSelect={setActiveResponse}
+        onClose={handleClose}
+        closeTitle="Close response"
+      />
 
       {active && (
         <div className="rest-response-pane__bar">

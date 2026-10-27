@@ -39,6 +39,13 @@ interface TopLayerOptions {
  * - A popover keeps its position in the DOM and is only *painted* elsewhere,
  *   so `wrapper.contains(event.target)` click-outside checks, event bubbling,
  *   and inherited theme variables all keep working.
+ *
+ * Anchored menus line up with the anchor's right edge (set in their CSS). One
+ * that would then stick out past the window's left edge is re-aligned to the
+ * anchor's left edge on open. This is measured rather than left to CSS
+ * `position-try-fallbacks`, which only flips when the flipped position fits on
+ * *both* axes — a menu also running off the bottom would stay cut off on the
+ * left.
  */
 export function useTopLayer(
   ref: React.RefObject<HTMLElement | null>,
@@ -61,6 +68,11 @@ export function useTopLayer(
 
     // showPopover() throws if the element is already in the top layer.
     if (!el.matches(':popover-open')) el.showPopover();
+
+    if (anchor && el.getBoundingClientRect().left < 0) {
+      el.style.setProperty('left', 'anchor(left)');
+      el.style.setProperty('right', 'auto');
+    }
 
     return () => {
       if (el.isConnected && el.matches(':popover-open')) el.hidePopover();

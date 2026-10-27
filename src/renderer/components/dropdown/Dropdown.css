@@ -29,6 +29,14 @@
   box-shadow: var(--glow);
 }
 
+/* A menu dropping from a trigger lines up with the trigger's right edge;
+   `useTopLayer` re-aligns it to the left edge if that would push it out of the
+   window. */
+.dropdown--anchored {
+  left: auto;
+  right: anchor(right);
+}
+
 /* Workspace picker menus (`WorkspaceMenuItems`): grouped `KEY  repo` rows.
    Shared by the Sessions panel's NEW SESSION menu and the Track Pull Request
    dialog. Scrolls rather than overflowing — it has no submenus to clip. */
@@ -134,6 +142,19 @@
 }
 .dropdown__item:disabled:hover {
   background: none;
+}
+
+/* Deletable item: the name picks, the trailing buttons delete */
+.dropdown__deletable {
+  justify-content: space-between;
+  cursor: default;
+}
+.dropdown__deletable-name {
+  flex: 1;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Check mark area */

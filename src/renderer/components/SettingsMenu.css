@@ -37,8 +37,6 @@
 }
 
 .settings-menu__menu {
-  right: 0;
-  left: auto;
   min-width: 200px;
 }
 

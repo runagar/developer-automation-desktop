@@ -151,6 +151,7 @@ const api: IpcApi = {
   notesCreateTab: (scope) => ipcRenderer.invoke('notes:createTab', scope),
   notesCloseTab: (tabId) => ipcRenderer.invoke('notes:closeTab', tabId),
   notesRestoreTab: (tabId) => ipcRenderer.invoke('notes:restoreTab', tabId),
+  notesDeleteTab: (tabId) => ipcRenderer.invoke('notes:deleteTab', tabId),
   notesGetClosedTabs: (scope) => ipcRenderer.invoke('notes:getClosedTabs', scope),
   notesRenameTab: (tabId, name) => ipcRenderer.invoke('notes:renameTab', tabId, name),
   notesSaveContent: (tabId, content) => ipcRenderer.invoke('notes:saveContent', tabId, content),

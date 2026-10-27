@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLayoutStore, useActiveInstances, useActiveLocked } from '../stores/layoutStore';
 import { PANEL_LABELS, PanelType, SINGLETON_TYPES, tabDef } from '../dashboard/layout';
-import { Dropdown, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
+import { Dropdown, DropdownDeletableItem, DropdownItem, DropdownSection, DropdownSubmenu } from './dropdown';
 import './PanelMenu.css';
 
 interface GlobalPanelEntry {
@@ -95,7 +95,7 @@ export default function PanelMenu(): React.ReactElement {
       </button>
 
       {open && (
-        <Dropdown className="panel-menu__menu" onMouseDown={(e) => e.stopPropagation()}>
+        <Dropdown onMouseDown={(e) => e.stopPropagation()}>
           <DropdownSection label="PANELS">
             {singletonTypes.map((type) => (
               <DropdownItem
@@ -131,46 +131,23 @@ export default function PanelMenu(): React.ReactElement {
                 {globalPanels.length > 0 && (
                   <DropdownSection label="SAVED NOTES">
                     {globalPanels.map((p) => (
-                      <div key={p.id} className="dropdown__item panel-menu__restore-row">
-                        <span className="dropdown__check"></span>
-                        <span
-                          className={`panel-menu__restore-name${p.openInThisTab ? ' panel-menu__restore-name--open' : ''}`}
-                          onClick={() => void handlePanelClick(p)}
-                        >
-                          {p.name}
-                        </span>
-                        {confirmDestroyId === p.id ? (
-                          <>
-                            <button
-                              className="btn btn--micro btn--primary"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void window.dad.notesDestroyPanel(p.id).then(() => {
-                                  // Close every view of this note, in every tab.
-                                  useLayoutStore.getState().destroyByContentId(p.id);
-                                  setGlobalPanels((prev) => prev.filter((cp) => cp.id !== p.id));
-                                  setConfirmDestroyId(null);
-                                });
-                              }}
-                              title="Confirm delete"
-                            >✓</button>
-                            <button
-                              className="btn btn--micro"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(null); }}
-                              title="Cancel"
-                            >✕</button>
-                          </>
-                        ) : (
-                          <button
-                            className="btn btn--micro btn--danger"
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => { e.stopPropagation(); setConfirmDestroyId(p.id); }}
-                            title="Delete permanently"
-                          >✕</button>
-                        )}
-                      </div>
+                      <DropdownDeletableItem
+                        key={p.id}
+                        labelClassName={p.openInThisTab ? 'panel-menu__restore-name--open' : undefined}
+                        confirming={confirmDestroyId === p.id}
+                        onSelect={() => void handlePanelClick(p)}
+                        onConfirmingChange={(confirming) => setConfirmDestroyId(confirming ? p.id : null)}
+                        onDelete={() => {
+                          void window.dad.notesDestroyPanel(p.id).then(() => {
+                            // Close every view of this note, in every tab.
+                            useLayoutStore.getState().destroyByContentId(p.id);
+                            setGlobalPanels((prev) => prev.filter((cp) => cp.id !== p.id));
+                            setConfirmDestroyId(null);
+                          });
+                        }}
+                      >
+                        {p.name}
+                      </DropdownDeletableItem>
                     ))}
                   </DropdownSection>
                 )}

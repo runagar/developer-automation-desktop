@@ -36,24 +36,6 @@
   line-height: 1;
 }
 
-.panel-menu__menu {
-  right: 0;
-  left: auto;
-}
-
-.panel-menu__restore-row {
-  justify-content: space-between;
-  cursor: default;
-}
-
-.panel-menu__restore-name {
-  flex: 1;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .panel-menu__restore-name--open {
   color: var(--c-bright);
   font-weight: 600;

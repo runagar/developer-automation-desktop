@@ -97,7 +97,7 @@ Because `getToken` caches on `securityHost|clientId` and every environment has a
 ### REST Response panel
 The third functional Rest Room panel (R4). Every executed call gets its own closable tab; JSON bodies render as a collapsible tree, and links inside a response can be followed.
 
-**History.** `restStore.responses` is a `ResponseTab[]` held **in memory only** — responses are deliberately dropped on restart, so there is no storage layer, no SQLite table and no `localStorage` key for them. It is **unbounded**: a tab is removed only when the user closes it. Tabs append right and activate; closing the active tab activates its right-hand neighbour, falling back to the left. Every send opens a new tab rather than replacing one, so two runs of the same request can be compared. Tab titles are the api-path, truncated by CSS (which keeps the readable head) with the full URL as the tooltip.
+**History.** `restStore.responses` is a `ResponseTab[]` held **in memory only** — responses are deliberately dropped on restart, so there is no storage layer, no SQLite table and no `localStorage` key for them. It is **unbounded**: a tab is removed only when the user closes it. Tabs append right and activate; closing the active tab activates its right-hand neighbour, falling back to the left. Every send opens a new tab rather than replacing one, so two runs of the same request can be compared. Tab titles are the api-path with the full URL as the tooltip. The strip is the shared `TabStrip` (see Notes panel → Tab strip), without `+` or rename.
 
 **Tree model (`src/renderer/stores/responseTree.ts`).** Pure and unit-tested. `buildRows` flattens the parsed body into a visible row list, which is what lets striping follow **visible order** (so it stays correct as nodes open and close) and keeps a future virtualisation a drop-in change. Key points:
 - **Row ids are structural** — parent id plus child *index*, never the property name. A key containing `.` or `[` would otherwise collide with a genuinely nested route, toggling unrelated nodes and duplicating React keys; a followed link returns arbitrary JSON from any service, so keys are uncontrolled.
@@ -574,10 +574,26 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 
 **Tabbed interface:**
 - Each notes scope contains multiple **tabs** (markdown files). A new scope auto-creates its first tab.
-- Tabs can be added (+), closed (×), renamed (click active tab), and restored (↻ dropdown for closed tabs).
+- Tabs can be added (+), closed (hover `[✕]`), renamed (click active tab), and restored or permanently deleted from **MANAGE TABS** (see below).
 - New tabs default to the name "Untitled".
 - **Alt+Left / Alt+Right** cycles between tabs within the editor (highest-priority CM keymap).
 - Tab state (open/closed/order) is persisted to the `notes_tabs` SQLite table.
+
+**Tab strip (`TabStrip`, shared with REST Response):**
+- Drawn like the tool tab bar, scaled down: the active tab is outlined and open at the bottom, sitting on a bright line under the whole bar; other tabs are unboxed. Names keep the case they were typed in.
+- Tabs size to their name. A tab is never wider than the visible strip; only then is its name cut with `…` (full name in the tooltip).
+- The red `[✕]` (`btn btn--micro btn--danger`) appears only while the tab is hovered and sits after the name, so the hovered tab widens and everything after it shifts. It is deliberately out of the Tab order (`tabIndex={-1}`).
+- Renaming lays an input over the hidden name span, which mirrors the typed text, so the tab follows the text on every keystroke.
+- Layout: `◀` at the far left; `▶`, `▼` (only while some tab is fully or partly out of view) and `trailing` (`+` for notes) follow the last tab and pin to the strip's right end once the tabs don't fit; `actions` (MANAGE TABS) sit at the bar's right end.
+- **The strip is never scrolled.** It tracks the *first visible tab*; tabs before it are `display: none`, so the line always starts on a whole tab. `◀`/`▶` hide or show exactly one tab on the left; `▶` stops once the last tab fits. A stray `scroll` (e.g. focusing the rename input) is reset to 0.
+- **The active tab is capped to the room left on the line** (`activeTabCap`) when it runs past the right edge, wherever it starts, so it ends in `…` instead of being clipped. While capped the strip gets `flex-grow: 1`, otherwise shrinking the cap would shrink the strip and the cap again.
+- Whenever the active tab changes (click, Alt+←/→, `+`, restore, `▼` pick), just enough tabs are hidden on the left to show it in full (`firstIndexToReveal`); an active tab left of the first visible one becomes the first.
+- The `▼` list shows only tabs not fully visible (hidden on the left, or clipped on the right), active one marked `✓`; picking one activates and reveals it. A capped active tab counts as visible.
+- Geometry is pure and unit-tested in `utils/tabStrip.ts`. Measurement reruns on tab, active, first-tab and rename changes and from a `ResizeObserver` on the strip *and every tab*, since a hover `[✕]` or a rename resizes a single tab without resizing a constrained strip.
+
+**MANAGE TABS:**
+- Lists the scope's closed tabs. Clicking a name restores it and closes the menu.
+- `[✕]` then `[✓]` permanently deletes a closed tab (`notes:deleteTab`): its `notes_tabs` row and its `.md` file are removed, so a note reference to it no longer resolves. The menu stays open; once empty it shows "No closed tabs". The row is the shared `DropdownDeletableItem`, also used by Panel menu → Notes → SAVED NOTES.
 
 **Global panel naming:**
 - Global notes panels have a `name` field (defaults to "Untitled") stored in the `notes_panels.name` SQLite column and mirrored on `PanelInstance.name` in localStorage.
@@ -603,7 +619,7 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 - Permanently destroying a closed global panel deletes all tabs, files, and the directory.
 - Session-bound notes panels follow normal panel destroy behaviour (data lives as long as the session).
 
-**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc/notes.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
+**IPC channels:** `notes:createPanel`, `notes:closePanel`, `notes:destroyPanel`, `notes:restorePanel`, `notes:getClosedPanels`, `notes:getAllGlobalPanels`, `notes:renamePanel`, `notes:createTab`, `notes:closeTab`, `notes:restoreTab`, `notes:deleteTab`, `notes:getClosedTabs`, `notes:renameTab`, `notes:saveContent`, `notes:loadContent`, `notes:getTabs`, `notes:exportTab`, `notes:copyRef` — registered in `ipc/notes.ts`, bound in `preload.ts`, typed in `IpcApi` (`types.ts`).
 
 ### Settings dropdown
 The **⚙ SETTINGS** dropdown sits at the right end of the tool tab bar (global — not contextual to the active tab). It is organised into two sections:
@@ -835,7 +851,8 @@ Renderer process
 ├── TerminalPane         xterm.js instance (uses useXterm hook)
 ├── ShellPane            xterm.js instance (uses useXterm hook), tmux-backed
 ├── JiraPane             Jira issue overview per session
-├── NotesPane            CodeMirror 6 markdown editor with tabbed interface
+├── NotesPane            CodeMirror 6 markdown editor with tabbed interface + MANAGE TABS
+├── TabStrip             shared closable tab strip (Notes, REST Response): tool-tab look, first-visible-tab snapping, ▼ list of hidden tabs, rename
 ├── ApiPickerPane        service/version/operation drill-down with live search (R2)
 ├── RestCrafterPane      URL bar, environment selector, HEADERS/PARAMETERS/BODY tabs, CodeMirror JSON body
 ├── RestResponsePane     response tabs, status line, collapsible headers, tree or raw body
@@ -924,6 +941,8 @@ Two properties keep it safe to retrofit onto existing menus:
 Consequences for the CSS of any menu that opts in:
 - Positioning resolves against the viewport, so `top: calc(100% + 4px)` of a container no longer works. Use CSS anchor positioning — `top: calc(anchor(bottom) + 4px)`, `left: anchor(left)`, `min-width: anchor-size(width)`. The hook wires the `anchor-name` to the menu's DOM parent, so that parent must be the intended anchor. Menus positioned at the pointer pass explicit viewport coordinates inline and opt out with `anchorToParent: false`.
 - The UA stylesheet styles `[popover]` with `inset: 0`, `margin: auto`, `overflow: auto`, `border`, `padding` and `color: CanvasText`. Reset each one explicitly, or the menu will stretch, lose its theme colour, or clip its own submenus.
+
+**Menus that drop from a trigger are right-aligned to it, falling back to left-aligned.** `.dropdown--anchored` (added by `<Dropdown>` whenever `anchorToParent` is true) sets `right: anchor(right)`, as do `RestCrafterPane`'s menus and the `ReviewersMenu` popover (which calls `useTopLayer` itself). `useTopLayer` then measures the menu on open and, if its left edge is past the window's, re-aligns it with inline `left: anchor(left); right: auto`. This is deliberately not `position-try-fallbacks: flip-inline`: a fallback is only taken when it fits on *both* axes, so a menu also running off the bottom would stay cut off on the left. Every anchored menu must therefore be right-aligned in its CSS. Menus positioned at the pointer (context menus) must pass `anchorToParent={false}`; otherwise the anchored right inset combines with their inline `left` and stretches them.
 
 Requires Chromium 114+ (Popover API) and 125+ (anchor positioning); Electron 33 ships Chromium 130.
 

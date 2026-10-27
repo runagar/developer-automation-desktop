@@ -148,6 +148,7 @@ export interface IpcApi {
   notesCreateTab: (scope: { kind: string; id: string }) => Promise<any>;
   notesCloseTab: (tabId: string) => Promise<void>;
   notesRestoreTab: (tabId: string) => Promise<any>;
+  notesDeleteTab: (tabId: string) => Promise<void>;
   notesGetClosedTabs: (scope: { kind: string; id: string }) => Promise<any[]>;
   notesRenameTab: (tabId: string, name: string) => Promise<void>;
   notesSaveContent: (tabId: string, content: string) => Promise<void>;

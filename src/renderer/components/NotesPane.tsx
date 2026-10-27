@@ -6,8 +6,9 @@ import { languages } from '@codemirror/language-data';
 import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { useNotesStore, NotesTabState } from '../stores/notesStore';
-import { Dropdown, DropdownItem, DropdownSection } from './dropdown';
+import { useNotesStore } from '../stores/notesStore';
+import { Dropdown, DropdownDeletableItem, DropdownItem, DropdownSection } from './dropdown';
+import TabStrip from './TabStrip';
 import './NotesPane.css';
 
 /**
@@ -94,17 +95,12 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
   const focusAfterSwitchRef = useRef(false);
   activeTabIdRef.current = activeTabId;
 
-  // Renaming state
-  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [closedTabs, setClosedTabs] = useState<Array<{ id: string; name: string }>>([]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contextTabIdRef = useRef<string | null>(null);
-  const restoreRef = useRef<HTMLDivElement>(null);
-
-  // Tab scroll
-  const tabBarRef = useRef<HTMLDivElement>(null);
+  const manageRef = useRef<HTMLDivElement>(null);
 
   // Ref for cycleTab so CM keymap can call it without stale closure
   const cycleTabRef = useRef<(dir: number) => void>(() => {});
@@ -114,12 +110,12 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     void loadTabs(scopeKey);
   }, [scopeKey, loadTabs]);
 
-  // Close restore dropdown and context menu on outside click
+  // Close manage dropdown and context menu on outside click
   useEffect(() => {
-    if (!restoreOpen && !tabContextMenu) return;
+    if (!manageOpen && !tabContextMenu) return;
     const handler = (e: MouseEvent) => {
-      if (restoreOpen && restoreRef.current && !restoreRef.current.contains(e.target as Node)) {
-        setRestoreOpen(false);
+      if (manageOpen && manageRef.current && !manageRef.current.contains(e.target as Node)) {
+        setManageOpen(false);
       }
       if (tabContextMenu) {
         setTabContextMenu(null);
@@ -127,20 +123,27 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [restoreOpen, tabContextMenu]);
+  }, [manageOpen, tabContextMenu]);
 
-  const handleOpenRestore = useCallback(async () => {
+  const handleOpenManage = useCallback(async () => {
     const scope = scopeFromKey(scopeKey);
     const tabs = await window.dad.notesGetClosedTabs(scope);
     setClosedTabs(tabs.map((t: any) => ({ id: t.id, name: t.name || 'Untitled' })));
-    setRestoreOpen(true);
+    setConfirmDeleteId(null);
+    setManageOpen(true);
   }, [scopeKey]);
 
   const handleRestoreTab = useCallback(async (tabId: string) => {
     const restoreTab = useNotesStore.getState().restoreTab;
     await restoreTab(scopeKey, tabId);
-    setRestoreOpen(false);
+    setManageOpen(false);
   }, [scopeKey]);
+
+  const handleDeleteTab = useCallback(async (tabId: string) => {
+    await window.dad.notesDeleteTab(tabId);
+    setClosedTabs((prev) => prev.filter((t) => t.id !== tabId));
+    setConfirmDeleteId(null);
+  }, []);
 
   // Autosave helper — saves to file AND updates store for mirroring
   const saveContent = useCallback((tabId: string, content: string) => {
@@ -275,32 +278,22 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
   }, [tabs, activeTabId, scopeKey, setActiveTab]);
   cycleTabRef.current = cycleTab;
 
-  const handleTabClick = useCallback((tab: NotesTabState) => {
-    if (tab.id === activeTabId) {
-      // Click on active tab → rename
-      setRenamingTabId(tab.id);
-      setRenameValue(tab.name);
-    } else {
-      setActiveTab(scopeKey, tab.id);
-    }
-  }, [activeTabId, scopeKey, setActiveTab]);
+  const handleSelectTab = useCallback((tabId: string) => {
+    setActiveTab(scopeKey, tabId);
+  }, [scopeKey, setActiveTab]);
 
-  const handleRenameSubmit = useCallback(() => {
-    if (renamingTabId && renameValue.trim()) {
-      void renameTab(renamingTabId, renameValue.trim());
-    }
-    setRenamingTabId(null);
-  }, [renamingTabId, renameValue, renameTab]);
+  const handleRenameTab = useCallback((tabId: string, name: string) => {
+    void renameTab(tabId, name);
+  }, [renameTab]);
 
-  const handleCloseTab = useCallback((tabId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCloseTab = useCallback((tabId: string) => {
     void closeTab(scopeKey, tabId);
   }, [scopeKey, closeTab]);
 
-  const scrollTabs = useCallback((dir: number) => {
-    if (tabBarRef.current) {
-      tabBarRef.current.scrollLeft += dir * 80;
-    }
+  const handleTabContextMenu = useCallback((tabId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    contextTabIdRef.current = tabId;
+    setTabContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
   const handleExport = useCallback(() => {
@@ -327,72 +320,50 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
 
   return (
     <div className="notes-pane">
-      {/* Tab bar */}
-      <div className="notes-pane__tab-bar">
-        <button className="notes-pane__scroll-btn" onClick={() => scrollTabs(-1)}>◀</button>
-        <div className="notes-pane__tabs" ref={tabBarRef}>
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={`notes-pane__tab${tab.id === activeTabId ? ' notes-pane__tab--active' : ''}`}
-              onClick={() => handleTabClick(tab)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                contextTabIdRef.current = tab.id;
-                setTabContextMenu({ x: e.clientX, y: e.clientY });
-              }}
-            >
-              {renamingTabId === tab.id ? (
-                <input
-                  className="notes-pane__tab-rename"
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onBlur={handleRenameSubmit}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); if (e.key === 'Escape') setRenamingTabId(null); }}
-                  onFocus={(e) => e.target.select()}
-                  autoFocus
-                  spellCheck={false}
-                />
-              ) : (
-                <span className="notes-pane__tab-name" title={tab.name}>{tab.name}</span>
-              )}
-              <button
-                className="notes-pane__tab-close"
-                onClick={(e) => handleCloseTab(tab.id, e)}
-                title="Close tab"
-              >✕</button>
-            </div>
-          ))}
-        </div>
-        <button className="notes-pane__scroll-btn" onClick={() => scrollTabs(1)}>▶</button>
-        <button className="notes-pane__add-tab" onClick={() => void addTab(scopeKey)} title="New tab">+</button>
-        <div className="notes-pane__actions">
-          <div className="notes-pane__restore-container" ref={restoreRef}>
-            <button className="btn btn--micro" onClick={handleOpenRestore} title="Restore closed tabs">Restore Tab</button>
-            {restoreOpen && closedTabs.length > 0 && (
-              <Dropdown className="notes-pane__restore-menu">
-                <DropdownSection label="CLOSED TABS">
-                  {closedTabs.map((t) => (
-                    <DropdownItem key={t.id} onClick={() => void handleRestoreTab(t.id)}>
-                      {t.name}
-                    </DropdownItem>
-                  ))}
-                </DropdownSection>
-              </Dropdown>
-            )}
-            {restoreOpen && closedTabs.length === 0 && (
-              <Dropdown className="notes-pane__restore-menu">
-                <div className="notes-pane__restore-empty">No closed tabs</div>
+      <TabStrip
+        tabs={tabs}
+        activeId={activeTabId}
+        onSelect={handleSelectTab}
+        onClose={handleCloseTab}
+        closeTitle="Close tab"
+        onRename={handleRenameTab}
+        onTabContextMenu={handleTabContextMenu}
+        trailing={
+          <button className="notes-pane__add-tab" onClick={() => void addTab(scopeKey)} title="New tab">+</button>
+        }
+        actions={
+          <div className="notes-pane__manage-container" ref={manageRef}>
+            <button className="btn btn--micro" onClick={handleOpenManage} title="Manage closed tabs">Manage Tabs</button>
+            {manageOpen && (
+              <Dropdown className="notes-pane__manage-menu">
+                {closedTabs.length > 0 ? (
+                  <DropdownSection label="CLOSED TABS">
+                    {closedTabs.map((t) => (
+                      <DropdownDeletableItem
+                        key={t.id}
+                        confirming={confirmDeleteId === t.id}
+                        onSelect={() => void handleRestoreTab(t.id)}
+                        onConfirmingChange={(confirming) => setConfirmDeleteId(confirming ? t.id : null)}
+                        onDelete={() => void handleDeleteTab(t.id)}
+                      >
+                        {t.name}
+                      </DropdownDeletableItem>
+                    ))}
+                  </DropdownSection>
+                ) : (
+                  <div className="notes-pane__manage-empty">No closed tabs</div>
+                )}
               </Dropdown>
             )}
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tab context menu */}
       {tabContextMenu && (
         <Dropdown
           className="notes-pane__tab-context-menu"
+          anchorToParent={false}
           style={{ position: 'fixed', top: tabContextMenu.y, left: tabContextMenu.x }}
           onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
         >

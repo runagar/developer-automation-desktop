@@ -1,0 +1,151 @@
+/* =========================================================
+   TAB STRIP — closable, scrolling tabs inside a panel
+   Drawn like the tool tab bar: the active tab is outlined and
+   open at the bottom, sitting on a line that runs under the bar.
+   ========================================================= */
+
+.tab-strip {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 4px;
+  gap: 2px;
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-bright);
+  flex-shrink: 0;
+}
+
+/* Sized to its tabs until they no longer fit, then shrinks and clips them —
+   which keeps the controls after it beside the last tab, or pinned once full.
+   Never scrolled: tabs before the first visible one are taken out of layout,
+   so the strip always starts on a whole tab. */
+.tab-strip__tabs {
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 4px 0 -1px;
+  overflow: hidden;
+}
+/* While the active tab is capped to the room left on the line; holds the
+   strip at full width so the cap cannot shrink it further. */
+.tab-strip__tabs--full {
+  flex-grow: 1;
+}
+
+/* `max-width: 100%` caps a long name at the visible strip; `flex-shrink: 0`
+   stops tabs squeezing each other instead of clipping. */
+.tab-strip__tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 100%;
+  padding: 0 10px;
+  font-family: var(--font);
+  font-size: 0.6rem;
+  color: var(--c-mid);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom-color: var(--c-bright);
+  cursor: pointer;
+}
+.tab-strip__tab:hover {
+  color: var(--c-bright);
+}
+.tab-strip__tab--scrolled-away {
+  display: none;
+}
+.tab-strip__tab--active {
+  color: var(--c-bright);
+  text-shadow: var(--glow-sm);
+  background: var(--c-bg);
+  border-color: var(--c-bright);
+  border-bottom-color: var(--c-bg);
+}
+
+.tab-strip__label {
+  position: relative;
+  min-width: 0;
+}
+
+.tab-strip__name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-strip__tab--renaming .tab-strip__name {
+  visibility: hidden;
+}
+
+/* Laid over the hidden name, which mirrors the typed text so the tab follows
+   it. */
+.tab-strip__rename {
+  position: absolute;
+  top: -2px;
+  left: -3px;
+  width: calc(100% + 10px);
+  height: calc(100% + 4px);
+  padding: 0 2px;
+  font-family: var(--font);
+  font-size: inherit;
+  color: var(--c-bright);
+  text-shadow: none;
+  background: var(--c-bg);
+  border: 1px solid var(--c-bright);
+  outline: none;
+}
+
+.tab-strip__close {
+  display: none;
+  flex-shrink: 0;
+  margin-left: 6px;
+  line-height: 1;
+  text-shadow: none;
+}
+.tab-strip__tab:hover .tab-strip__close {
+  display: block;
+}
+.tab-strip__tab--renaming:hover .tab-strip__close {
+  display: none;
+}
+
+.tab-strip__control {
+  flex-shrink: 0;
+  padding: 2px 3px;
+  font-size: 0.55rem;
+  color: var(--c-mid);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.tab-strip__control:hover {
+  color: var(--c-bright);
+}
+
+.tab-strip__overflow {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.tab-strip__overflow-menu {
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tab-strip__overflow-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-strip__actions {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
