@@ -47,6 +47,7 @@ export default function MergeDialog({ summary, mode, autoMergeDefault, onClose }
   };
 
   const conflicting = summary.mergeable === 'CONFLICTING';
+  const rebaseConflicting = mode === 'REBASE' && !conflicting && !summary.canBeRebased;
   const autoMergeOn = summary.autoMerge !== null;
 
   /**
@@ -184,6 +185,12 @@ export default function MergeDialog({ summary, mode, autoMergeDefault, onClose }
           </div>
         )}
 
+        {rebaseConflicting && (
+          <div className="panel-error">
+            This branch cannot be rebased onto {summary.baseRefName}: its commits conflict when replayed.
+          </div>
+        )}
+
         <div className="pr-merge-dialog__buttons">
           <button className="btn btn--micro pr-merge-dialog__cancel" onClick={onClose}>CANCEL</button>
           {mode === 'AUTO' ? (
@@ -197,7 +204,7 @@ export default function MergeDialog({ summary, mode, autoMergeDefault, onClose }
           ) : (
             <button
               className="btn btn--micro btn--danger"
-              disabled={busy || conflicting || !allowed[mode]}
+              disabled={busy || conflicting || rebaseConflicting || !allowed[mode]}
               onClick={() => doMerge(mode)}
             >
               CONFIRM

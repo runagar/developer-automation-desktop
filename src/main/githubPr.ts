@@ -158,6 +158,7 @@ async function fetchSummary(ref: PrRef): Promise<PrSummary> {
       squash: repo?.squashMergeAllowed === true,
       rebase: repo?.rebaseMergeAllowed === true,
     },
+    canBeRebased: pr.canBeRebased === true,
     labels: (pr.labels?.nodes ?? []).map((l: any) => ({ name: l?.name ?? '', color: l?.color ?? '' })),
     assignees: (pr.assignees?.nodes ?? []).map((a: any) => a?.login).filter(Boolean),
     milestone: pr.milestone?.title ?? null,

@@ -135,6 +135,7 @@ query PrSummary($owner: String!, $repo: String!, $number: Int!) {
       merged
       mergeable
       mergeStateStatus
+      canBeRebased
       reviewDecision
       changedFiles
       createdAt

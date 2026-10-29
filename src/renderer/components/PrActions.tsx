@@ -95,12 +95,24 @@ export default function PrActions({ summary }: Props): React.ReactElement {
 
   const merged = summary.merged || summary.state === 'CLOSED';
   const canMerge = MERGEABLE_STATES.has(summary.mergeState);
+  // A clean merge says nothing about replaying each commit onto the base.
+  const rebaseBlocked = canMerge && !summary.canBeRebased;
   const blockers = mergeBlockers(summary);
-  const mergeTitle = merged
-    ? 'This pull request is already closed'
-    : canMerge
-      ? 'Merge this pull request'
-      : `Cannot merge:\n${blockers.map((r) => `• ${r}`).join('\n')}`;
+
+  const mergeTitle = (() => {
+    if (merged) return 'This pull request is already closed';
+    if (!canMerge) return `Cannot merge:\n${blockers.map((r) => `• ${r}`).join('\n')}`;
+    if (mergeAction === 'REBASE' && rebaseBlocked) {
+      return `Cannot rebase and merge:\n• Commits conflict with ${summary.baseRefName} when rebased`;
+    }
+    return 'Merge this pull request';
+  })();
+
+  const methodHint = (method: PrMergeMethod): string | undefined => {
+    if (!allowed[method]) return '(disabled)';
+    if (method === 'REBASE' && rebaseBlocked) return '(conflicts)';
+    return undefined;
+  };
 
   const mergeOptions: SplitButtonOption[] = [
     ...(['MERGE', 'SQUASH', 'REBASE'] as PrMergeMethod[]).map((method) => ({
@@ -108,9 +120,10 @@ export default function PrActions({ summary }: Props): React.ReactElement {
       label: MERGE_METHOD_LABEL[method],
       // Repositories can switch individual strategies off; a disallowed one
       // fails server-side, so it is disabled rather than silently offered.
-      // A blocked merge state disables every strategy for the same reason.
-      disabled: merged || !canMerge || !allowed[method],
-      hint: allowed[method] ? undefined : '(disabled)',
+      // A blocked merge state, or a branch GitHub cannot rebase, disables
+      // the affected strategies for the same reason.
+      disabled: merged || !canMerge || !allowed[method] || (method === 'REBASE' && rebaseBlocked),
+      hint: methodHint(method),
       onSelect: () => setMergeMode(method),
     })),
     {

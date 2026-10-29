@@ -639,6 +639,14 @@ export interface PrSummary {
   mergeBody: string;
   autoMerge: PrAutoMerge | null;
   allowedMergeMethods: PrAllowedMergeMethods;
+  /**
+   * Whether GitHub can replay this pull request's commits onto the base.
+   *
+   * Independent of `mergeable`: a branch can merge cleanly yet conflict when
+   * its commits are rebased one by one, and `allowedMergeMethods.rebase` only
+   * says the repository permits the strategy at all.
+   */
+  canBeRebased: boolean;
   labels: PrLabel[];
   assignees: string[];
   milestone: string | null;
