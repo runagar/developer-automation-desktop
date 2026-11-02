@@ -34,6 +34,10 @@ ul, li {
 
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
+  background: var(--c-panel);
+}
+::-webkit-scrollbar-corner {
   background: var(--c-panel);
 }
 ::-webkit-scrollbar-thumb {
