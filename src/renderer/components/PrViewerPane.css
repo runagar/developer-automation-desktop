@@ -782,6 +782,12 @@
   overflow-wrap: anywhere;
 }
 
+.pr-diff__title-path--previous {
+  color: var(--c-mid);
+  font-style: italic;
+  text-decoration: line-through;
+}
+
 .pr-diff__title-dir {
   color: var(--c-mid);
 }

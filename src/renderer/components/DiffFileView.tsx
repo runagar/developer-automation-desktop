@@ -150,13 +150,18 @@ export default function DiffFileView({
     <>
       <div className="pr-diff__file-header">
         <div className="pr-diff__file-title">
+          {file.previousPath && file.status !== 'copied' && (
+            <span className="pr-diff__title-path pr-diff__title-path--previous">
+              {file.previousPath}
+            </span>
+          )}
           <span className="pr-diff__title-path">
             <span className="pr-diff__title-dir">{file.path.slice(0, nameStart)}</span>
             <span className="pr-diff__title-name">{file.path.slice(nameStart)}</span>
           </span>
-          {file.previousPath && (
+          {file.previousPath && file.status === 'copied' && (
             <span className="pr-diff__origin">
-              {file.status === 'copied' ? 'COPIED FROM' : 'RENAMED FROM'} {file.previousPath}
+              COPIED FROM {file.previousPath}
             </span>
           )}
         </div>
