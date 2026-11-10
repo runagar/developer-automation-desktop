@@ -7,6 +7,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirro
 import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { useNotesStore } from '../stores/notesStore';
+import { notesWrapping } from '../utils/notesWrapping';
 import { Dropdown, DropdownDeletableItem, DropdownItem, DropdownSection } from './dropdown';
 import TabStrip from './TabStrip';
 import './NotesPane.css';
@@ -212,6 +213,8 @@ export default function NotesPane({ scopeKey, isGlobal }: Props): React.ReactEle
               indentWithTab,
             ]),
             history(),
+            EditorView.lineWrapping,
+            notesWrapping,
             markdown({ codeLanguages: languages }),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             EditorView.updateListener.of((update) => {

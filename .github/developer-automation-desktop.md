@@ -606,6 +606,7 @@ The Notes panel is a tabbed inline markdown editor using CodeMirror 6. It can be
 
 **Editor:**
 - CodeMirror 6 with `@codemirror/lang-markdown` and `@codemirror/language-data` (fenced code block highlighting).
+- Text soft-wraps to the panel width. `utils/notesWrapping.ts` aligns continuation lines with the line's leading spaces or tabs using visible-line decorations; saved content is unchanged.
 - Inline markdown syntax highlighting reads theme colours from CSS custom properties (`--c-bright`, `--c-inline-code`, `--c-blockquote`, `--c-md-marker`) at editor creation time.
 - Autosave: content is written to disk after 500ms of inactivity (debounced).
 - Export (save-as dialog) and copy-file-path actions available via tab context menu.
