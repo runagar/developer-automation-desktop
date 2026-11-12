@@ -221,7 +221,7 @@ export default function DiffFileView({
     const anchor = anchorForLine(line);
     if (!anchor) return [];
     return threads.filter(
-      (t) => t.line === anchor.line && t.side === anchor.side && lineMatchesAnchor(line, anchor)
+      (t) => t.subjectType !== 'FILE' && t.line === anchor.line && t.side === anchor.side && lineMatchesAnchor(line, anchor)
     );
   };
 
