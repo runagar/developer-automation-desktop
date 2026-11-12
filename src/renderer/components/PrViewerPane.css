@@ -445,9 +445,14 @@
 .pr-commits__headline {
   font-size: 0.72rem;
   color: var(--c-bright);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.pr-commits__body {
+  color: var(--c-mid);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .pr-commits__byline {

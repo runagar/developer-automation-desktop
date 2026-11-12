@@ -128,7 +128,7 @@ describe('nextSelectedPath', () => {
 describe('diffRefOptions', () => {
   it('puts the full PR diff first', () => {
     const options = diffRefOptions(detail({
-      commits: [{ oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'one', committedDate: '', author: null }],
+      commits: [{ oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'one', messageBody: '', committedDate: '', author: null }],
     }));
     expect(options[0].key).toBe('pr');
     expect(options[0].label).toContain('1 commit');
@@ -137,8 +137,8 @@ describe('diffRefOptions', () => {
   it('orders force-pushes before commits, both newest-first', () => {
     const options = diffRefOptions(detail({
       commits: [
-        { oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'first', committedDate: '', author: null },
-        { oid: 'c2', abbreviatedOid: 'c2', messageHeadline: 'second', committedDate: '', author: null },
+        { oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'first', messageBody: '', committedDate: '', author: null },
+        { oid: 'c2', abbreviatedOid: 'c2', messageHeadline: 'second', messageBody: '', committedDate: '', author: null },
       ],
       forcePushes: [
         { id: 'f1', createdAt: '', actor: null, beforeOid: 'b1', beforeAbbrev: 'b1', afterOid: 'a1', afterAbbrev: 'a1' },
@@ -165,10 +165,10 @@ describe('diffRefOptions', () => {
     // repository still serves. Without an entry the Overview's hash would
     // open that diff while the dropdown still read "Full diff".
     const options = diffRefOptions(detail({
-      commits: [{ oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'kept', committedDate: '', author: null }],
+      commits: [{ oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'kept', messageBody: '', committedDate: '', author: null }],
       timeline: [{
         kind: 'dismissal', id: 'd1', at: '', actor: 'RULU_NYK', reviewer: 'Y68D_NYK', message: null,
-        commit: { oid: 'old1', abbreviatedOid: 'old1', messageHeadline: 'rebased away', committedDate: '', author: null },
+        commit: { oid: 'old1', abbreviatedOid: 'old1', messageHeadline: 'rebased away', messageBody: '', committedDate: '', author: null },
       }],
     }));
     expect(options.map((o) => o.key)).toEqual(['pr', 'c-c1', 'c-old1']);
@@ -176,7 +176,7 @@ describe('diffRefOptions', () => {
   });
 
   it('does not duplicate a dismissal commit that is already listed', () => {
-    const commit = { oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'one', committedDate: '', author: null };
+    const commit = { oid: 'c1', abbreviatedOid: 'c1', messageHeadline: 'one', messageBody: '', committedDate: '', author: null };
     const options = diffRefOptions(detail({
       commits: [commit],
       timeline: [{

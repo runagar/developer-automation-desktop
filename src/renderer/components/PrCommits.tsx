@@ -34,8 +34,8 @@ function CommitRow({ commit }: { commit: PrCommit }): React.ReactElement {
         {commit.abbreviatedOid}
       </button>
       <div className="pr-commits__text">
-        {/* Headline only — the full body belongs in the diff view, not here. */}
         <div className="pr-commits__headline">{commit.messageHeadline}</div>
+        {commit.messageBody && <div className="pr-commits__body">{commit.messageBody}</div>}
         <div className="pr-commits__byline">
           {commit.author ?? 'unknown'} · {relativeTime(commit.committedDate)}
         </div>
@@ -52,7 +52,7 @@ export default function PrCommits({ commits }: Props): React.ReactElement {
 
   return (
     <div className="pr-commits">
-      {commits.map((commit) => <CommitRow key={commit.oid} commit={commit} />)}
+      {[...commits].reverse().map((commit) => <CommitRow key={commit.oid} commit={commit} />)}
     </div>
   );
 }

@@ -660,6 +660,7 @@ export interface PrCommit {
   oid: string;
   abbreviatedOid: string;
   messageHeadline: string;
+  messageBody: string;
   committedDate: string;
   author: string | null;
 }

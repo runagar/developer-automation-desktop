@@ -115,6 +115,7 @@ export function toMinimizedState(value: unknown): PrMinimizedState {
 export function commitFromNode(value: unknown): PrCommit | null {
   const c = value as {
     oid?: string; abbreviatedOid?: string; messageHeadline?: string;
+    messageBody?: string;
     committedDate?: string; author?: { name?: string; user?: { login?: string } };
   } | null | undefined;
   if (!c?.oid) return null;
@@ -122,6 +123,7 @@ export function commitFromNode(value: unknown): PrCommit | null {
     oid: c.oid,
     abbreviatedOid: c.abbreviatedOid ?? c.oid.slice(0, 7),
     messageHeadline: c.messageHeadline ?? '',
+    messageBody: c.messageBody ?? '',
     committedDate: c.committedDate ?? '',
     author: c.author?.user?.login ?? c.author?.name ?? null,
   };

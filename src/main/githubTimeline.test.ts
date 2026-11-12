@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TIMELINE_ITEM_TYPES, TIMELINE_TYPENAMES, mergePages, normalizeTimeline } from './githubTimeline';
+import { commitFromNode, TIMELINE_ITEM_TYPES, TIMELINE_TYPENAMES, mergePages, normalizeTimeline } from './githubTimeline';
 import { PrTimelineRow } from './types';
 
 function commitNode(oid: string, at = '2026-09-01T10:00:00Z') {
@@ -10,6 +10,7 @@ function commitNode(oid: string, at = '2026-09-01T10:00:00Z') {
       oid,
       abbreviatedOid: oid.slice(0, 7),
       messageHeadline: `work on ${oid}`,
+      messageBody: '',
       committedDate: at,
       author: { name: 'Ada', user: { login: 'ada' } },
     },
@@ -88,6 +89,17 @@ describe('TIMELINE_ITEM_TYPES', () => {
     expect(TIMELINE_ITEM_TYPES).toContain('UNASSIGNED_EVENT');
     expect(TIMELINE_ITEM_TYPES).toContain('UNLABELED_EVENT');
     expect(TIMELINE_ITEM_TYPES).toContain('DEMILESTONED_EVENT');
+  });
+});
+
+describe('commitFromNode', () => {
+  it('preserves the commit body and defaults it when absent', () => {
+    expect(commitFromNode({
+      oid: 'abcdef1234567890',
+      messageHeadline: 'Add feature',
+      messageBody: 'Describe the feature',
+    })?.messageBody).toBe('Describe the feature');
+    expect(commitFromNode({ oid: 'abcdef1234567890' })?.messageBody).toBe('');
   });
 });
 
@@ -323,6 +335,7 @@ describe('dismissed reviews', () => {
     oid: '497cd233c0d7e82b3806c97ec17d67dc5627ed07',
     abbreviatedOid: '497cd23',
     messageHeadline: 'NRPMG-307: Read activated securities',
+    messageBody: '',
     committedDate: '2026-09-10T10:00:00Z',
     author: { name: 'Rune', user: { login: 'RULU_NYK' } },
   };

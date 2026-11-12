@@ -244,6 +244,7 @@ query PrCommits($owner: String!, $repo: String!, $number: Int!, $cursor: String)
             oid
             abbreviatedOid
             messageHeadline
+            messageBody
             committedDate
             author { name user { login } }
           }
