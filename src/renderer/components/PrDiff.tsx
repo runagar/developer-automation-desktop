@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PrCommentAnchor, PrDetail, PrLineCommentAnchor } from '../../main/types';
 import {
   DiffViewMode, commentCountsByFile, commitCommentPosition, countCommentsByFile, diffRefKey, diffRefOptions,
@@ -23,6 +23,8 @@ interface Props {
  * end commit need not belong to the pull request any more.
  */
 export default function PrDiff({ detail }: Props): React.ReactElement {
+  const [searchRequest, setSearchRequest] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
   const diffRef = useGitHubStore((s) => s.diffRef);
   const diff = useGitHubStore((s) => s.diff);
   const loading = useGitHubStore((s) => s.diffLoading);
@@ -61,7 +63,23 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
   );
 
   const file = diff?.files.find((f) => f.path === selectedPath) ?? null;
+  const fileAvailableRef = useRef(false);
+  fileAvailableRef.current = file !== null;
   const tree = useMemo(() => buildFileTree(diff?.files ?? []), [diff]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!event.ctrlKey || event.altKey || event.key.toLowerCase() !== 'f') return;
+      const root = rootRef.current;
+      const panel = root?.closest('[data-panel-id]') ?? root;
+      if (!root || root.offsetParent === null || !fileAvailableRef.current || !panel?.contains(document.activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSearchRequest((request) => request + 1);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const setViewed = (path: string, viewed: boolean): void => {
     void toggleViewed(path, viewed);
@@ -118,7 +136,7 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
   };
 
   return (
-    <div className="pr-diff">
+    <div ref={rootRef} className="pr-diff">
       <div className="pr-diff__toolbar">
         <DiffRefPicker
           options={options}
@@ -184,6 +202,7 @@ export default function PrDiff({ detail }: Props): React.ReactElement {
               onComment={postComment}
               viewed={isFileViewed(file, diffRef, localViewed)}
               onToggleViewed={(viewed) => setViewed(file.path, viewed)}
+              searchRequest={searchRequest}
             />
           ) : (
             <div className="pr-diff__placeholder">{loading ? 'LOADING…' : 'Select a file'}</div>

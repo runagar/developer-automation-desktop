@@ -371,6 +371,7 @@
 .pr-merge-dialog__input,
 .pr-merge-dialog__textarea,
 .pr-reviewers__input,
+.pr-diff__search-input,
 .pr-viewer__title-input {
   width: 100%;
   padding: 4px 6px;
@@ -386,6 +387,7 @@
 .pr-merge-dialog__input:focus,
 .pr-merge-dialog__textarea:focus,
 .pr-reviewers__input:focus,
+.pr-diff__search-input:focus,
 .pr-viewer__title-input:focus {
   outline: none;
   border-color: var(--c-bright);
@@ -772,6 +774,36 @@
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.pr-diff__search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pr-diff__search-input {
+  width: 140px;
+  min-width: 40px;
+}
+
+.pr-diff__search-count {
+  font-size: 0.68rem;
+  color: var(--c-mid);
+  white-space: nowrap;
+}
+
+.pr-diff__match {
+  color: var(--c-bg);
+  background: var(--c-mid);
+}
+
+.pr-diff__match--active {
+  background: var(--c-bright);
+  outline: 1px solid var(--c-bright);
 }
 
 .pr-diff__file-title {

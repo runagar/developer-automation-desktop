@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeClosed, MessageSquareText, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeClosed, MessageSquareText, Plus, X } from 'lucide-react';
 import { PrCommentAnchor, PrDiffFile, PrLineCommentAnchor, PrReviewThread } from '../../main/types';
 import {
   DiffLine, DiffHunk, DiffSide, MissingPatchReason, anchorForLine, anchorForRange, lineMatchesAnchor,
@@ -9,6 +9,7 @@ import { DiffLineSelection, DiffViewMode, useGitHubStore } from '../stores/githu
 import { useDiffSyntax } from '../hooks/useDiffSyntax';
 import { cn } from '../utils/cn';
 import { DiffSyntax } from '../utils/diffSyntax';
+import { DiffSearch, findDiffMatches, splitSearchTokens } from '../utils/diffSearch';
 import CommentThread from './CommentThread';
 import CommentComposer from './CommentComposer';
 
@@ -32,6 +33,7 @@ interface Props {
   onComment: (anchor: PrCommentAnchor, body: string) => Promise<boolean>;
   viewed: boolean;
   onToggleViewed: (viewed: boolean) => void;
+  searchRequest: number;
 }
 
 /** An in-progress drag from the `+` affordance, in one hunk. */
@@ -53,14 +55,25 @@ function lineClass(kind: DiffLine['kind']): string {
   return `pr-diff__line pr-diff__line--${kind}`;
 }
 
-function renderSyntax(syntax: DiffSyntax | null): Map<DiffLine, React.ReactNode> | null {
-  if (!syntax) return null;
+function renderSyntax(
+  hunks: DiffHunk[], syntax: DiffSyntax | null, search: DiffSearch, activeMatch: number
+): Map<DiffLine, React.ReactNode> {
   const nodes = new Map<DiffLine, React.ReactNode>();
-  syntax.forEach((tokens, line) => {
-    nodes.set(line, tokens.map((token, i) => (token.kind
-      ? <span key={i} className={cn('pr-diff__tok', `pr-diff__tok--${token.kind}`)}>{token.text}</span>
-      : token.text)));
-  });
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      const tokens = syntax?.get(line) ?? [{ text: line.content, kind: null }];
+      nodes.set(line, splitSearchTokens(tokens, search.byLine.get(line) ?? []).map((token, i) => (
+        <span key={i} className={token.kind ? `pr-diff__tok pr-diff__tok--${token.kind}` : undefined}>
+          {token.matchIndex === null ? token.text : (
+            <mark
+              className={cn('pr-diff__match', token.matchIndex === activeMatch && 'pr-diff__match--active')}
+              data-search-match={token.matchIndex}
+            >{token.text}</mark>
+          )}
+        </span>
+      )));
+    }
+  }
   return nodes;
 }
 
@@ -76,11 +89,46 @@ const MISSING_PATCH_LABELS: Record<MissingPatchReason, string> = {
 };
 
 export default function DiffFileView({
-  file, mode, threads, commentMode, pendingReviewId, onComment, viewed, onToggleViewed,
+  file, mode, threads, commentMode, pendingReviewId, onComment, viewed, onToggleViewed, searchRequest,
 }: Props): React.ReactElement {
   const parsed = useMemo(() => parsePatch(file.patch), [file.patch]);
   const syntax = useDiffSyntax(file.path, parsed.hunks);
-  const highlightedContent = useMemo(() => renderSyntax(syntax), [syntax]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeMatch, setActiveMatch] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLDivElement>(null);
+  const search = useMemo(() => findDiffMatches(parsed.hunks, searchOpen ? query : ''), [parsed, searchOpen, query]);
+  const currentMatch = search.count ? activeMatch % search.count : 0;
+  const highlightedContent = useMemo(
+    () => renderSyntax(parsed.hunks, syntax, search, currentMatch),
+    [parsed, syntax, search, currentMatch]
+  );
+
+  useEffect(() => {
+    if (!searchRequest) return;
+    setSearchOpen(true);
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }, [searchRequest]);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  useEffect(() => {
+    fileRef.current?.querySelector<HTMLElement>(`[data-search-match="${currentMatch}"]`)
+      ?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }, [search, currentMatch, mode]);
+
+  const closeSearch = (): void => {
+    setSearchOpen(false);
+    fileRef.current?.focus({ preventScroll: true });
+  };
+
+  const moveMatch = (direction: number): void => {
+    if (search.count) setActiveMatch((currentMatch + direction + search.count) % search.count);
+  };
 
   const lineContent = (line: DiffLine | null): React.ReactNode => {
     if (!line?.content) return '\u00a0';
@@ -166,6 +214,47 @@ export default function DiffFileView({
           )}
         </div>
         <div className="pr-diff__file-actions">
+          {searchOpen && (
+            <div
+              className="pr-diff__search"
+              role="search"
+              aria-label="Search file diff"
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return;
+                e.preventDefault();
+                e.stopPropagation();
+                closeSearch();
+              }}
+            >
+              <input
+                ref={searchInputRef}
+                className="pr-diff__search-input"
+                aria-label="Find in file diff"
+                placeholder="Find in file..."
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setActiveMatch(0); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    moveMatch(e.shiftKey ? -1 : 1);
+                  }
+                }}
+              />
+              <span className="pr-diff__search-count" role="status">
+                {search.count ? `${currentMatch + 1}/${search.count}` : '0/0'}
+              </span>
+              <button className="btn btn--micro" title="Previous match (Shift+Enter)" disabled={!search.count} onClick={() => moveMatch(-1)}>
+                <ChevronUp size={14} />
+              </button>
+              <button className="btn btn--micro" title="Next match (Enter)" disabled={!search.count} onClick={() => moveMatch(1)}>
+                <ChevronDown size={14} />
+              </button>
+              <button className="btn btn--micro" title="Close search (Escape)" onClick={closeSearch}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
           {commentMode && !fileComposerOpen && (
             <button
               className="btn btn--micro pr-diff__file-action"
@@ -210,10 +299,10 @@ export default function DiffFileView({
     // Pure renames, binary files and files past GitHub's size ceiling arrive
     // with no patch. They are still listed, so the file is not silently missing.
     return (
-      <>
+      <div ref={fileRef} tabIndex={0} className="pr-diff__file">
         {fileHeader}
         <div className="pr-diff__placeholder">{MISSING_PATCH_LABELS[missingPatchReason(file)]}</div>
-      </>
+      </div>
     );
   }
 
@@ -343,6 +432,8 @@ export default function DiffFileView({
 
   return (
     <div
+      ref={fileRef}
+      tabIndex={0}
       className={cn(
         'pr-diff__file',
         mode === 'split' && 'pr-diff__file--split',
