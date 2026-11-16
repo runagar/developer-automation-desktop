@@ -1,7 +1,7 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import {
-  tmuxSessionName, hasTmuxSession, createTmuxSession,
+  tmuxSessionName, hasTmuxSession,
   requireTmux,
 } from './tmux';
 
@@ -19,6 +19,7 @@ export class PtySession extends EventEmitter {
   readonly tmuxName: string;
   private ptyProcess: pty.IPty | null = null;
   private intentionalDetach = false;
+  private pendingSize: { cols: number; rows: number } | null = null;
 
   constructor(id: string) {
     super();
@@ -26,24 +27,14 @@ export class PtySession extends EventEmitter {
     this.tmuxName = tmuxSessionName(id);
   }
 
-  /**
-   * Spawn or reattach to a tmux session.
-   * @param workingDir  working directory for copilot (only used when creating)
-   * @param sessionId   the UUID for copilot --session-id
-   * @param tmuxExists  if true, skip tmux creation (session already running)
-   */
-  async spawn(workingDir: string, sessionId: string, tmuxExists = false, cols = 120, rows = 36): Promise<void> {
+  async spawn(workingDir: string, cols = 120, rows = 36): Promise<void> {
     await requireTmux();
-
-    if (!tmuxExists) {
-      await createTmuxSession(sessionId, workingDir);
-    }
 
     this.intentionalDetach = false;
     this.ptyProcess = pty.spawn('tmux', ['attach-session', '-t', this.tmuxName], {
       name: 'xterm-256color',
-      cols,
-      rows,
+      cols: this.pendingSize?.cols ?? cols,
+      rows: this.pendingSize?.rows ?? rows,
       cwd: workingDir,
       env: process.env as Record<string, string>,
     });
@@ -73,7 +64,8 @@ export class PtySession extends EventEmitter {
   }
 
   resize(cols: number, rows: number): void {
-    this.ptyProcess?.resize(cols, rows);
+    if (this.ptyProcess) this.ptyProcess.resize(cols, rows);
+    else this.pendingSize = { cols, rows };
   }
 
   /**

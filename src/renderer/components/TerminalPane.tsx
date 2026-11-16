@@ -6,7 +6,8 @@ import React, {
   useRef,
 } from 'react';
 import { Terminal } from '@xterm/xterm';
-import { Session } from '../../main/types';
+import { LoaderCircle } from 'lucide-react';
+import { Session, SessionStartupPhase } from '../../main/types';
 import { useXterm } from '../hooks/useXterm';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalPane.css';
@@ -20,10 +21,45 @@ export interface TerminalPaneHandle {
 interface Props {
   session: Session;
   isActive: boolean;
+  attaching: boolean;
+  startupPhase: SessionStartupPhase | null;
   panelInstanceId?: string;
   onResume?: () => void;
   openDropdownWithKeyboardRef: React.MutableRefObject<() => void>;
 }
+
+interface StartupNotice {
+  title: string;
+  detail: string;
+}
+
+const STARTUP_NOTICES: Record<SessionStartupPhase, StartupNotice> = {
+  server: {
+    title: 'STARTING OPENCODE SERVER',
+    detail: 'Waiting for opencode serve to boot in your login shell and pass its health check',
+  },
+  'migrate-history': {
+    title: 'MIGRATING OPENCODE HISTORY',
+    detail: 'Converting your OpenCode 1 conversations. This happens once, on the first start after upgrading',
+  },
+  'create-conversation': {
+    title: 'CREATING CONVERSATION',
+    detail: 'Asking the OpenCode server to open a new conversation for this session',
+  },
+  'load-conversation': {
+    title: 'LOADING CONVERSATION',
+    detail: 'Checking that the OpenCode server still has this session\'s conversation',
+  },
+  tui: {
+    title: 'STARTING OPENCODE TUI',
+    detail: 'Waiting for the OpenCode TUI to boot in your login shell',
+  },
+};
+
+const ATTACH_NOTICE: StartupNotice = {
+  title: 'ATTACHING TERMINAL',
+  detail: 'Connecting to the session\'s tmux runtime',
+};
 
 type ShiftSelection = {
   anchor: { col: number; row: number };
@@ -31,20 +67,22 @@ type ShiftSelection = {
 };
 
 const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane(
-  { session, isActive, panelInstanceId, onResume, openDropdownWithKeyboardRef },
+  { session, isActive, attaching, startupPhase, panelInstanceId, onResume, openDropdownWithKeyboardRef },
   ref
 ): React.ReactElement {
   const shiftSelectionRef = useRef<ShiftSelection | null>(null);
   const termForKeysRef = useRef<Terminal | null>(null);
   const onResumeRef = useRef(onResume);
   onResumeRef.current = onResume;
+  const canResumeRef = useRef(false);
+  canResumeRef.current = session.agent === 'copilot';
 
   const extraKeyHandler = useCallback((e: KeyboardEvent) => {
     const term = termForKeysRef.current;
     if (!term || e.type !== 'keydown') return true;
 
     // Alt+R — resume suspended session
-    if (e.key === 'r' && e.altKey && !e.ctrlKey && !e.shiftKey) {
+    if (canResumeRef.current && e.key === 'r' && e.altKey && !e.ctrlKey && !e.shiftKey) {
       onResumeRef.current?.();
       return false;
     }
@@ -185,6 +223,8 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
     }));
   }, [activate, fitAndMeasure, isActive, panelInstanceId, session.id]);
 
+  const notice = startupPhase ? STARTUP_NOTICES[startupPhase] : ATTACH_NOTICE;
+
   return (
     <div className="terminal-pane" style={isActive ? undefined : { display: 'none' }}>
       {session.dead && (
@@ -193,6 +233,13 @@ const TerminalPane = forwardRef<TerminalPaneHandle, Props>(function TerminalPane
         </div>
       )}
       <div className="terminal-pane__terminal" ref={containerRef} />
+      {attaching && (
+        <div className="terminal-pane__startup" role="status" aria-live="polite">
+          <LoaderCircle className="terminal-pane__startup-spinner" size={28} aria-hidden="true" />
+          <div className="terminal-pane__startup-title">{notice.title}</div>
+          <div className="terminal-pane__startup-detail">{notice.detail}</div>
+        </div>
+      )}
     </div>
   );
 });

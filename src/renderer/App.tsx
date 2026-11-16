@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { CreateSessionOptions } from '../main/types';
 import { Globe } from 'lucide-react';
 import { PanelInstance, PanelType, PANEL_LABELS, TOOL_TABS, ToolTabId } from './dashboard/layout';
 import SessionList, { SessionListHandle } from './components/SessionList';
@@ -191,25 +192,30 @@ export default function App(): React.ReactElement {
   }, [activeSessionId]);
 
   const handleCreateSession = useCallback(
-    async (workingDir: string, project?: string) => {
-      const session = await window.dad.createSession({ workingDir, project });
+    async (options: CreateSessionOptions) => {
       const store = useSessionStore.getState();
-      store.addSession(session);
-      store.setActiveSessionId(session.id);
+      try {
+        const session = await window.dad.createSession(options);
+        store.addSession(session);
+        store.setActiveSessionId(session.id);
+      } catch (error) {
+        store.setSessions(await window.dad.getSessions());
+        throw error;
+      }
     },
     []
   );
 
   const handleDestroySession = useCallback(async (id: string) => {
-    useLayoutStore.getState().destroyLinkedPanels(id);
     await window.dad.destroySession(id);
+    useLayoutStore.getState().destroyLinkedPanels(id);
     useSessionStore.getState().removeSession(id);
     useJiraStore.getState().cleanupSession(id);
   }, []);
 
   const handleArchiveSession = useCallback(async (id: string) => {
-    useLayoutStore.getState().destroyLinkedPanels(id);
     await window.dad.archiveSession(id);
+    useLayoutStore.getState().destroyLinkedPanels(id);
   }, []);
 
   const handleUnarchiveSession = useCallback(async (id: string) => {
@@ -228,10 +234,10 @@ export default function App(): React.ReactElement {
 
   const handleReviveSession = useCallback(async (id: string) => {
     const store = useSessionStore.getState();
+    await window.dad.reviveSession(id);
     store.bumpAttachGen(id);
     store.updateSession(id, { dead: false, state: 'idle' });
     store.setActiveSessionId(id);
-    await window.dad.reviveSession(id);
   }, []);
 
   const handleRenameSession = useCallback(async (id: string, name: string) => {

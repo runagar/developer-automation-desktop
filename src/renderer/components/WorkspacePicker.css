@@ -8,6 +8,7 @@
 .workspace-picker__trigger {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 8px;
   width: 100%;
   padding: 3px 6px;
@@ -33,7 +34,6 @@
 }
 
 .workspace-picker__repo {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,20 +1,36 @@
-import { SessionState } from './types';
-import { tmuxSessionName, listSmithSessions, capturePane, ANSI_RE } from './tmux';
+import { Session, SessionState } from './types';
+import {
+  tmuxSessionName, listSmithSessions, capturePane, ANSI_RE,
+  getOpenCodeConnection, isAgentTmuxAlive,
+} from './tmux';
+import { getOpenCodeState } from './opencode';
+
+export type PollableSession = Pick<Session, 'id' | 'state' | 'agent' | 'agentSessionId' | 'workingDir'>;
+
+export async function readSessionState(session: PollableSession): Promise<SessionState | null> {
+  const name = tmuxSessionName(session.id);
+  if (session.agent === 'opencode') {
+    if (!session.agentSessionId) throw new Error('OpenCode conversation has not been recorded');
+    return getOpenCodeState(await getOpenCodeConnection(name, session.workingDir), session.agentSessionId);
+  }
+  const content = await capturePane(name);
+  return content ? detectStateFromPane(content) : null;
+}
 
 export class StatePoller {
   private interval: ReturnType<typeof setInterval> | null = null;
   private polling = false;
   private readonly pollMs: number;
-  private getSessionIds: () => { id: string; state: SessionState }[];
+  private getSessionIds: () => PollableSession[];
   private onStateChange: (id: string, state: SessionState) => void;
-  private onDied: (id: string) => void;
+  private onDied: (id: string) => void | Promise<void>;
   private onReap: (liveNames?: Set<string>) => Promise<void>;
 
   constructor(opts: {
     pollMs: number;
-    getSessionIds: () => { id: string; state: SessionState }[];
+    getSessionIds: () => PollableSession[];
     onStateChange: (id: string, state: SessionState) => void;
-    onDied: (id: string) => void;
+    onDied: (id: string) => void | Promise<void>;
     onReap: (liveNames?: Set<string>) => Promise<void>;
   }) {
     this.pollMs = opts.pollMs;
@@ -49,30 +65,21 @@ export class StatePoller {
         const liveTmux = await listSmithSessions();
         liveNames = new Set(liveTmux.map((s) => s.name));
 
-        const alive: { id: string; state: SessionState; tmuxName: string }[] = [];
-        for (const sess of sessions) {
-          const tmuxName = tmuxSessionName(sess.id);
-          if (!liveNames.has(tmuxName)) {
-            this.onDied(sess.id);
-          } else {
-            alive.push({ ...sess, tmuxName });
+        const names = liveNames;
+        await Promise.all(sessions.map(async (session) => {
+          try {
+            const name = tmuxSessionName(session.id);
+            if (!names.has(name) ||
+                (session.agent === 'opencode' && !await isAgentTmuxAlive(name, session.agent))) {
+              await this.onDied(session.id);
+              return;
+            }
+            const state = await readSessionState(session);
+            if (state && state !== session.state) this.onStateChange(session.id, state);
+          } catch (error) {
+            console.error(`[StatePoller] Could not poll session ${session.id}`, error);
           }
-        }
-
-        const captures = await Promise.all(
-          alive.map(async (sess) => {
-            const content = await capturePane(sess.tmuxName);
-            return { ...sess, content };
-          })
-        );
-
-        for (const { id, state, content } of captures) {
-          if (!content) continue;
-          const newState = detectStateFromPane(content);
-          if (newState && newState !== state) {
-            this.onStateChange(id, newState);
-          }
-        }
+        }));
       }
 
       // Always reap, even with no pollable sessions — otherwise a user whose

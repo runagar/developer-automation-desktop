@@ -1,12 +1,13 @@
 # Developer Automation Desktop (DAD)
 
-An atompunk-themed Electron desktop environment for AI-assisted development. Manage multiple GitHub Copilot sessions, Jira integration, and markdown notes all in a single tiled workspace.
+An atompunk-themed Electron desktop environment for AI-assisted development. Manage multiple OpenCode and GitHub Copilot sessions, Jira integration, and markdown notes all in a single tiled workspace.
 
 ## Prerequisites
 
 - **Linux** (Ubuntu/Debian-based, x86_64)
 - **tmux** — session persistence
-- **GitHub Copilot CLI** — AI coding assistant (requires Node.js)
+- **OpenCode 2** — the default AI coding agent (OpenCode 1 is not supported)
+- **GitHub Copilot CLI** — alternative AI coding assistant (requires Node.js)
 
 ## Install
 
@@ -32,7 +33,12 @@ sudo apt-get install tmux
 nvm install 22 && nvm use 22
 npm install -g @github/copilot
 copilot --version
+curl -fsSL https://opencode.ai/v2/install | bash
+exec $SHELL
+opencode --version   # should print 2.x
 ```
+
+If `opencode --version` prints 1.x, an old OpenCode is still first on your PATH: remove it (`which -a opencode` lists every copy). Then run `opencode` once and type `/connect` to sign in to a model provider.
 
 #### npm error code E401 - Incorrect or missing password.
 If you encounter this error, login or re-login to nexus
@@ -95,7 +101,7 @@ To build and run from source:
 ```bash
 git clone https://github.com/runagar/developer-automation-desktop.git
 cd developer-automation-desktop
-./setup.sh          # installs all prerequisites (tmux, fnm, Node, copilot)
+./setup.sh          # installs all prerequisites (tmux, fnm, Node, copilot, opencode)
 ./launch.sh         # starts the app in dev mode
 ```
 

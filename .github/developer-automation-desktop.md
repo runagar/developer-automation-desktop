@@ -1,6 +1,6 @@
 # Developer Automation Desktop (DAD)
 
-Developer Automation Desktop (DAD) is a multi-tool desktop environment for developers, built with Electron, React, and TypeScript. Its first tool tab is **Agent Smith**, a terminal manager for the [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) that lets you run multiple Copilot CLI sessions side by side, persists them across restarts via tmux, and wraps them in an Atompunk Pip-Boy aesthetic.
+Developer Automation Desktop (DAD) is a multi-tool desktop environment for developers, built with Electron, React, and TypeScript. Its first tool tab is **Agent Smith**, a terminal manager for OpenCode and GitHub Copilot CLI that lets you run multiple coding-agent sessions side by side, persists them across restarts via tmux, and wraps them in an Atompunk Pip-Boy aesthetic.
 
 ---
 
@@ -312,11 +312,14 @@ On startup, a full-viewport splash screen displays a DAD joke:
 **Files:** `SplashScreen.tsx` + `SplashScreen.css`, IPC channels `settings:isFirstLaunch` / `settings:markFirstLaunchComplete`.
 
 ### Multi-session management
-- Run any number of Copilot CLI sessions simultaneously.
+- Run OpenCode and Copilot CLI sessions simultaneously. The shared dropdown left of **+ NEW SESSION**, headed **AGENT HARNESS**, selects the harness for every creation path, including workspace selection and Ctrl+N/Tab/Enter. It defaults to OpenCode each app launch and remembers the selection during that run.
+- Harness identity is immutable per session and shown on active and archived rows. Existing sessions remain Copilot: the migration adds `agent TEXT NOT NULL DEFAULT 'copilot'`, while new inserts explicitly default to OpenCode. OpenCode's actual conversation ID is stored separately in `agent_session_id`; it is never inferred from the most recent conversation in a directory.
+- New OpenCode sessions appear immediately while their runtime boots in the background. Panel attachment waits for the shared bootstrap; failures are logged and mark the row dead for retry.
+- Until its tmux client is attached, a terminal panel covers the xterm with a spinner naming what it is waiting for. The main process reports OpenCode bootstrap progress on `session:startupPhase` (`server` → `migrate-history` (first start after the OpenCode 2 upgrade only) → `create-conversation` / `load-conversation` → `tui`, then `null` when ready or failed), held per session in `sessionStore.startupPhases`; with no phase known the overlay reads `ATTACHING TERMINAL`. It fades in only after 250 ms, so an attach that completes almost at once (Copilot, an already-running runtime) never flashes it.
 - Switch between sessions from the Sessions panel (click, or focus the panel and use **Tab**).
 - **Reorder sessions** by dragging them up/down in the list. A floating ghost follows the cursor; a bright line indicates the drop position. Order persists to the DB (`sort_order` column).
 - Rename any session by right-clicking it → **Session** → **Rename**.
-- Archive a session to move it to a collapsible archived section. The agent stays loaded (**WARM**) for 30 minutes, then unloads (**COLD**) to free ~350 MB; restoring a cold session resumes the full conversation, just a few seconds slower.
+- Archive a session to move it to a collapsible archived section. The agent stays loaded (**WARM**) for 30 minutes, then unloads (**COLD**) to free its memory — about 350 MB for Copilot, and about 500 MB for an OpenCode 2 session (server ≈ 300 MB plus TUI ≈ 200 MB, measured on a long conversation); restoring a cold session resumes the full conversation, just a few seconds slower.
 - Restore an archived session to bring it back to the active list and reattach to the running tmux session.
 - Permanently destroy a session from the archived list with confirmation (kills the tmux session).
 - Revive a dead session without losing its scrollback.
@@ -394,16 +397,34 @@ Two-layer, **focus-gated** model:
 - **Ctrl+N** opens the New Session dropdown.
 
 ### Session persistence (tmux)
-Each copilot session runs inside a **tmux session** that is independent of the Electron process. This means:
-- **App close** — the copilot agent keeps running in tmux. On next launch, Agent Smith reattaches to the existing tmux sessions and replays scrollback from `capture-pane`.
+Each coding-agent session runs inside a **tmux session** that is independent of the Electron process. This means:
+- **App close** — active agents keep running in tmux. On next launch, Agent Smith reattaches with a fresh xterm fitted to the panel; tmux repaints the terminal. DAD does not manually replay scrollback.
 - **Electron crash** — same as app close; tmux sessions are unaffected.
-- **OS restart** — tmux sessions are lost, but Agent Smith creates fresh ones on next launch (copilot `--session-id` resumes the server-side conversation).
+- **OS restart** — tmux sessions are lost, but Agent Smith creates fresh ones on next launch, resuming Copilot with the DAD UUID or OpenCode with its persisted conversation ID.
 
 **tmux is a hard requirement.** If tmux is not installed, session creation fails with a descriptive error. There is no fallback to direct node-pty.
 
 **tmux session naming:**
 - Terminal: `smith-<first 12 chars of UUID>` — deterministic, short, avoids tmux name limits.
 - Shell: `smith-shell-<first 12 chars of UUID>` — separate tmux session per app session for the shell panel.
+
+**OpenCode runtime (`src/main/opencode.ts`, `src/main/tmux.ts`).** DAD supports **OpenCode 2 only** (feature 28). One DAD-owned tmux session contains `dad-opencode-server` (`opencode serve`) and the selected `dad-opencode-agent` window (`opencode --server <url> --session <exact-id> .`). Both use the login-interactive shell and direnv. If `opencode` is absent from the resulting PATH, the launcher appends `~/.opencode/bin` (the OpenCode 2 installer's location) and then `~/.local/bin`, without overriding a configured executable.
+
+**One server per DAD session, deliberately.** OpenCode 2 is designed around one shared background server per user, but a server's agent shell commands inherit the environment the server was started in. Starting each server in its project's login shell with direnv is what gives every conversation its own project's Java and Maven (`use sdk java 8 maven 3` in one repository, Java 21 in another), running concurrently. A shared server runs every project's commands with its own environment. Several per-session servers sharing OpenCode's one database were verified under concurrent load: simultaneous first-time history migration, 54 concurrent commands across 9 conversations, no conversation taken over by another server, and no work re-run after a server crash. The proven fallback, should a shared server ever be wanted, is OpenCode's `shell` setting pointing at a wrapper that runs `eval "$(direnv export zsh 2>/dev/null)"` before `exec zsh "$@"` — about 0.75 s per command in an sdkman project.
+
+The CLI-owned server binds only to `127.0.0.1` on a dynamically allocated port and requires a random per-instance password, set as both `OPENCODE_PASSWORD` (OpenCode 2's name) and `OPENCODE_SERVER_PASSWORD`, so an OpenCode 1 binary started by mistake still runs authenticated until the version check stops it. Endpoint metadata lives in the tmux session environment so a restarted DAD can recover it; credentials never go to the renderer or DAD settings. The API answers inside a `{ data }` envelope; `location` is a deep-object query (`location[directory]=…`).
+
+**Startup.** `waitForOpenCodeServer` reads the version the running server reports (`/api/info`). An OpenCode 1 server serves its web page there, so the version falls back to its `/global/health`; any major version other than 2 fails at once with the install command rather than timing out. `waitForOpenCodeMigration` then waits for OpenCode's one-off conversion of OpenCode 1 history (`/api/experimental/migration/v1`, reported as the `migrate-history` phase) — a conversation the conversion has not reached yet returns 404 and would otherwise mark a healthy session dead. A missing or unrecognised migration status counts as done, so the experimental endpoint can never block startup. Conversation IDs keep their `ses_` values through the conversion. The actual conversation ID is persisted before the TUI starts, and missing history fails explicitly rather than creating a replacement. Provider authentication remains OpenCode's responsibility.
+
+**The TUI's session tabs are off.** OpenCode 2 keeps a session tab strip shared live by every client of a server, which would let a panel drift to another conversation. The `dad-opencode-agent` window is started with `OPENCODE_CLI_CONFIG_CONTENT={"tabs":{"mode":"off"}}`, which turns it off for DAD's clients only, without touching the user's `cli.json`.
+
+**Status reads.** `/api/session/active` lists only running conversations. A conversation waiting for permission is *still* listed there, and since OpenCode 2.3 a parent goes idle while its background subagent works and only the child is listed, so pending permissions and forms (`/api/permission/request`, `/api/form`) are checked first and both lists go through the `parentID` walk. Pending requests exist only in the memory of the server that owns the conversation — each DAD session always asks its own.
+
+**OpenCode 1 runtimes left behind by the upgrade.** Every runtime DAD starts carries `DAD_OPENCODE_RUNTIME=2` in its tmux environment. Detection uses this marker, never the API: an OpenCode 1 server answers `/api/session/active` with a valid-looking empty list, so reading it would report a busy agent as idle and let the reaper demote it. `getOpenCodeConnection` refuses an unmarked runtime outright. `createTmuxSession` rejects one ("still running OpenCode 1. Revive it …") **before** the bootstrap's kill-on-failure path, so startup restore and panel attachment mark the session DEAD without interrupting it. Only explicit user actions — Revive and Unarchive, which pass `replaceLegacy` — kill it and start the same conversation on OpenCode 2. An archived unmarked runtime is killed by `reconcileWarmth` instead of being reported warm, matching the unconditional quit eviction.
+
+**Running `opencode` outside DAD.** In a plain terminal, `opencode`, `opencode api` and `opencode debug …` start OpenCode 2's shared background server (`opencode serve --service`), which DAD never uses. `opencode service stop` stops **every** OpenCode server on the machine, DAD's per-session servers included: their sessions go DEAD and need Revive, with their conversations intact.
+
+Both named windows must be alive. If either dies, DAD cleans the surviving runtime before marking the session dead. Demotion/destruction explicitly terminates the owned process groups, including children surviving an exited pane leader, with bounded escalation before removing tmux. Copilot lock sweeping and terminal-colour negotiation remain Copilot-only.
 
 **tmux session configuration:**
 - `mouse on` (required for Ink-based CLI mouse tracking)
@@ -436,12 +457,12 @@ DAD never shuts copilot down cleanly — tmux outlives the app by design, and a 
 Staleness is derived from `/proc/<pid>`, so the sweep is a no-op off Linux. It is scoped to the one session being launched; locks belonging to other sessions (including copilot CLI instances the user runs outside DAD) are never touched.
 
 **Session lifecycle:**
-1. `createSession()` creates a detached tmux session (`tmux new-session -d`) running copilot. PTY attachment is deferred to the renderer.
-2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session).
-3. PTY output flows through the tmux attach client to xterm.js, routed by `panelInstanceId`.
+1. `createSession()` persists the selected harness and starts its detached tmux runtime. OpenCode creation returns immediately; its bootstrap continues in the shared in-flight promise. PTY attachment is deferred to the renderer and awaits the complete bootstrap.
+2. When a terminal panel instance activates, it calls `ptyAttach(sessionId, panelInstanceId)` which spawns an attach PTY (`tmux attach-session`) via node-pty. Each panel instance gets its own PTY client (enabling dual-attach when Default + linked panels show the same session). An attach whose effect was cleaned up while it was pending must **not** call `ptyDetach` when it resolves: the cleanup already detached, the main process drops superseded attachments itself, and by then the panel may hold a newer attachment that a late detach would kill.
+3. PTY output flows through the tmux attach client to xterm.js, routed by `panelInstanceId` and tagged with the attachment's session id. A terminal panel drops output tagged with any session other than the one it displays: the previous session's client keeps emitting until the renderer's detach reaches the main process, and that in-flight output would otherwise paint into the new session's fresh xterm and stay there until the new session attaches — seconds, for a booting OpenCode runtime.
 4. On archive, all PTY attachments for the session are killed; tmux sessions (terminal + shell) survive. The session is **warm**.
 5. While warm, a background reaper (driven by the state poller tick) demotes archived sessions to **cold** — killing only `smith-<id>` — once they exceed `ARCHIVE_WARM_MINUTES` (30) or fall outside `ARCHIVE_WARM_MAX` (3). Both constants live in `src/main/archivePolicy.ts`. A session whose state is `running` or `awaiting` is never demoted by the reaper.
-6. On app quit, `before-quit` runs cleanup: `evictArchivedSessions()` kills the copilot tmux session of every **archived** session unconditionally (a busy archived session is interrupted rather than leaked past app exit), then `persistAll()` kills all attach PTYs. Active sessions' tmux and all shell tmux sessions (`smith-shell-<id>`) keep running.
+6. On app quit, `before-quit` runs cleanup: `evictArchivedSessions()` kills the agent runtime of every **archived** session unconditionally (a busy archived session is interrupted rather than leaked past app exit), then `persistAll()` kills all attach PTYs. Active sessions' tmux and all shell tmux sessions (`smith-shell-<id>`) keep running.
 7. On next launch, `restoreSessions()` ensures tmux sessions exist for active (non-archived, non-dead) sessions only; PTY attachment is deferred to panel mount.
 8. Shell sessions also run in tmux (`smith-shell-*`), with the same lifecycle as terminal sessions — they are never evicted or demoted.
 
@@ -453,35 +474,37 @@ Staleness is derived from `/proc/<pid>`, so the sweep is a no-op off Linux. It i
 - `handleUnarchiveSession()` in the renderer must **await the unarchive IPC before** flipping `archived` in the store — a cold session has no tmux yet, so un-archiving first lets the panel attach to a session that does not exist.
 - The demotion decision is a pure function, `selectDemotionCandidates()` in `src/main/archivePolicy.ts`, unit tested in `archivePolicy.test.ts`. Keep it free of DB/tmux/Electron dependencies.
 
-Each session UUID is passed to copilot as `--session-id`, allowing Copilot's server-side conversation history to be resumed. Sessions are stored in a SQLite database.
+Copilot receives the session UUID as `--session-id`; OpenCode receives its separately persisted conversation ID. A DAD session remains bound to its original conversation: switching conversations or using `/new` inside OpenCode is outside this integration's scope. Sessions are stored in a local SQLite database.
 
 ### Session archiving
-- The **✕ button** on active sessions archives instead of destroying.
+- The **✕ button** on active sessions archives immediately without confirmation. Confirmation is reserved for destruction of archived sessions.
 - Archived sessions appear in a collapsible **ARCHIVED SESSIONS** section at the bottom of the sidebar.
 - Archived sessions show **WARM** (agent loaded, restores instantly) or **COLD** (agent unloaded, restore takes seconds) instead of a `SessionState`. They are never shown as DEAD — `dead` is meaningless for an archived session.
-- Archived sessions are **not polled** for state. The one exception is the reaper's bounded refresh: a warm session still marked `running`/`awaiting` is re-captured so it can eventually be demoted, capped at the warm limit.
+- Archived sessions are excluded from active polling. The reaper refreshes warm Copilot sessions still marked `running`/`awaiting`, and every warm OpenCode session via its API. OpenCode status is rechecked inside the lifecycle lock immediately before demotion; unavailable or malformed status protects the runtime rather than being treated as idle.
 - Each archived session has a **Restore** (↺) button and a **Destroy** (✕) button.
 - Destroy permanently kills the tmux session and deletes the DB row (with confirmation).
-- An archived session keeps its copilot process alive (~350 MB RSS) while it is **warm**. It is demoted to **cold** (copilot tmux killed, shell tmux kept) after 30 minutes, when it falls outside the 3-session warm cap, or when the app quits. Restoring a cold session re-runs `copilot --session-id <uuid>`, which resumes the conversation from `~/.copilot/session-state/` and repaints it — it just takes a few seconds instead of being instant.
+- An archived session keeps its agent runtime alive while it is **warm**. It is demoted to **cold** (agent tmux killed, shell tmux kept) after 30 minutes, when it falls outside the 3-session warm cap, or when the app quits. Cold restoration launches the same harness with its exact conversation ID and lets the CLI repaint its history.
 - Archived sessions are excluded from **Tab** / **Shift+Tab** cycling.
 - **Archiving never moves the selection unless it has to.** Archiving an inactive session leaves the active session untouched. Archiving the *active* session hands over to the session directly **below** it, falling back to the one above when it was last in the list — resolved by the pure `pickNextActiveSessionId()` helper in `sessionStore.ts` (unit tested in `sessionStore.test.ts`), against the list order captured *before* the `archived` flag flips.
 - Session rows select on `onFocus`, which is the **bubbling** `focusin` event, so the handler is gated on `e.target === e.currentTarget`. Without that gate, clicking the ✕ button (Chromium focuses it even at `tabIndex={-1}`) selects the session immediately before archiving it. Any new focusable control added inside a session row relies on this gate.
 - The collapse state of the archived section is persisted to `localStorage`.
 
 ### Session state detection
-State detection uses **tmux `capture-pane` polling** — a single `setInterval` (every 3 seconds) captures the visible pane content from each session's tmux window and scans for known patterns.
+State detection uses a single non-overlapping `setInterval` (every 3 seconds). `readSessionState()` dispatches Copilot to tmux `capture-pane` pattern detection and OpenCode to its authenticated API. Sessions are polled independently, so an unavailable OpenCode API does not prevent other sessions or archive reaping from progressing.
+
+OpenCode maps an entry in `/api/session/active` to `running`, and pending `/api/permission/request` or `/api/form` requests to `awaiting`, with input requests taking precedence. Descendant requests/work are attributed through `parentID`; unrelated conversations in the same project are ignored. A valid active list omitting the bound ID and its descendants means idle; failed or invalid responses preserve the previous state. OpenCode suspend/resume is intentionally unsupported; the resume button and Alt+R interception remain Copilot-only.
 
 `SessionState` has four values (`idle` | `running` | `awaiting` | `suspended`). **Dead is not a `SessionState`** — it is a boolean flag (`Session.dead`) set in the DB and displayed by `StateIndicator` in the renderer.
 
 | State / flag | Meaning |
 |---|---|
-| **Idle** | Input prompt (`❯`) visible in the captured pane |
-| **Running** | Output is streaming (`esc cancel` pattern detected) |
+| **Idle** | Copilot's `/ commands` footer, or OpenCode's valid idle status |
+| **Running** | Copilot's `esc interrupt` footer, or the OpenCode conversation (or one of its subagents) listed as active |
 | **Awaiting** | CLI is waiting for user input — a modal dialog or elicitation form is open |
 | **Suspended** | Copilot was suspended with Ctrl+Z (`Copilot has been suspended` detected). Resumed via SIGCONT (▶ RESUME button or Alt+R in terminal panel) |
 | **Dead** *(flag)* | tmux session of an **active** session has exited; session row has `dead = 1`. Never applies to archived sessions |
-| **Warm** *(display)* | Archived, copilot tmux still alive — restores instantly |
-| **Cold** *(display)* | Archived, copilot tmux killed — restore re-runs copilot and takes a few seconds |
+| **Warm** *(display)* | Archived, agent runtime still alive |
+| **Cold** *(display)* | Archived, agent runtime unloaded — restore resumes its exact conversation |
 
 States are shown as coloured indicator pills in the session sidebar.
 
@@ -1057,10 +1080,11 @@ DAD requires the following to run:
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| **tmux** | Session persistence — copilot runs inside tmux, survives app restarts | `sudo apt-get install tmux` |
+| **tmux** | Session persistence — the coding agents run inside tmux and survive app restarts | `sudo apt-get install tmux` |
 | **Node.js** (≥ 20) | Electron + build tooling | Via [fnm](https://github.com/Schniz/fnm) or nvm |
 | **build-essential, python3** | Native module compilation (`node-pty`, `better-sqlite3`) | `sudo apt-get install build-essential python3` |
 | **@github/copilot** | The Copilot CLI agent that runs inside each session | `npm install -g @github/copilot` |
+| **OpenCode 2** | The default coding agent (OpenCode 1 is not supported) | `curl -fsSL https://opencode.ai/v2/install \| bash` |
 
 ### Automated setup
 
@@ -1074,7 +1098,11 @@ It is idempotent — safe to re-run at any time.
 
 ### Startup dependency check
 
-On launch the app validates that `tmux` and `copilot` are available in PATH. If either is missing, a native warning dialog is shown with install instructions and a pointer to `./setup.sh`. The app window still opens, but sessions cannot be created until the missing dependencies are installed.
+On launch the app validates that `tmux`, `copilot`, `gh` and OpenCode 2 are available. If any is missing, a native warning dialog is shown with install instructions and a pointer to `./setup.sh`. The app window still opens, but sessions of a missing agent cannot be created until it is installed.
+
+OpenCode is resolved through `$SHELL -lic` with the same PATH fallback the runtime launcher uses (`readOpenCodeCliVersion` in `tmux.ts`), not through Electron's own PATH — the two can differ, and the check must find the binary sessions will actually run. A found OpenCode 1 is reported with the install command and a reminder to remove the old binary. The check is advisory: each runtime re-checks the version its running server reports.
+
+`setup.sh` installs OpenCode 2 with the official installer when no OpenCode 2 is on PATH, names (but does not delete) any other `opencode` binary on PATH that is not version 2, and reminds the user to connect a provider with `/connect`.
 
 ---
 

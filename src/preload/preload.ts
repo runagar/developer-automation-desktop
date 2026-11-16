@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
-import { IpcApi, Session, SessionState, WorkspaceEntry, JiraIssue, AuthStatusInfo } from '../main/types';
+import { IpcApi, Session, SessionState, SessionStartupPhase, WorkspaceEntry, JiraIssue, AuthStatusInfo, CreateSessionOptions } from '../main/types';
 import { getXtermThemeById } from '../renderer/xterm-theme';
 
 const api: IpcApi = {
   getSessions: () => ipcRenderer.invoke('sessions:get'),
-  createSession: (opts) => ipcRenderer.invoke('sessions:create', opts),
+  createSession: (opts: CreateSessionOptions) => ipcRenderer.invoke('sessions:create', opts),
   destroySession: (id) => ipcRenderer.invoke('sessions:destroy', id),
   archiveSession: (id) => ipcRenderer.invoke('sessions:archive', id),
   unarchiveSession: (id, cols, rows) => ipcRenderer.invoke('sessions:unarchive', id, cols, rows),
@@ -92,8 +92,8 @@ const api: IpcApi = {
   getZoom: () => webFrame.getZoomFactor(),
 
   onPtyData: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, panelInstanceId: string, data: string) =>
-      callback(panelInstanceId, data);
+    const listener = (_event: Electron.IpcRendererEvent, panelInstanceId: string, sessionId: string, data: string) =>
+      callback(panelInstanceId, sessionId, data);
     ipcRenderer.on('pty:data', listener);
     return () => ipcRenderer.removeListener('pty:data', listener);
   },
@@ -124,6 +124,13 @@ const api: IpcApi = {
       callback(sessionId);
     ipcRenderer.on('session:died', listener);
     return () => ipcRenderer.removeListener('session:died', listener);
+  },
+
+  onSessionStartupPhase: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string, phase: SessionStartupPhase | null) =>
+      callback(sessionId, phase);
+    ipcRenderer.on('session:startupPhase', listener);
+    return () => ipcRenderer.removeListener('session:startupPhase', listener);
   },
 
   onSessionArchived: (callback) => {

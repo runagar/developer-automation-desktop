@@ -1,4 +1,13 @@
 export type SessionState = 'idle' | 'running' | 'awaiting' | 'suspended';
+export type SessionAgent = 'opencode' | 'copilot';
+export type SessionStartupPhase = 'server' | 'migrate-history' | 'create-conversation' | 'load-conversation' | 'tui';
+
+export interface CreateSessionOptions {
+  name?: string;
+  workingDir: string;
+  project?: string | null;
+  agent?: SessionAgent;
+}
 
 export interface JiraLinkedIssue {
   key: string;
@@ -26,6 +35,8 @@ export interface JiraIssue {
 
 export interface Session {
   id: string;               // UUID — also used as copilot --session-id
+  agent: SessionAgent;
+  agentSessionId: string | null;
   name: string;
   workingDir: string;
   project: string | null;   // PFT Beta project key (e.g. NRPCON) or null
@@ -42,7 +53,7 @@ export interface Session {
 export interface IpcApi {
   // Session management
   getSessions: () => Promise<Session[]>;
-  createSession: (opts: { name?: string; workingDir: string; project?: string }) => Promise<Session>;
+  createSession: (opts: CreateSessionOptions) => Promise<Session>;
   destroySession: (id: string) => Promise<void>;
   archiveSession: (id: string) => Promise<void>;
   unarchiveSession: (id: string, cols?: number, rows?: number) => Promise<void>;
@@ -129,11 +140,13 @@ export interface IpcApi {
   shellDestroyTmux: (sessionId: string) => Promise<void>;
 
   // Events (renderer listens)
-  onPtyData: (callback: (panelInstanceId: string, data: string) => void) => () => void;
+  onPtyData: (callback: (panelInstanceId: string, sessionId: string, data: string) => void) => () => void;
   onShellData: (callback: (panelInstanceId: string, data: string) => void) => () => void;
   onShellExit: (callback: (panelInstanceId: string) => void) => () => void;
   onSessionStateChange: (callback: (sessionId: string, state: SessionState) => void) => () => void;
   onSessionDied: (callback: (sessionId: string) => void) => () => void;
+  /** `null` once the runtime is ready or its startup failed. */
+  onSessionStartupPhase: (callback: (sessionId: string, phase: SessionStartupPhase | null) => void) => () => void;
   onSessionArchived: (callback: (sessionId: string) => void) => () => void;
   onSessionsWarmthChanged: (callback: (warmIds: string[]) => void) => () => void;
 

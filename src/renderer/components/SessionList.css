@@ -22,14 +22,60 @@
 }
 
 /* New session controls */
+.session-list__agent {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+.session-list__agent-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+}
+/* Every label occupies the same grid cell, so the trigger is always as wide
+   as the widest agent name rather than resizing on selection. */
+.session-list__agent-label {
+  display: grid;
+}
+.session-list__agent-option {
+  grid-area: 1 / 1;
+  text-align: right;
+}
+.session-list__agent-option--sizer {
+  visibility: hidden;
+}
+.dropdown.session-list__agent-menu {
+  left: anchor(left);
+  right: auto;
+}
+.session-list__error {
+  padding: 8px;
+  color: var(--c-error);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+.session-item__agent {
+  color: var(--c-mid);
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
 .session-list__new {
   display: flex;
+  gap: 8px;
   position: relative;
   padding: 8px;
   border-bottom: 1px solid var(--c-dark);
 }
+.session-list__new-group {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
 .session-list__new-btn {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
   font-size: 0.7rem;
 }
 .session-list__arrow {
@@ -40,7 +86,7 @@
 /* Positioned with measured viewport coordinates (see dropdownStyle), so it
    opts out of anchor positioning. The top layer keeps it above every panel.
    The menu body is styled by the shared `.dropdown--workspaces`. */
-.session-list__new .dropdown {
+.session-list__new .dropdown--workspaces {
   position: fixed;
 }
 

@@ -3,15 +3,34 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PtySession } from './pty';
-import { Session, SessionState, JiraIssue } from './types';
+import { Session, SessionState, SessionAgent, CreateSessionOptions, JiraIssue } from './types';
 import { BrowserWindow } from 'electron';
 import {
   tmuxSessionName, hasTmuxSession, createTmuxSession,
-  getSessionInfo, listSmithSessions, killTmuxSession, getPanePid, capturePane,
+  getSessionInfo, listSmithSessions, killTmuxSession, getPanePid, isAgentTmuxAlive,
+  isLegacyOpenCodeRuntime,
 } from './tmux';
-import { detectStateFromPane } from './statePoller';
+import { PollableSession, readSessionState } from './statePoller';
 import { ensureWhitelistConfig } from './whitelist';
 import { ArchivedRow, selectDemotionCandidates } from './archivePolicy';
+
+interface SessionRow {
+  id: string;
+  name: string;
+  working_dir: string;
+  project: string | null;
+  agent: SessionAgent;
+  agent_session_id: string | null;
+  state: SessionState;
+  dead: number;
+  archived: number;
+  archived_at: string | null;
+  sort_order: number;
+  created_at: string;
+  last_active: string;
+  jira_key: string | null;
+  jira_data: string | null;
+}
 
 export class SessionManager {
   private db!: Database.Database;
@@ -83,6 +102,13 @@ export class SessionManager {
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN sort_order INTEGER DEFAULT 0'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE sessions ADD COLUMN archived_at TEXT'); } catch { /* already exists */ }
+    const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+    if (!columns.some((column) => column.name === 'agent')) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT 'copilot'");
+    }
+    if (!columns.some((column) => column.name === 'agent_session_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN agent_session_id TEXT');
+    }
 
     // `dead` is meaningless for an archived session: before archived sessions
     // were excluded from polling, every launch after a reboot flipped them to
@@ -121,20 +147,23 @@ export class SessionManager {
     // PTY attachment is deferred to renderer-driven ptyAttach calls.
     const rows = this.db.prepare(
       'SELECT * FROM sessions WHERE dead = 0 AND archived = 0'
-    ).all() as any[];
+    ).all() as SessionRow[];
 
     for (const row of rows) {
-      // Ensure the tmux session exists (may have been killed externally)
-      const tmuxName = tmuxSessionName(row.id);
-      const tmuxExists = await hasTmuxSession(tmuxName);
-      if (!tmuxExists) {
-        // Re-create the tmux session so copilot can restart
+      try {
         await this.ensureTmuxSession(row.id, row.working_dir);
+      } catch (error) {
+        console.error(`[sessions] Could not restore session ${row.id}`, error);
       }
     }
   }
 
-  async createSession(opts: { name?: string; workingDir: string; project?: string | null }): Promise<Session> {
+  async createSession(opts: CreateSessionOptions): Promise<Session> {
+    if (!opts || typeof opts.workingDir !== 'string' || !opts.workingDir.trim()) {
+      throw new Error('A working directory is required');
+    }
+    const agent = opts.agent === undefined ? 'opencode' : opts.agent;
+    if (agent !== 'copilot' && agent !== 'opencode') throw new Error('Unknown session agent');
     const id = uuidv4();
     const now = new Date().toISOString();
     const name = opts.name || `Session ${this.getSessionCount() + 1}`;
@@ -142,17 +171,16 @@ export class SessionManager {
     // New sessions get sort_order after all existing ones
     const maxSort = (this.db.prepare('SELECT MAX(sort_order) as m FROM sessions').get() as any)?.m ?? 0;
 
-    // Mark as pending so the state poller skips this session while tmux spawns.
-    this.pendingTmuxIds.add(id);
-    try {
-      this.db.prepare(`
-        INSERT INTO sessions (id, name, working_dir, project, state, dead, archived, sort_order, created_at, last_active)
-        VALUES (?, ?, ?, ?, 'idle', 0, 0, ?, ?, ?)
-      `).run(id, name, opts.workingDir, opts.project ?? null, maxSort + 1, now, now);
+    this.db.prepare(`
+      INSERT INTO sessions (id, name, working_dir, project, agent, state, dead, archived, sort_order, created_at, last_active)
+      VALUES (?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?, ?)
+    `).run(id, name, opts.workingDir, opts.project ?? null, agent, maxSort + 1, now, now);
 
-      await this.ensureTmuxSession(id, opts.workingDir);
-    } finally {
-      this.pendingTmuxIds.delete(id);
+    const startup = this.ensureTmuxSession(id, opts.workingDir);
+    if (agent === 'opencode') {
+      void startup.catch(() => { /* createTmuxSessionOnce marks the row dead and notifies the renderer */ });
+    } else {
+      await startup;
     }
 
     return this.getSession(id)!;
@@ -164,33 +192,47 @@ export class SessionManager {
    *
    * Concurrent calls for the same session share a single creation attempt.
    */
-  private async ensureTmuxSession(id: string, workingDir: string): Promise<void> {
+  private async ensureTmuxSession(id: string, workingDir: string, replaceLegacy = false): Promise<void> {
     const inFlight = this.tmuxCreating.get(id);
     if (inFlight) return inFlight;
 
-    const creation = this.createTmuxSessionOnce(id, workingDir);
+    this.pendingTmuxIds.add(id);
+    const creation = this.createTmuxSessionOnce(id, workingDir, replaceLegacy);
     this.tmuxCreating.set(id, creation);
     try {
       await creation;
     } finally {
       if (this.tmuxCreating.get(id) === creation) this.tmuxCreating.delete(id);
+      this.pendingTmuxIds.delete(id);
     }
   }
 
-  private async createTmuxSessionOnce(id: string, workingDir: string): Promise<void> {
+  private async createTmuxSessionOnce(id: string, workingDir: string, replaceLegacy: boolean): Promise<void> {
     const tmuxName = tmuxSessionName(id);
-    if (!await hasTmuxSession(tmuxName)) {
-      try {
-        await createTmuxSession(id, workingDir);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.window?.webContents.send(
-          'pty:data', id,
-          `\r\n\x1b[31m[DAD] Failed to start session: ${msg}\x1b[0m\r\n`
-        );
-        this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ?').run(id);
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
+    if (!row) throw new Error('Session no longer exists');
+    if (row.agent === 'copilot' && await hasTmuxSession(tmuxName)) return;
+    try {
+      await createTmuxSession(id, workingDir, {
+        agent: row.agent,
+        agentSessionId: row.agent_session_id,
+        name: row.name,
+        replaceLegacy,
+        onConversationCreated: (conversationId) => {
+          this.db.prepare('UPDATE sessions SET agent_session_id = ? WHERE id = ?').run(conversationId, id);
+        },
+        onPhase: (phase) => this.window?.webContents.send('session:startupPhase', id, phase),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[sessions] Failed to start ${id}: ${message}`);
+      const result = this.db.prepare('UPDATE sessions SET dead = 1 WHERE id = ? AND archived = 0').run(id);
+      if (result.changes > 0) {
         this.window?.webContents.send('session:died', id);
       }
+      throw error;
+    } finally {
+      this.window?.webContents.send('session:startupPhase', id, null);
     }
   }
 
@@ -206,16 +248,15 @@ export class SessionManager {
     // Detach existing if any
     this.ptyDetach(panelInstanceId);
 
-    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
-    if (!row) return;
-
     const ptySession = new PtySession(sessionId);
+    this.ptyAttachments.set(panelInstanceId, ptySession);
+    this.panelToSession.set(panelInstanceId, sessionId);
 
     ptySession.on('data', (data: string) => {
       // Guard: only forward if we're still the active attachment for this panel.
       // Concurrent ptyAttach calls can orphan us during the async spawn window.
       if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
-      this.window?.webContents.send('pty:data', panelInstanceId, data);
+      this.window?.webContents.send('pty:data', panelInstanceId, sessionId, data);
     });
 
     ptySession.on('died', () => {
@@ -226,27 +267,32 @@ export class SessionManager {
       // Check if any other attachment already triggered died for this session
       const otherAttached = Array.from(this.panelToSession.values()).includes(sessionId);
       if (!otherAttached) {
-        this.handleDied(sessionId);
+        void this.handleDied(sessionId).catch((error) => console.error('[sessions] Failed to clean up dead session', error));
       }
     });
 
-    try {
-      const tmuxExists = await hasTmuxSession(tmuxSessionName(sessionId));
-      if (!tmuxExists) {
-        await this.ensureTmuxSession(sessionId, row.working_dir);
+    await this.withSessionLock(sessionId, async () => {
+      if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
+      const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as SessionRow | undefined;
+      if (!row || row.archived === 1 || row.dead === 1) {
+        this.ptyDetach(panelInstanceId);
+        return;
       }
-      await ptySession.spawn(row.working_dir, sessionId, true, cols ?? 120, rows ?? 36);
-      // Kill any orphan that a concurrent ptyAttach stored while we were awaiting
-      this.ptyDetach(panelInstanceId);
-      this.ptyAttachments.set(panelInstanceId, ptySession);
-      this.panelToSession.set(panelInstanceId, sessionId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.window?.webContents.send(
-        'pty:data', panelInstanceId,
-        `\r\n\x1b[31m[DAD] Failed to attach: ${msg}\x1b[0m\r\n`
-      );
-    }
+      try {
+        await this.ensureTmuxSession(sessionId, row.working_dir);
+        if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
+        await ptySession.spawn(row.working_dir, cols ?? 120, rows ?? 36);
+        if (this.ptyAttachments.get(panelInstanceId) !== ptySession) ptySession.kill();
+      } catch (err) {
+        if (this.ptyAttachments.get(panelInstanceId) !== ptySession) return;
+        this.ptyDetach(panelInstanceId);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.window?.webContents.send(
+          'pty:data', panelInstanceId, sessionId,
+          `\r\n\x1b[31m[DAD] Failed to attach: ${msg}\x1b[0m\r\n`
+        );
+      }
+    });
   }
 
   /**
@@ -286,12 +332,16 @@ export class SessionManager {
   /**
    * Archive a session: detach all PTYs but keep the tmux session alive ("warm").
    */
-  archiveSession(id: string): void {
-    this.detachAllPtysForSession(id);
-    this.db.prepare('UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?')
-      .run(new Date().toISOString(), id);
-    this.warmIds.add(id);
-    this.window?.webContents.send('session:archived', id);
+  async archiveSession(id: string): Promise<void> {
+    return this.withSessionLock(id, async () => {
+      await this.tmuxCreating.get(id)?.catch((error) => console.warn('[sessions] Archiving after failed startup', error));
+      this.detachAllPtysForSession(id);
+      const result = this.db.prepare('UPDATE sessions SET archived = 1, dead = 0, archived_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), id);
+      if (result.changes === 0) return;
+      if (await hasTmuxSession(tmuxSessionName(id))) this.warmIds.add(id);
+      this.window?.webContents.send('session:archived', id);
+    });
   }
 
   /**
@@ -305,11 +355,11 @@ export class SessionManager {
       // Mark as pending so the state poller skips this session while tmux spawns.
       this.pendingTmuxIds.add(id);
       try {
+        await this.ensureTmuxSession(id, row.working_dir, true);
         this.db.prepare(
           "UPDATE sessions SET archived = 0, dead = 0, archived_at = NULL, state = 'idle' WHERE id = ?"
         ).run(id);
         this.warmIds.delete(id);
-        await this.ensureTmuxSession(id, row.working_dir);
       } finally {
         this.pendingTmuxIds.delete(id);
       }
@@ -321,6 +371,7 @@ export class SessionManager {
    */
   async destroySession(id: string): Promise<void> {
     return this.withSessionLock(id, async () => {
+      await this.tmuxCreating.get(id)?.catch((error) => console.warn('[sessions] Destroying after failed startup', error));
       this.detachAllPtysForSession(id);
       await killTmuxSession(tmuxSessionName(id));
       this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
@@ -349,8 +400,8 @@ export class SessionManager {
       // Mark as pending so the state poller skips this session while tmux spawns.
       this.pendingTmuxIds.add(id);
       try {
+        await this.ensureTmuxSession(id, row.working_dir, true);
         this.db.prepare('UPDATE sessions SET dead = 0, state = ? WHERE id = ?').run('idle', id);
-        await this.ensureTmuxSession(id, row.working_dir);
       } finally {
         this.pendingTmuxIds.delete(id);
       }
@@ -362,7 +413,7 @@ export class SessionManager {
    */
   async resumeSession(id: string): Promise<void> {
     const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any;
-    if (!row || row.dead === 1 || row.archived === 1) return;
+    if (!row || row.dead === 1 || row.archived === 1 || row.agent !== 'copilot') return;
 
     const tmuxName = tmuxSessionName(id);
     const pid = await getPanePid(tmuxName);
@@ -435,6 +486,8 @@ export class SessionManager {
       'SELECT id FROM sessions WHERE archived = 1'
     ).all() as Array<{ id: string }>;
     await Promise.all(rows.map((row) => this.withSessionLock(row.id, async () => {
+      const current = this.getSession(row.id);
+      if (!current?.archived) return;
       await killTmuxSession(tmuxSessionName(row.id));
       this.warmIds.delete(row.id);
     })));
@@ -452,12 +505,19 @@ export class SessionManager {
   private async reconcileWarmth(liveNames?: Set<string>): Promise<void> {
     const live = liveNames ?? new Set((await listSmithSessions()).map((s) => s.name));
     const archived = this.db.prepare(
-      'SELECT id FROM sessions WHERE archived = 1'
-    ).all() as Array<{ id: string }>;
+      'SELECT id, agent FROM sessions WHERE archived = 1'
+    ).all() as Array<{ id: string; agent: SessionAgent }>;
 
     const next = new Set<string>();
-    for (const { id } of archived) {
-      if (live.has(tmuxSessionName(id))) next.add(id);
+    for (const { id, agent } of archived) {
+      const name = tmuxSessionName(id);
+      if (!live.has(name)) continue;
+      await this.withSessionLock(id, async () => {
+        if (!this.getSession(id)?.archived) return;
+        if (agent === 'opencode' && await isLegacyOpenCodeRuntime(name)) await killTmuxSession(name);
+        else if (await isAgentTmuxAlive(name, agent)) next.add(id);
+        else await killTmuxSession(name);
+      });
     }
 
     this.warmIds = next;
@@ -481,41 +541,56 @@ export class SessionManager {
     await this.reconcileWarmth(liveNames);
 
     const rows = this.db.prepare(
-      `SELECT id, state, archived_at FROM sessions
+      `SELECT id, state, archived_at, agent, agent_session_id, working_dir FROM sessions
        WHERE archived = 1 ORDER BY archived_at DESC`
-    ).all() as ArchivedRow[];
+    ).all() as (ArchivedRow & Pick<SessionRow, 'agent' | 'agent_session_id' | 'working_dir'>)[];
 
     const warm = rows.filter((r) => this.warmIds.has(r.id));
     if (warm.length === 0) return;
 
-    // Archived sessions are not polled, so their `state` is frozen at archive
-    // time. Without this a session archived mid-task would satisfy the
-    // busy-guard forever and never go cold. Bounded by the warm cap.
+    const unverified = new Set<string>();
     for (const row of warm) {
-      if (row.state !== 'running' && row.state !== 'awaiting') continue;
-      const content = await capturePane(tmuxSessionName(row.id));
-      const fresh = content ? detectStateFromPane(content) : null;
-      if (fresh && fresh !== row.state) {
-        this.db.prepare('UPDATE sessions SET state = ? WHERE id = ? AND archived = 1')
-          .run(fresh, row.id);
-        row.state = fresh;
+      if (row.agent === 'copilot' && row.state !== 'running' && row.state !== 'awaiting') continue;
+      try {
+        const fresh = await readSessionState({
+          id: row.id, state: row.state as SessionState, agent: row.agent,
+          agentSessionId: row.agent_session_id, workingDir: row.working_dir,
+        });
+        if (fresh && fresh !== row.state) {
+          this.db.prepare('UPDATE sessions SET state = ? WHERE id = ? AND archived = 1')
+            .run(fresh, row.id);
+          row.state = fresh;
+        }
+      } catch (error) {
+        unverified.add(row.id);
+        console.error(`[sessions] Keeping archived session ${row.id} warm: status unavailable`, error);
       }
     }
 
-    const candidates = selectDemotionCandidates(warm, Date.now());
+    const candidates = selectDemotionCandidates(
+      warm.map((row) => unverified.has(row.id) ? { ...row, state: 'running' } : row),
+      Date.now(),
+    );
     if (candidates.length === 0) return;
 
     for (const id of candidates) {
       await this.withSessionLock(id, async () => {
         // Re-check inside the lock: the session may have been restored or
         // destroyed while we were awaiting an earlier kill.
-        const row = this.db.prepare('SELECT archived FROM sessions WHERE id = ?')
-          .get(id) as { archived: number } | undefined;
-        if (!row || row.archived !== 1) return;
+        const session = this.getSession(id);
+        if (!session?.archived) return;
+        if (session.agent === 'opencode') {
+          try {
+            const state = await readSessionState(session);
+            if (state !== 'idle') return;
+          } catch (error) {
+            console.error(`[sessions] Skipping demotion of ${id}: status unavailable`, error);
+            return;
+          }
+        }
 
         const tmuxName = tmuxSessionName(id);
         await killTmuxSession(tmuxName);
-        // killTmuxSession swallows errors — only report cold if it really is.
         if (!await hasTmuxSession(tmuxName)) this.warmIds.delete(id);
       });
     }
@@ -535,13 +610,16 @@ export class SessionManager {
     this.panelToSession.clear();
   }
 
-  getPollableSessions(): { id: string; state: SessionState }[] {
+  getPollableSessions(): PollableSession[] {
     const rows = this.db.prepare(
-      'SELECT id, state FROM sessions WHERE dead = 0 AND archived = 0'
-    ).all() as Array<{ id: string; state: string }>;
+      'SELECT id, state, agent, agent_session_id, working_dir FROM sessions WHERE dead = 0 AND archived = 0'
+    ).all() as Pick<SessionRow, 'id' | 'state' | 'agent' | 'agent_session_id' | 'working_dir'>[];
     return rows
       .filter((row) => !this.pendingTmuxIds.has(row.id))
-      .map((row) => ({ id: row.id, state: row.state as SessionState }));
+      .map((row) => ({
+        id: row.id, state: row.state, agent: row.agent,
+        agentSessionId: row.agent_session_id, workingDir: row.working_dir,
+      }));
   }
 
   handleStateChange(id: string, state: SessionState): void {
@@ -555,13 +633,17 @@ export class SessionManager {
     this.window?.webContents.send('session:stateChange', id, state);
   }
 
-  handleDied(id: string): void {
-    const res = this.db.prepare(
-      "UPDATE sessions SET dead = 1, state = 'idle' WHERE id = ? AND archived = 0"
-    ).run(id);
-    if (res.changes === 0) return;
-    this.detachAllPtysForSession(id);
-    this.window?.webContents.send('session:died', id);
+  async handleDied(id: string): Promise<void> {
+    return this.withSessionLock(id, async () => {
+      const session = this.getSession(id);
+      if (!session || session.archived || session.dead || this.pendingTmuxIds.has(id)) return;
+      const name = tmuxSessionName(id);
+      if (await isAgentTmuxAlive(name, session.agent)) return;
+      await killTmuxSession(name);
+      this.db.prepare("UPDATE sessions SET dead = 1, state = 'idle' WHERE id = ?").run(id);
+      this.detachAllPtysForSession(id);
+      this.window?.webContents.send('session:died', id);
+    });
   }
 
   // --- Orphan cleanup ---
@@ -595,8 +677,10 @@ export class SessionManager {
   }
 
   // Arrow property so `this` is bound correctly when passed as a .map() callback.
-  private rowToSession = (row: any): Session => ({
+  private rowToSession = (row: SessionRow): Session => ({
     id: row.id,
+    agent: row.agent,
+    agentSessionId: row.agent_session_id,
     name: row.name,
     workingDir: row.working_dir,
     project: row.project,

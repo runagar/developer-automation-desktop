@@ -111,7 +111,7 @@ export function registerWindowHandlers(
           getSessionIds: () => sessionManager.getPollableSessions(),
           onStateChange: (id, state) => sessionManager.handleStateChange(id, state),
           onDied: (id) => sessionManager.handleDied(id),
-          onReap: () => sessionManager.reapArchivedSessions(),
+          onReap: (liveNames) => sessionManager.reapArchivedSessions(liveNames),
         });
         statePoller.start();
       }

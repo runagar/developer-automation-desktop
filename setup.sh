@@ -16,6 +16,7 @@
 #   - Node.js LTS   (via fnm)
 #   - npm packages  (project dependencies + native module rebuild)
 #   - @github/copilot (GitHub Copilot CLI, globally)
+#   - opencode      (OpenCode 2 CLI, the default coding agent)
 #
 # Usage:
 #   cd /path/to/agent-smith
@@ -158,7 +159,44 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# 6. GitHub CLI
+# 6. OpenCode 2
+# ---------------------------------------------------------------------------
+echo "── OpenCode ──────────────────────────────────────────────"
+
+OPENCODE_BIN_DIR="$HOME/.opencode/bin"
+
+opencode_major() {
+  "$1" --version 2>/dev/null | sed -nE 's/^(opencode )?v?([0-9]+)\..*/\2/p' | tail -1
+}
+
+if command -v opencode >/dev/null 2>&1 && [ "$(opencode_major opencode)" = "2" ]; then
+  info "OpenCode 2 already installed ($(opencode --version 2>&1 | tail -1))"
+else
+  warn "Installing OpenCode 2..."
+  curl -fsSL https://opencode.ai/v2/install | bash
+  export PATH="$OPENCODE_BIN_DIR:$PATH"
+  info "OpenCode 2 installed ($(opencode --version 2>&1 | tail -1))"
+fi
+
+# An older opencode left on PATH can shadow OpenCode 2 in shells that do not
+# put ~/.opencode/bin first. Name it rather than deleting it.
+while IFS= read -r candidate; do
+  [ "$(opencode_major "$candidate")" = "2" ] && continue
+  warn "An older OpenCode is still installed at $candidate. Remove it with:"
+  echo ""
+  echo "    rm $candidate"
+  echo ""
+done < <(type -ap opencode | awk '!seen[$0]++')
+
+warn "OpenCode signs in to model providers itself. If you have not connected one yet, run:"
+echo ""
+echo "    opencode        # then type /connect"
+echo ""
+
+echo ""
+
+# ---------------------------------------------------------------------------
+# 7. GitHub CLI
 # ---------------------------------------------------------------------------
 echo "── GitHub CLI ────────────────────────────────────────────"
 
@@ -204,7 +242,7 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# 7. Shell integration hint
+# 8. Shell integration hint
 # ---------------------------------------------------------------------------
 echo "── Shell integration ─────────────────────────────────────"
 echo ""

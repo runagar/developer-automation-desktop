@@ -97,6 +97,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 - Shared button styles (`.btn`, `.btn--primary`, `.btn--danger`, `.btn--micro`, `.btn--icon`) live in `pipboy.css`. Use them; don't create one-off button styles in component CSS.
 - Component CSS files are scoped by BEM-style class prefixes matching the component name (e.g. `.session-list__*`, `.terminal-pane__*`).
 - Font is always `Roboto Mono` via the `--font` variable.
+- Dropdown trigger labels are right-aligned against their caret, so any spare width in a fixed-width trigger falls on the left.
 
 ---
 
@@ -115,7 +116,7 @@ launch.sh          Dev launcher (initialises fnm, runs npm start)
 
 - **Tab / Shift+Tab** cycles focusable elements within the focused panel (wrapping enforced by the Workspace capture handler at the `[data-panel-id]` boundary). Archived sessions are excluded from session cycling. Do not intercept Tab in any component without `e.stopPropagation()` if the panel-level handler should not fire.
 - **Ctrl++ / Ctrl+- / Ctrl+0** controls zoom (wired in `ZoomControl.tsx`).
-- **Session archive** (✕ button) requires confirmation via `ConfirmDialog`. Never call `onArchive` directly from a button click.
+- **Session archive** (✕ button) archives immediately, without confirmation.
 - **Session destroy** (from archived list) requires confirmation via `ConfirmDialog`. Never call `onDestroy` directly from a button click.
 - **xterm.js terminals** are created on mount but only opened into the DOM on first activation (`openedRef`). This is intentional — do not eagerly call `term.open()`.
 - PTY data subscriptions in `TerminalPane` intentionally use empty deps arrays (registered once on mount). Do not add `session.id` to those deps — it would leak listeners.

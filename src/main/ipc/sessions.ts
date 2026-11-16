@@ -2,6 +2,7 @@ import { IpcMain } from 'electron';
 import { SessionManager } from '../sessions';
 import { ShellTmuxManager } from '../shellTmux';
 import { NotesManager } from '../notes';
+import type { CreateSessionOptions } from '../types';
 
 export function registerSessionHandlers(
   ipcMain: IpcMain,
@@ -11,7 +12,7 @@ export function registerSessionHandlers(
 ): void {
   ipcMain.handle('sessions:get', () => sessionManager.getSessions());
 
-  ipcMain.handle('sessions:create', (_event, opts) =>
+  ipcMain.handle('sessions:create', (_event, opts: CreateSessionOptions) =>
     sessionManager.createSession(opts)
   );
 
@@ -24,7 +25,7 @@ export function registerSessionHandlers(
 
   ipcMain.handle('sessions:archive', (_event, id: string) => {
     shellTmuxManager.detachAllForSession(id);
-    sessionManager.archiveSession(id);
+    return sessionManager.archiveSession(id);
   });
 
   ipcMain.handle('sessions:unarchive', (_event, id: string, cols?: number, rows?: number) =>

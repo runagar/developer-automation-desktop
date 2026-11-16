@@ -12,6 +12,8 @@ import { loadSettings, isFirstLaunch, getDefaultWorkingRoot } from './settings';
 import { discoverWorkspaces } from './workspaceDiscovery';
 import { DiscoveredWorkspace } from './types';
 import { initAutoUpdater } from './updater';
+import { readOpenCodeCliVersion } from './tmux';
+import { OPENCODE_INSTALL_COMMAND, isSupportedOpenCodeVersion } from './opencode';
 
 let mainWindow: BrowserWindow | null = null;
 let dataDir: string;
@@ -252,6 +254,16 @@ async function checkDependencies(): Promise<void> {
 
   if (!await checkCommand('copilot', ['--version'])) {
     missing.push('• GitHub Copilot CLI — AI coding assistant\n    Install: npm install -g @github/copilot');
+  }
+
+  const openCodeVersion = await readOpenCodeCliVersion();
+  if (!openCodeVersion) {
+    missing.push(`• OpenCode 2 — default coding agent\n    Install: ${OPENCODE_INSTALL_COMMAND}`);
+  } else if (!isSupportedOpenCodeVersion(openCodeVersion)) {
+    missing.push(
+      `• OpenCode 2 — found OpenCode ${openCodeVersion}\n    Install: ${OPENCODE_INSTALL_COMMAND}\n` +
+      '    Then remove the old opencode binary (see: which -a opencode)'
+    );
   }
 
   if (!await checkCommand('gh', ['--version'])) {

@@ -1,14 +1,20 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { Session, WorkspaceGroup } from '../../main/types';
+import { Session, WorkspaceGroup, SessionAgent, CreateSessionOptions } from '../../main/types';
 import { PanelType } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import StateIndicator from './StateIndicator';
 import ConfirmDialog from './ConfirmDialog';
 import SessionContextMenu from './SessionContextMenu';
-import { Dropdown } from './dropdown';
+import { Dropdown, DropdownItem, DropdownSection, useDismiss } from './dropdown';
 import WorkspaceMenuItems from './WorkspaceMenuItems';
 import { usePanelFocus } from '../dashboard/usePanelFocus';
+import { cn } from '../utils/cn';
 import './SessionList.css';
+
+const AGENT_OPTIONS: { value: SessionAgent; label: string }[] = [
+  { value: 'opencode', label: 'OpenCode' },
+  { value: 'copilot', label: 'Copilot CLI' },
+];
 
 export interface SessionListHandle {
   focus: () => void;
@@ -19,11 +25,11 @@ interface Props {
   activeSessionId: string | null;
   workspaceGroups: WorkspaceGroup[];
   onSelect: (id: string) => void;
-  onCreate: (workingDir: string, project?: string) => void;
-  onArchive: (id: string) => void;
-  onUnarchive: (id: string) => void;
-  onDestroy: (id: string) => void;
-  onRevive: (id: string) => void;
+  onCreate: (options: CreateSessionOptions) => Promise<void>;
+  onArchive: (id: string) => Promise<void>;
+  onUnarchive: (id: string) => Promise<void>;
+  onDestroy: (id: string) => Promise<void>;
+  onRevive: (id: string) => Promise<void>;
   onDoubleClickSession: (id: string) => void;
   onContextMenuSpawn: (type: PanelType, sessionId: string) => void;
   onRename: (id: string, name: string) => void;
@@ -46,10 +52,28 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
   const rootRef = useRef<HTMLElement>(null);
   const activeItemRef = useRef<HTMLLIElement>(null);
   const [pendingDestroyId, setPendingDestroyId] = useState<string | null>(null);
+  const [agent, setAgent] = useState<SessionAgent>('opencode');
+  const [agentOpen, setAgentOpen] = useState(false);
+  const agentRef = useRef<HTMLDivElement>(null);
+  useDismiss(agentRef, agentOpen, () => setAgentOpen(false));
+  const [actionError, setActionError] = useState<string | null>(null);
   const [destroyAllPending, setDestroyAllPending] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  const runSessionAction = useCallback(async (action: () => Promise<void>) => {
+    setActionError(null);
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const handleCreate = useCallback((workingDir: string, project?: string) =>
+    runSessionAction(() => onCreate({ workingDir, project, agent })),
+  [agent, onCreate, runSessionAction]);
 
   usePanelFocus(rootRef);
 
@@ -187,7 +211,9 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
     setDropdownStyle({
       top: rect.bottom,
       left: rect.left,
-      width: rect.width,
+      width: 'max-content',
+      minWidth: rect.width,
+      maxWidth: window.innerWidth - rect.left - 8,
     });
   }, [dropdownOpen]);
 
@@ -239,10 +265,10 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
         const curr = highlightedIndexRef.current;
         if (curr === null) return;
         if (curr === -1) {
-          onCreate(defaultWorkDir);
+          void handleCreate(defaultWorkDir);
         } else {
           const p = allWorkspaces[curr];
-          if (p) onCreate(p.workingDir, p.key);
+          if (p) void handleCreate(p.workingDir, p.key);
         }
         setDropdownOpen(false);
       }
@@ -250,42 +276,88 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
 
     document.addEventListener('keydown', handler, true);
     return () => document.removeEventListener('keydown', handler, true);
-  }, [dropdownOpen, allWorkspaces, onCreate]);
+  }, [dropdownOpen, allWorkspaces, handleCreate, defaultWorkDir]);
 
   return (
     <aside className="session-list" ref={rootRef} tabIndex={-1}>
-      <div className="session-list__new" ref={dropdownRef}>
-        <button
-          className={[
-            'btn btn--primary session-list__new-btn',
-            highlightedIndex === -1 ? 'session-list__new-btn--highlighted' : '',
-          ].filter(Boolean).join(' ')}
-          onClick={() => onCreate(defaultWorkDir)}
-          title={`New session in ${defaultWorkDir}`}
-        >
-          + NEW SESSION
-        </button>
-        <button
-          className="btn btn--icon session-list__arrow"
-          onClick={() => setDropdownOpen((v) => !v)}
-          title="Open in project…"
-        >
-          ▾
-        </button>
+      <div className="session-list__new">
+        <div className="session-list__agent" ref={agentRef}>
+          <button
+            className="btn session-list__agent-btn"
+            title="Agent for new sessions. Each DAD session stays bound to its original conversation."
+            aria-haspopup="listbox"
+            aria-expanded={agentOpen}
+            onClick={() => setAgentOpen((v) => !v)}
+          >
+            <span className="session-list__agent-label">
+              {AGENT_OPTIONS.map((option) => (
+                <span
+                  key={option.value}
+                  className={cn(
+                    'session-list__agent-option',
+                    option.value !== agent && 'session-list__agent-option--sizer',
+                  )}
+                  aria-hidden={option.value !== agent}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </span>
+            <span>▾</span>
+          </button>
+          {agentOpen && (
+            <Dropdown className="session-list__agent-menu">
+              <DropdownSection label="AGENT HARNESS">
+                {AGENT_OPTIONS.map((option) => (
+                  <DropdownItem
+                    key={option.value}
+                    check={option.value === agent ? '✓' : ''}
+                    onClick={() => {
+                      setAgent(option.value);
+                      setAgentOpen(false);
+                    }}
+                  >
+                    {option.label}
+                  </DropdownItem>
+                ))}
+              </DropdownSection>
+            </Dropdown>
+          )}
+        </div>
+        <div className="session-list__new-group" ref={dropdownRef}>
+          <button
+            className={cn(
+              'btn btn--primary session-list__new-btn',
+              highlightedIndex === -1 && 'session-list__new-btn--highlighted',
+            )}
+            onClick={() => { void handleCreate(defaultWorkDir); }}
+            title={`New ${AGENT_OPTIONS.find((option) => option.value === agent)?.label} session in ${defaultWorkDir}`}
+          >
+            + NEW SESSION
+          </button>
+          <button
+            className="btn btn--icon session-list__arrow"
+            onClick={() => setDropdownOpen((v) => !v)}
+            title="Open in project…"
+          >
+            ▾
+          </button>
 
-        {dropdownOpen && (
-          <Dropdown className="dropdown--workspaces" anchorToParent={false} style={dropdownStyle}>
-            <WorkspaceMenuItems
-              groups={workspaceGroups}
-              highlightedIndex={highlightedIndex}
-              onPick={(p) => {
-                onCreate(p.workingDir, p.key);
-                setDropdownOpen(false);
-              }}
-            />
-          </Dropdown>
-        )}
+          {dropdownOpen && (
+            <Dropdown className="dropdown--workspaces" anchorToParent={false} style={dropdownStyle}>
+              <WorkspaceMenuItems
+                groups={workspaceGroups}
+                highlightedIndex={highlightedIndex}
+                onPick={(p) => {
+                  void handleCreate(p.workingDir, p.key);
+                  setDropdownOpen(false);
+                }}
+              />
+            </Dropdown>
+          )}
+        </div>
       </div>
+      {actionError && <div className="session-list__error" role="alert">{actionError}</div>}
 
       <ul className="session-list__items">
         {activeSessions.map((session) => (
@@ -362,22 +434,21 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                     className="btn btn--micro"
                     tabIndex={-1}
                     title="Revive session"
-                    onClick={(e) => { e.stopPropagation(); onRevive(session.id); }}
+                    onClick={(e) => { e.stopPropagation(); void runSessionAction(() => onRevive(session.id)); }}
                   >↺</button>
                 )}
                 <button
                   className="btn btn--micro btn--danger"
                   tabIndex={-1}
                   title="Archive session"
-                  onClick={(e) => { e.stopPropagation(); onArchive(session.id); }}
+                  onClick={(e) => { e.stopPropagation(); void runSessionAction(() => onArchive(session.id)); }}
                 >✕</button>
               </div>
             </div>
-            {session.project && (
-              <div className="session-item__meta">
-                <span className="session-item__project">[ {session.project} ]</span>
-              </div>
-            )}
+            <div className="session-item__meta">
+              <span className="session-item__agent">{session.agent === 'opencode' ? 'OpenCode' : 'Copilot'}</span>
+              {session.project && <span className="session-item__project">[ {session.project} ]</span>}
+            </div>
           </li>
         ))}
         {dragSessionId && (
@@ -428,7 +499,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                         className="btn btn--micro"
                         tabIndex={-1}
                         title="Restore session"
-                        onClick={(e) => { e.stopPropagation(); onUnarchive(session.id); }}
+                        onClick={(e) => { e.stopPropagation(); void runSessionAction(() => onUnarchive(session.id)); }}
                       >↺</button>
                       <button
                         className="btn btn--micro btn--danger"
@@ -438,11 +509,10 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
                       >✕</button>
                     </div>
                   </div>
-                  {session.project && (
-                    <div className="session-item__meta">
-                      <span className="session-item__project">[ {session.project} ]</span>
-                    </div>
-                  )}
+                  <div className="session-item__meta">
+                    <span className="session-item__agent">{session.agent === 'opencode' ? 'OpenCode' : 'Copilot'}</span>
+                    {session.project && <span className="session-item__project">[ {session.project} ]</span>}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -456,7 +526,7 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
           detail="This will permanently kill the session and any running agent. This cannot be undone."
           confirmLabel="DESTROY"
           onConfirm={() => {
-            onDestroy(pendingDestroySession.id);
+            void runSessionAction(() => onDestroy(pendingDestroySession.id));
             setPendingDestroyId(null);
           }}
           onCancel={() => setPendingDestroyId(null)}
@@ -469,7 +539,9 @@ export default forwardRef<SessionListHandle, Props>(function SessionList({
           detail="This will permanently kill all archived sessions and any running agents. This cannot be undone."
           confirmLabel="DESTROY ALL"
           onConfirm={() => {
-            for (const s of archivedSessions) onDestroy(s.id);
+            void runSessionAction(async () => {
+              for (const s of archivedSessions) await onDestroy(s.id);
+            });
             setDestroyAllPending(false);
           }}
           onCancel={() => setDestroyAllPending(false)}

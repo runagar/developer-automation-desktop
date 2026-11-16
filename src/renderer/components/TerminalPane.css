@@ -3,6 +3,7 @@
    ========================================================= */
 
 .terminal-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -91,6 +92,46 @@
   min-height: 0;
   padding: 4px;
   overflow: hidden;
+}
+
+/* Covers the terminal until its tmux client is attached. The fade-in is
+   delayed so an attach that completes almost at once never flashes it. */
+.terminal-pane__startup {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: var(--c-bg);
+  color: var(--c-mid);
+  text-align: center;
+  animation: terminal-pane-startup-in 150ms ease-out 250ms both;
+}
+.terminal-pane__startup-spinner {
+  color: var(--c-bright);
+  animation: terminal-pane-startup-spin 1s linear infinite;
+}
+.terminal-pane__startup-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--c-bright);
+}
+.terminal-pane__startup-detail {
+  max-width: 52ch;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+@keyframes terminal-pane-startup-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes terminal-pane-startup-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Override xterm.js canvas selection colour */

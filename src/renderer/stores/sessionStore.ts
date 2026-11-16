@@ -1,15 +1,17 @@
 import { create } from 'zustand';
-import { Session, SessionState, JiraIssue } from '../../main/types';
+import { Session, SessionState, SessionStartupPhase, JiraIssue } from '../../main/types';
 import { useLayoutStore } from './layoutStore';
 
 interface SessionStore {
   sessions: Session[];
   activeSessionId: string | null;
   attachGen: Map<string, number>;
+  startupPhases: Map<string, SessionStartupPhase>;
 
   setSessions: (sessions: Session[]) => void;
   setActiveSessionId: (id: string | null) => void;
   bumpAttachGen: (id: string) => void;
+  setStartupPhase: (id: string, phase: SessionStartupPhase | null) => void;
   updateSession: (id: string, patch: Partial<Session>) => void;
   addSession: (session: Session) => void;
   removeSession: (id: string) => void;
@@ -20,6 +22,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
   attachGen: new Map(),
+  startupPhases: new Map(),
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -30,6 +33,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const next = new Map(s.attachGen);
       next.set(id, (s.attachGen.get(id) ?? 0) + 1);
       return { attachGen: next };
+    });
+  },
+
+  setStartupPhase: (id, phase) => {
+    set((s) => {
+      if ((s.startupPhases.get(id) ?? null) === phase) return s;
+      const next = new Map(s.startupPhases);
+      if (phase) next.set(id, phase);
+      else next.delete(id);
+      return { startupPhases: next };
     });
   },
 
@@ -52,7 +65,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         s.activeSessionId === id
           ? (next.find((sess) => !sess.archived)?.id ?? null)
           : s.activeSessionId;
-      return { sessions: next, activeSessionId };
+      const startupPhases = new Map(s.startupPhases);
+      startupPhases.delete(id);
+      return { sessions: next, activeSessionId, startupPhases };
     });
   },
 
@@ -115,6 +130,10 @@ export function registerSessionListeners(): () => void {
     updateSession(id, { dead: true, state: 'idle' as SessionState });
   });
 
+  const unsubStartup = window.dad.onSessionStartupPhase((id, phase) => {
+    useSessionStore.getState().setStartupPhase(id, phase);
+  });
+
   const unsubArchived = window.dad.onSessionArchived((id: string) => {
     const store = useSessionStore.getState();
     const wasActive = store.activeSessionId === id;
@@ -146,6 +165,7 @@ export function registerSessionListeners(): () => void {
   return () => {
     unsubState();
     unsubDied();
+    unsubStartup();
     unsubArchived();
     unsubWarmth();
   };

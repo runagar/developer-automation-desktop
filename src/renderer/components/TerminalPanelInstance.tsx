@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { PanelInstance } from '../dashboard/layout';
 import { useSessionStore } from '../stores/sessionStore';
 import { useJiraStore } from '../stores/jiraStore';
@@ -24,12 +24,20 @@ export default function TerminalPanelInstance({
   const termRef = useRef<TerminalPaneHandle | null>(null);
   const attachedRef = useRef<string | null>(null);
   const sessionRef = useRef<Session | null>(null);
+  const [attachedKey, setAttachedKey] = useState<string | null>(null);
 
   // Granular selector for session (same as wrapper uses)
   const session = useSessionStore((s) =>
     s.sessions.find((sess) => sess.id === instance.currentSessionId) ?? null
   );
   sessionRef.current = session;
+  const startupPhase = useSessionStore((s) =>
+    s.startupPhases.get(instance.currentSessionId ?? '') ?? null
+  );
+
+  const gen = session ? (attachGen.get(session.id) ?? 0) : 0;
+  const attachKey = `${session?.id ?? ''}:${gen}`;
+  const attaching = !!session && !session.dead && !session.archived && attachedKey !== attachKey;
 
   const handleTerminalInput = useCallback((sessionId: string, data: string) => {
     useJiraStore.getState().handleTerminalInput(sessionId, data);
@@ -37,7 +45,7 @@ export default function TerminalPanelInstance({
 
   const handleResume = useCallback(() => {
     const s = sessionRef.current;
-    if (s && s.state === 'suspended') {
+    if (s && s.agent === 'copilot' && s.state === 'suspended') {
       void window.dad.resumeSession(s.id);
     }
   }, []);
@@ -58,17 +66,17 @@ export default function TerminalPanelInstance({
       await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
       if (cancelled) return;
       const size = termRef.current?.fitAndMeasure();
-      await window.dad.ptyAttach(
-        session.id,
-        instance.id,
-        size?.cols ?? 120,
-        size?.rows ?? 36
-      );
-      if (cancelled) {
-        // Attached but effect was cleaned up — detach the stale attachment
-        void window.dad.ptyDetach(instance.id);
-        return;
+      try {
+        await window.dad.ptyAttach(
+          session.id,
+          instance.id,
+          size?.cols ?? 120,
+          size?.rows ?? 36
+        );
+      } finally {
+        if (!cancelled) setAttachedKey(attachKey);
       }
+      if (cancelled) return;
       attachedRef.current = session.id;
       const postSize = termRef.current?.fitAndMeasure();
       if (postSize) {
@@ -83,26 +91,24 @@ export default function TerminalPanelInstance({
       void window.dad.ptyDetach(instance.id);
       attachedRef.current = null;
     };
-  }, [instance.id, session?.id, attachGen.get(instance.currentSessionId ?? '') ?? 0]);
+  }, [instance.id, attachKey]);
 
   // Listen for PTY data for this panel instance
   useEffect(() => {
     const decodeOsc52 = createOsc52Handler((text) => window.dad.clipboardWrite(text));
-    const unsub = window.dad.onPtyData((panelInstanceId, data) => {
-      if (panelInstanceId !== instance.id) return;
+    const unsub = window.dad.onPtyData((panelInstanceId, sessionId, data) => {
+      if (panelInstanceId !== instance.id || sessionId !== sessionRef.current?.id) return;
       termRef.current?.write(decodeOsc52(data));
-      if (session) handleTerminalInput(session.id, data);
+      handleTerminalInput(sessionId, data);
     });
     return unsub;
   }, [instance.id, session?.id, handleTerminalInput]);
 
-  const gen = session ? (attachGen.get(session.id) ?? 0) : 0;
-
   return (
     <PanelInstanceWrapper
       instance={instance}
-      slotKey={`${session?.id ?? ''}:${gen}`}
-      headerExtra={(s) => s.state === 'suspended' ? (
+      slotKey={attachKey}
+      headerExtra={(s) => s.agent === 'copilot' && s.state === 'suspended' ? (
         <button
           className="btn btn--micro terminal-pane__resume-btn"
           onClick={handleResume}
@@ -117,6 +123,8 @@ export default function TerminalPanelInstance({
           ref={(handle) => { termRef.current = handle; }}
           session={s}
           isActive={true}
+          attaching={attaching}
+          startupPhase={startupPhase}
           onResume={handleResume}
           openDropdownWithKeyboardRef={openDropdownWithKeyboardRef}
         />
