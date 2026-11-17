@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// `jira.ts` reaches app.getPath() when it resolves credentials. Nothing else
-// about Electron is used by the traversal.
-vi.mock('electron', () => ({ app: { getPath: () => '/tmp/dad-test' } }));
-
 import { fetchIssueGraph } from './jira';
 import { RefreshOutcome } from './jiraRefresh';
 import { JiraIssue, JiraLinkedIssue } from './types';
@@ -52,8 +48,8 @@ function resolver(
 /** Stub the epic-children JQL call. */
 function stubChildKeys(keys: string[] | 'fail') {
   vi.stubGlobal('fetch', vi.fn(async () => {
-    if (keys === 'fail') return { ok: false, status: 500, statusText: 'Server Error' };
-    return { ok: true, json: async () => ({ issues: keys.map((k) => ({ key: k })) }) };
+    if (keys === 'fail') return new Response('{}', { status: 500 });
+    return new Response(JSON.stringify({ issues: keys.map((k) => ({ key: k })) }));
   }));
 }
 

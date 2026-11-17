@@ -22,7 +22,7 @@ src/main/          Electron main process (Node.js)
   statePoller.ts   SessionState polling via tmux capture-pane
   notes.ts         NotesManager — SQLite + filesystem notes storage (panels, tabs, markdown files)
   settings.ts      AppSettings — settings.json read/write + in-memory cache
-  jira.ts          Jira REST API client — fetch, graph traversal, epic discovery
+  jira.ts          DAD graph traversal + adapter for the standalone @rulu/jira-tools REST client
   vault.ts         Jira vault — write/read issue notes as markdown files
   vaultFreshness.ts  Pure refresh-tier policy for vault notes (statusCategory → tier, isStale)
   jiraRefresh.ts   Jira refresh coordinator — single-flight, failure backoff, cached fallback
@@ -182,7 +182,7 @@ These guidelines exist to keep the codebase lean, avoid accidental duplication, 
 
 8. **Database queries stay in their manager class.** `SessionManager` owns the sessions table; `NotesManager` owns notes tables. Never write raw SQL outside the owning manager.
 
-9. **Credential access is centralized.** Use `resolveCredential()` from `credentials.ts` for reading, `jiraHeaders()` from `jira.ts` for auth headers. Never construct auth headers inline.
+9. **Credential access is centralized.** Use `resolveCredential()` from `credentials.ts` for DAD-local Nykredit credentials. Jira REST and authentication belong to the standalone `@rulu/jira-tools` package; Jira settings use its shared user-level store via `saveManagedCredentials` / `clearManagedCredential`. Never construct Jira auth headers inline or introduce a process-lifetime PAT cache. DAD alone writes the Jira vault; the standalone CLI returns fetched issues to agent context only.
 
 10. **Cleanup on session destroy.** When adding per-session state (Maps, caches, listeners), always add cleanup in the destroy path. See `useJiraStore.getState().cleanupSession(id)` in `App.tsx`'s `handleDestroySession` for the pattern.
 

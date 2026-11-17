@@ -1,11 +1,10 @@
 import { IpcMain } from 'electron';
 import { SessionManager } from '../sessions';
-import { fetchJiraIssue, fetchIssueGraph, clearCredentialCache } from '../jira';
+import { fetchJiraIssue, fetchIssueGraph } from '../jira';
 import { JiraIssue } from '../types';
 import { writeIssueNote, getVaultRoot, readVaultNote } from '../vault';
 import { createRefresher } from '../jiraRefresh';
 import { loadWhitelist } from '../whitelist';
-import { getJiraVaultPath } from '../settings';
 
 export function registerJiraHandlers(
   ipcMain: IpcMain,

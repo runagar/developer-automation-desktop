@@ -1,146 +1,11 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { app } from 'electron';
-import { JiraIssue, JiraLinkedIssue } from './types';
+import { JiraClient } from '@rulu/jira-tools';
+import { JiraIssue } from './types';
 import { RefreshOutcome } from './jiraRefresh';
-import { convertWikiToMarkdown } from './wikiToMarkdown';
-import { resolveCredential } from './credentials';
 
-let cachedPat: string | null = null;
-let cachedBaseUrl: string | null = null;
-
-// In-memory cache: discovered custom epic-link field ID, keyed by base URL
-const epicFieldCache = new Map<string, string | null>();
-
-const ISSUE_FIELDS = [
-  'summary', 'description', 'status', 'priority', 'issuetype',
-  'assignee', 'reporter', 'labels', 'fixVersions', 'components',
-  'issuelinks', 'parent',
-].join(',');
-
-function jiraHeaders(pat: string): Record<string, string> {
-  return { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' };
-}
-
-export function clearCredentialCache(): void {
-  cachedPat = null;
-  cachedBaseUrl = null;
-}
-
-function loadCredentials(): { pat: string; baseUrl: string } {
-  if (cachedPat && cachedBaseUrl) {
-    return { pat: cachedPat, baseUrl: cachedBaseUrl };
-  }
-
-  const dataDir = path.join(app.getPath('userData'), 'dad');
-  const pat = resolveCredential(dataDir, 'ATLASSIAN_PAT');
-  const baseUrl = resolveCredential(dataDir, 'ATLASSIAN_BASE_URL');
-
-  if (!pat || !baseUrl) {
-    throw new Error(
-      'Missing Jira credentials. Configure them in Settings → Credentials, ' +
-      'or set ATLASSIAN_PAT and ATLASSIAN_BASE_URL as environment variables.'
-    );
-  }
-
-  cachedPat = pat;
-  cachedBaseUrl = baseUrl.replace(/\/$/, '');
-  return { pat: cachedPat, baseUrl: cachedBaseUrl };
-}
+const client = new JiraClient();
 
 export async function fetchJiraIssue(key: string): Promise<JiraIssue> {
-  const { pat, baseUrl } = loadCredentials();
-
-  // Try to discover the custom epic-link field on first call
-  if (!epicFieldCache.has(baseUrl)) {
-    await discoverEpicField(baseUrl, pat);
-  }
-  const epicFieldId = epicFieldCache.get(baseUrl) ?? null;
-
-  const fields = epicFieldId ? `${ISSUE_FIELDS},${epicFieldId}` : ISSUE_FIELDS;
-  const url = `${baseUrl}/rest/api/latest/issue/${encodeURIComponent(key)}?fields=${fields}`;
-
-  const response = await fetch(url, {
-    headers: jiraHeaders(pat),
-  });
-
-  if (!response.ok) {
-    if (response.status === 404) throw new Error(`Issue ${key} not found`);
-    throw new Error(`Jira API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json() as any;
-  const f = data.fields ?? {};
-  const summary: string = f.summary ?? '';
-  const rawDesc: string = f.description ?? '';
-  const description = convertWikiToMarkdown(rawDesc);
-
-  // Determine parent/epic key
-  let parentKey: string | null = f.parent?.key ?? null;
-  if (!parentKey && epicFieldId && f[epicFieldId]) {
-    parentKey = typeof f[epicFieldId] === 'string' ? f[epicFieldId] : f[epicFieldId]?.key ?? null;
-  }
-
-  const linkedIssues: JiraLinkedIssue[] = (f.issuelinks ?? [])
-    .map((link: any): JiraLinkedIssue | null => {
-      if (link.outwardIssue) {
-        return {
-          key: link.outwardIssue.key,
-          summary: link.outwardIssue.fields?.summary ?? '',
-          relation: link.type?.outward ?? '',
-        };
-      }
-      if (link.inwardIssue) {
-        return {
-          key: link.inwardIssue.key,
-          summary: link.inwardIssue.fields?.summary ?? '',
-          relation: link.type?.inward ?? '',
-        };
-      }
-      return null;
-    })
-    .filter(Boolean) as JiraLinkedIssue[];
-
-  return {
-    __schemaVersion: 4,
-    key: data.key ?? key,
-    summary,
-    description,
-    status: f.status?.name ?? '',
-    statusCategory: f.status?.statusCategory?.key ?? '',
-    priority: f.priority?.name ?? '',
-    issueType: f.issuetype?.name ?? '',
-    assignee: f.assignee?.displayName ?? null,
-    reporter: f.reporter?.displayName ?? null,
-    labels: f.labels ?? [],
-    fixVersions: (f.fixVersions ?? []).map((v: any) => v.name),
-    components: (f.components ?? []).map((c: any) => c.name),
-    parentKey,
-    linkedIssues,
-  };
-}
-
-// --- Epic field discovery ---
-
-async function discoverEpicField(baseUrl: string, pat: string): Promise<void> {
-  const headers = jiraHeaders(pat);
-  // Try multiple API versions — Jira Server uses v2, Jira Cloud uses v3
-  for (const ver of ['latest', '3', '2']) {
-    try {
-      const response = await fetch(`${baseUrl}/rest/api/${ver}/field`, { headers });
-      if (!response.ok) continue;
-      const fields = await response.json() as any[];
-      const epicField = fields.find((f: any) =>
-        f.custom && typeof f.name === 'string' && /epic link/i.test(f.name)
-      );
-      epicFieldCache.set(baseUrl, epicField?.id ?? null);
-      if (epicField) console.log(`[jira] Discovered custom epic field: ${epicField.id} (${epicField.name}) via api/${ver}`);
-      return;
-    } catch {
-      continue;
-    }
-  }
-  epicFieldCache.set(baseUrl, null);
+  return client.fetchIssue(key);
 }
 
 // --- Recursive issue-graph fetcher ---
@@ -229,7 +94,7 @@ export async function fetchIssueGraph(
   if (epicKey) {
     const primaryProject = primary.key.replace(/-\d+$/, '');
     try {
-      const childKeys = await fetchEpicChildKeys(epicKey, primaryProject, maxIssues - visited.size);
+      const childKeys = await client.fetchEpicChildKeys(epicKey, primaryProject, maxIssues - visited.size);
       for (const childKey of childKeys) {
         if (visited.has(childKey) || visited.size >= maxIssues) continue;
         visited.add(childKey);
@@ -298,34 +163,4 @@ async function selectEpicForChildren(
 
   refreshed.add(parentKey);
   return parentKey;
-}
-
-/**
- * Fetch the keys of an epic's children, filtered to a specific project via JQL.
- *
- * Returns keys rather than issues so the caller can skip a child that is still
- * fresh *before* paying for its request.
- *
- * Throws on a failed query. Returning an empty list would be indistinguishable
- * from an epic that genuinely has no children, which would let a transient JQL
- * failure stamp the epic fresh and suppress rediscovery for up to a month.
- */
-async function fetchEpicChildKeys(epicKey: string, project: string, limit: number): Promise<string[]> {
-  if (limit <= 0) return [];
-  const { pat, baseUrl } = loadCredentials();
-
-  // Try "Epic Link" = KEY first (standard name), fall back to parent = KEY
-  const jql = `("Epic Link" = "${epicKey}" OR parent = "${epicKey}") AND project = "${project}" ORDER BY key ASC`;
-
-  const url = `${baseUrl}/rest/api/latest/search?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(limit, 50)}&fields=key`;
-  const response = await fetch(url, {
-    headers: jiraHeaders(pat),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Epic children JQL failed: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json() as any;
-  return (data.issues ?? []).map((i: any) => i.key);
 }

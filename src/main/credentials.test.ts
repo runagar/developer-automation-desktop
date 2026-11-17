@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
   clearCredential, decodeEnvValue, encodeEnvValue, parseEnvFile, resolveCredential, saveCredential,
+  clearManagedCredential, getCredentialStatus, saveManagedCredentials, validateCredentials,
 } from './credentials';
+import { getJiraSettings } from '@rulu/jira-tools';
 
 describe('env value encoding', () => {
   it('leaves an ordinary value bare', () => {
@@ -41,6 +43,73 @@ describe('env value encoding', () => {
 
   it('still parses bare values written by earlier versions', () => {
     expect(decodeEnvValue('plain-token')).toBe('plain-token');
+  });
+});
+
+describe('shared Jira credentials', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dad-shared-jira-'));
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(dir, 'config'));
+    vi.stubEnv('ATLASSIAN_PAT', '');
+    vi.stubEnv('ATLASSIAN_BASE_URL', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('saves the Atlassian pair to the global store and leaves Nykredit credentials local', async () => {
+    // Given
+    saveCredential(dir, 'NYK_PASSWORD', 'local-password');
+    const updates = [
+      { key: 'ATLASSIAN_PAT', value: 'shared-fixture-pat' },
+      { key: 'ATLASSIAN_BASE_URL', value: 'https://jira.example.test' },
+    ];
+    // When
+    await saveManagedCredentials(dir, updates);
+    const statuses = await getCredentialStatus(dir);
+    // Then
+    expect((await getJiraSettings()).pat).toBe('shared-fixture-pat');
+    expect(parseEnvFile(path.join(dir, 'credentials.env'))).toEqual({ NYK_PASSWORD: 'local-password' });
+    expect(statuses.find((status) => status.key === 'ATLASSIAN_PAT')).toMatchObject({ source: 'file', value: 'shared-fixture-pat' });
+    expect(resolveCredential(dir, 'NYK_PASSWORD')).toBe('local-password');
+  });
+
+  it('validates a first-time credential pair through the shared client without saving it', async () => {
+    // Given
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ name: 'fixture-user' })));
+    vi.stubGlobal('fetch', fetch);
+    const updates = [
+      { key: 'ATLASSIAN_PAT', value: 'fixture-pat' },
+      { key: 'ATLASSIAN_BASE_URL', value: 'https://jira.example.test' },
+    ];
+    // When
+    const results = await validateCredentials(dir, updates);
+    // Then
+    expect(results).toEqual(updates.map(({ key }) => ({ key, valid: true })));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect((await getJiraSettings()).pat).toBe('');
+  });
+
+  it('clears only the shared Jira credential and observes rotations immediately', async () => {
+    // Given
+    saveCredential(dir, 'NYK_PASSWORD', 'local-password');
+    await saveManagedCredentials(dir, [
+      { key: 'ATLASSIAN_PAT', value: 'old-fixture' },
+      { key: 'ATLASSIAN_BASE_URL', value: 'https://jira.example.test' },
+    ]);
+    // When
+    await saveManagedCredentials(dir, [{ key: 'ATLASSIAN_PAT', value: 'rotated-fixture' }]);
+    const rotated = await getCredentialStatus(dir);
+    await clearManagedCredential(dir, 'ATLASSIAN_PAT');
+    // Then
+    expect(rotated.find((status) => status.key === 'ATLASSIAN_PAT')?.value).toBe('rotated-fixture');
+    expect((await getJiraSettings()).pat).toBe('');
+    expect(resolveCredential(dir, 'NYK_PASSWORD')).toBe('local-password');
   });
 });
 

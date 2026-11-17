@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getJiraVaultPath, setJiraVaultPath } from './settings';
-import { clearCredentialCache } from './jira';
 import { copyDirRecursive, rollbackCopiedFiles, validatePathWritable } from './migrationUtils';
 
 /**
@@ -38,7 +37,6 @@ export async function migrateJiraVault(
 
     // Update settings
     setJiraVaultPath(dataDir, normalizedNew);
-    clearCredentialCache();
 
     // Delete old vault contents
     if (fs.existsSync(normalizedOld)) {

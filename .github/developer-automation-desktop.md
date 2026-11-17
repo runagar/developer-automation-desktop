@@ -546,12 +546,13 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
   5. Filters by project-key whitelist (configurable via `<dataDir>/jira-whitelist.json`).
   6. Writes all fetched issues to the **Jira vault** as Markdown notes with YAML frontmatter and `[[wikilinks]]`.
 - Every issue in the traversal goes through the **refresh coordinator** (see *Vault freshness* below), so a secondary whose note is still fresh is skipped before its request is made. The FETCH button passes `force`, bypassing freshness and backoff entirely.
-- Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by `src/main/credentials.ts` in order:
+- Jira REST access is provided by the standalone `@rulu/jira-tools` package, installed from the versioned release tarball in `vendor/`. `src/main/jira.ts` retains DAD's graph traversal and delegates single-issue and epic-child requests to the shared client. The package has no Electron dependency or vault-writing code.
+- Credentials (`ATLASSIAN_PAT` + `ATLASSIAN_BASE_URL`) are resolved by the shared package in order:
   1. Environment variables (highest priority — shown as read-only in the UI)
-  2. `<dataDir>/credentials.env` (managed via Settings → Jira dialog)
+  2. `~/.config/jira-tools/config.json` and `credentials.env` (or `$XDG_CONFIG_HOME/jira-tools/`, managed via Settings → Jira dialog)
   3. Error with actionable message if neither source provides both values
 
-**Wiki-to-Markdown conversion:** Jira issue descriptions arrive in wiki markup and are converted to Markdown at fetch time by `src/main/wikiToMarkdown.ts`. The converter handles: headings, bold, italic, bullet/numbered lists (with nesting), code blocks (with language), inline code, links, tables, and colour markup (stripped). Jira issue keys (`PROJ-123`) in the description are automatically wrapped as `[KEY](jira://KEY)` links. Code blocks and inline code are protected from further conversion.
+**Wiki-to-Markdown conversion:** Jira issue descriptions arrive in wiki markup and are converted to Markdown at fetch time by `@rulu/jira-tools`. The converter handles: headings, bold, italic, bullet/numbered lists (with nesting), code blocks (with language), inline code, links, tables, and colour markup (stripped). Jira issue keys (`PROJ-123`) in the description are automatically wrapped as `[KEY](jira://KEY)` links. Code blocks and inline code are protected from further conversion.
 
 **Display:** SUMMARY → STATUS · PRIORITY · TYPE (metadata row) → LABELS → FIX VERSIONS → DESCRIPTION (rendered Markdown via `react-markdown` + `remark-gfm`) → LINKED ISSUES. Descriptions are rendered as formatted HTML with headings, lists, tables, and code blocks styled per theme.
 
@@ -562,7 +563,7 @@ The Jira pane is a dashboard panel (`jira`) that displays issue details for a se
 
 **PLAN button:** Sends `Plan <KEY>\r` to the active session's PTY as a single-shot write. The user's Copilot skills (`plan-jira-issue`, `implement-jira-issue`) are responsible for making the agent read the vault notes.
 
-**Jira vault:** Local Obsidian-compatible vault at `<userData>/jira-context/` (overridable via `AGENT_SMITH_JIRA_VAULT` env var). Layout: `Jira/<PROJECT>/<KEY>.md` (nested by project). Notes have YAML frontmatter (all fields) and Markdown body (already converted from wiki markup) with `[[wikilinks]]` in the Linked Issues section. Atomic writes (`.tmp` + rename). Notes accumulate across sessions — no auto-cleanup. Vault is read via `readVaultNote` (async, one read + one parse) which returns the `JiraIssue` **and** its freshness metadata; `jira:readIssue` exposes the issue half.
+**Jira vault:** DAD alone owns persistence. The local Obsidian-compatible vault uses the `jira.vaultPath` setting and layout `<vaultRoot>/<PROJECT>/<KEY>.md`, without an intermediate `Jira/` folder. Notes have YAML frontmatter and Markdown bodies with `[[wikilinks]]` in Linked Issues. Writes use `.tmp` + rename, and notes accumulate across sessions. `readVaultNote` returns the issue and freshness metadata; `jira:readIssue` exposes the issue half. Agents read existing notes directly and use the globally installed `jira-tools issue fetch` for missing issues, into context only. The standalone package never writes notes, refreshes the vault, or caches issue payloads. Its create operation likewise only returns a Jira receipt. DAD's existing terminal-key autodetection remains an independent vault-population policy.
 
 **Vault freshness:** Notes were previously written once and never refreshed — auto-detect deduped on a per-session `Set` with no expiry, and `jira:getOrFetch` was read-through forever, so a user could sit on month-old data with nothing on screen to say so. Three pieces now cooperate:
 
@@ -708,7 +709,7 @@ The `CredentialRow` component (`src/renderer/components/CredentialRow.tsx`) is e
 
 **Saving is group-batched, because validation is.** `ATLASSIAN_PAT` and `ATLASSIAN_BASE_URL` can only be checked *as a pair*, and `validateCredentials` fills any key absent from the update set from the already-stored value. So a per-row save that submits one key is unsaveable on first-time setup: neither value is stored yet, so whichever button is clicked resolves the other half to empty and fails with "Both Access Token and Base URL are required". `handleSaveCred` therefore submits **every pending edit in the clicked field's group** in one `credentials:save` call and applies each per-key result back to its own row. Any future paired credential gets this for free; do not reduce the call back to the single clicked key.
 
-**Persistence:** Credentials are stored in `<dataDir>/credentials.env` (plain text, chmod 600). `clearCredentialCache()` in `jira.ts` is called after any save/clear.
+**Persistence:** Atlassian settings use the shared `jira-tools` user-level store (`config.json` plus `credentials.env`, mode `0600`). DAD imports only the Atlassian pair from its legacy file on first startup if no shared settings exist; existing shared settings and unrelated Nykredit credentials are never overwritten. The legacy file is retained for rollback. Jira UI saves are asynchronous and pair-batched through `saveManagedCredentials`; clears use `clearManagedCredential`. Credentials are resolved per operation, so rotations made outside DAD are visible without a process-lifetime PAT cache. Nykredit username/password remain in `<dataDir>/credentials.env` and continue to use DAD's existing local helpers.
 
 **Value encoding.** A Jira PAT is alphanumeric; a domain password is not. Values are quoted **only when they would not survive a bare round-trip** (leading/trailing whitespace, a newline, a `"` or a `\`), so files written by earlier versions still parse unchanged. `decodeEnvValue` unescapes in a **single left-to-right pass** — chained `replace` calls are wrong, because unescaping `\n` before `\\` turns the encoded form of a literal backslash-then-`n` (as in `c:\new`) into a real newline. That corruption is not cosmetic: the mangled password fails every automatic attempt and latches, while manual login appears to succeed and re-saves it, producing a permanent failure loop.
 
@@ -733,7 +734,7 @@ The latch lives in `<dataDir>/auth-state.json` at mode `0600` — *not* `setting
 
 **Login UI.** `LoginButton.tsx` sits left of the Settings dropdown in the tool tab bar and owns the auth subscription. It **subscribes to `auth:state-changed` before calling `auth:status`** — `renderer:ready` fires before React mounts listeners, so the startup attempt's push would otherwise be dropped. The indicator has **three** states, because a rejected password and an unreachable server need different fixes: `LOGGED IN` (`--c-mid`), `LOGIN FAILED` (`--c-red`, latches), `UNAVAILABLE` (`--c-amber`, does not latch), plus a transient `LOGIN SUCCESSFUL` for 5 s.
 
-`LoginDialog.tsx` is separate from Settings → Jira by design — those credentials are Jira's alone, these are the user's organisation account — though both persist through the same `credentials.env`. It implements its own capture-phase focus trap (INITIALS → PASSWORD → LOGIN, wrapping), because `Workspace`'s window-level Tab handler calls `preventDefault()` whenever focus is outside a `[data-panel-id]`, which includes every dialog. `ManageWorkspacesDialog` uses the same workaround. Password reveal uses Lucide `Eye`/`EyeOff`.
+`LoginDialog.tsx` is separate from Settings → Jira by design — Jira credentials use the shared Jira Tools store, while the user's organisation account stays in DAD's local `credentials.env`. It implements its own capture-phase focus trap (INITIALS → PASSWORD → LOGIN, wrapping), because `Workspace`'s window-level Tab handler calls `preventDefault()` whenever focus is outside a `[data-panel-id]`, which includes every dialog. `ManageWorkspacesDialog` uses the same workaround. Password reveal uses Lucide `Eye`/`EyeOff`.
 
 **Verification is two-step** (`auth:login`): acquire the token, then call `GET /authorizations` (365 B, ~100 ms). Acquisition alone would report success for a token api-docs will reject with `403`. Credentials are saved **only after** both steps pass, and a password sourced from the environment is never written to disk.
 
@@ -1051,7 +1052,7 @@ On WSLg this resolves to `~/.config/dad/dad/sessions.db`. The directory is creat
 
 Two credential-related files live alongside it, both at mode `0600`:
 ```
-<dataDir>/credentials.env    manifest-driven credential values
+<dataDir>/credentials.env    Nykredit credentials + retained legacy Atlassian values for rollback
 <dataDir>/auth-state.json    random install key + HMACs of rejected credentials (never the credentials themselves)
 ```
 

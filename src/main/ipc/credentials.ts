@@ -1,8 +1,7 @@
 import { IpcMain, clipboard } from 'electron';
 import {
-  getCredentialStatus, validateCredentials, saveCredential, clearCredential,
+  getCredentialStatus, validateCredentials, saveManagedCredentials, clearManagedCredential,
 } from '../credentials';
-import { clearCredentialCache } from '../jira';
 
 /**
  * Groups whose values must never cross the IPC boundary.
@@ -18,24 +17,18 @@ export function registerCredentialHandlers(
   ipcMain: IpcMain,
   dataDir: string,
 ): void {
-  ipcMain.handle('credentials:status', () =>
-    getCredentialStatus(dataDir).filter((s) => !RENDERER_HIDDEN_GROUPS.has(s.group)));
+  ipcMain.handle('credentials:status', async () =>
+    (await getCredentialStatus(dataDir)).filter((s) => !RENDERER_HIDDEN_GROUPS.has(s.group)));
 
   ipcMain.handle('credentials:save', async (_event, updates: Array<{ key: string; value: string }>) => {
     const results = await validateCredentials(dataDir, updates);
-    for (const r of results) {
-      if (r.valid) {
-        const update = updates.find((u) => u.key === r.key);
-        if (update) saveCredential(dataDir, update.key, update.value);
-      }
-    }
-    clearCredentialCache();
+    const validKeys = new Set(results.filter((result) => result.valid).map((result) => result.key));
+    await saveManagedCredentials(dataDir, updates.filter((update) => validKeys.has(update.key)));
     return results;
   });
 
-  ipcMain.handle('credentials:clear', (_event, key: string) => {
-    clearCredential(dataDir, key);
-    clearCredentialCache();
+  ipcMain.handle('credentials:clear', async (_event, key: string) => {
+    await clearManagedCredential(dataDir, key);
   });
 
   // Clipboard — synchronous IPC so the key event handler can read/write

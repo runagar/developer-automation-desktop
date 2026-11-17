@@ -1,3 +1,6 @@
+import type { JiraIssue } from '@rulu/jira-tools';
+export type { JiraIssue, JiraLinkedIssue } from '@rulu/jira-tools';
+
 export type SessionState = 'idle' | 'running' | 'awaiting' | 'suspended';
 export type SessionAgent = 'opencode' | 'copilot';
 export type SessionStartupPhase = 'server' | 'migrate-history' | 'create-conversation' | 'load-conversation' | 'tui';
@@ -7,30 +10,6 @@ export interface CreateSessionOptions {
   workingDir: string;
   project?: string | null;
   agent?: SessionAgent;
-}
-
-export interface JiraLinkedIssue {
-  key: string;
-  summary: string;
-  relation: string;             // e.g. "is blocked by", "relates to"
-}
-
-export interface JiraIssue {
-  __schemaVersion?: number;     // 4 adds statusCategory; 3 for Markdown description; absent or 2 in legacy cached data
-  key: string;
-  summary: string;
-  description: string;
-  status: string;
-  statusCategory?: string;      // Jira statusCategory.key; absent in notes/blobs written before v4
-  priority: string;
-  issueType: string;
-  assignee: string | null;
-  reporter: string | null;
-  labels: string[];
-  fixVersions: string[];
-  components: string[];
-  parentKey: string | null;
-  linkedIssues: JiraLinkedIssue[];
 }
 
 export interface Session {

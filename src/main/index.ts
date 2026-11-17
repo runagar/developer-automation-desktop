@@ -14,6 +14,7 @@ import { DiscoveredWorkspace } from './types';
 import { initAutoUpdater } from './updater';
 import { readOpenCodeCliVersion } from './tmux';
 import { OPENCODE_INSTALL_COMMAND, isSupportedOpenCodeVersion } from './opencode';
+import { migrateDadCredentials } from '@rulu/jira-tools';
 
 let mainWindow: BrowserWindow | null = null;
 let dataDir: string;
@@ -207,6 +208,7 @@ async function initialize(): Promise<void> {
 
   // Create settings.json with defaults if missing
   loadSettings(dataDir);
+  await migrateDadCredentials(dataDir);
 
   sessionManager = new SessionManager(dataDir);
   shellTmuxManager = new ShellTmuxManager();

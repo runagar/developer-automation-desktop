@@ -1,5 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  encodeEnvValue, getJiraSettings, JiraClient, JiraError,
+  parseEnv, updateJiraSettings,
+} from '@rulu/jira-tools';
+
+export { decodeEnvValue, encodeEnvValue } from '@rulu/jira-tools';
 
 // ---------------------------------------------------------------------------
 // Credential field manifest
@@ -38,59 +44,11 @@ export interface CredentialStatus {
 
 export function parseEnvFile(filePath: string): Record<string, string> {
   if (!fs.existsSync(filePath)) return {};
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const env: Record<string, string> = {};
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    env[trimmed.slice(0, eqIdx).trim()] = decodeEnvValue(trimmed.slice(eqIdx + 1).trim());
-  }
-  return env;
+  return parseEnv(fs.readFileSync(filePath, 'utf-8'));
 }
 
-/**
- * Decode a stored value.
- *
- * Quoted values are unescaped; bare values are returned as-is so files written
- * by earlier versions keep parsing exactly as they did before.
- *
- * Escapes are consumed in a single left-to-right pass. Chained `replace` calls
- * would be wrong: unescaping `\n` before `\\` turns the encoded form of a
- * literal backslash-then-n (`\\n`, as in `c:\new`) into a real newline.
- */
-export function decodeEnvValue(raw: string): string {
-  if (raw.length < 2 || !raw.startsWith('"') || !raw.endsWith('"')) return raw;
-
-  const inner = raw.slice(1, -1);
-  let out = '';
-  for (let i = 0; i < inner.length; i++) {
-    if (inner[i] !== '\\' || i === inner.length - 1) {
-      out += inner[i];
-      continue;
-    }
-    const next = inner[++i];
-    if (next === 'n') out += '\n';
-    else if (next === '"') out += '"';
-    else if (next === '\\') out += '\\';
-    else out += `\\${next}`;
-  }
-  return out;
-}
-
-/**
- * Encode a value for storage, quoting only when it would not survive a
- * round-trip bare — a password may contain leading/trailing whitespace or a
- * newline, either of which the line-based parser would otherwise corrupt.
- */
-export function encodeEnvValue(value: string): string {
-  const needsQuoting = value !== value.trim() || /[\n\r"\\]/.test(value);
-  if (!needsQuoting) return value;
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r?\n/g, '\\n');
-  return `"${escaped}"`;
+export function isJiraCredential(key: string): key is 'ATLASSIAN_PAT' | 'ATLASSIAN_BASE_URL' {
+  return key === 'ATLASSIAN_PAT' || key === 'ATLASSIAN_BASE_URL';
 }
 
 function credentialsPath(dataDir: string): string {
@@ -101,11 +59,15 @@ function credentialsPath(dataDir: string): string {
 // Status / read
 // ---------------------------------------------------------------------------
 
-export function getCredentialStatus(dataDir: string): CredentialStatus[] {
+export async function getCredentialStatus(dataDir: string): Promise<CredentialStatus[]> {
   const filePath = credentialsPath(dataDir);
   const fileVals = parseEnvFile(filePath);
+  const jira = await getJiraSettings();
 
   return CREDENTIAL_FIELDS.map((field) => {
+    if (isJiraCredential(field.key)) {
+      return { ...field, source: jira.sources[field.key], value: field.key === 'ATLASSIAN_PAT' ? jira.pat : jira.baseUrl };
+    }
     const envVal = process.env[field.key];
     if (envVal) {
       return { ...field, source: 'env' as const, value: envVal };
@@ -159,6 +121,24 @@ export function clearCredential(dataDir: string, key: string): void {
   writeEnvFile(filePath, env);
 }
 
+export async function saveManagedCredentials(dataDir: string, updates: Array<{ key: string; value: string }>): Promise<void> {
+  const atlassian = new Map(updates.filter((update) => isJiraCredential(update.key)).map((update) => [update.key, update.value]));
+  if (atlassian.size) {
+    await updateJiraSettings({ pat: atlassian.get('ATLASSIAN_PAT'), baseUrl: atlassian.get('ATLASSIAN_BASE_URL') });
+  }
+  for (const update of updates) {
+    if (!isJiraCredential(update.key)) saveCredential(dataDir, update.key, update.value);
+  }
+}
+
+export async function clearManagedCredential(dataDir: string, key: string): Promise<void> {
+  if (isJiraCredential(key)) {
+    await updateJiraSettings(key === 'ATLASSIAN_PAT' ? { pat: '' } : { baseUrl: '' });
+  } else {
+    clearCredential(dataDir, key);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -193,8 +173,9 @@ export async function validateCredentials(
   // Validate Atlassian group
   const atlassianKeys = groups.get('Atlassian');
   if (atlassianKeys) {
-    const pat = updateMap.get('ATLASSIAN_PAT') ?? resolveCredential(dataDir, 'ATLASSIAN_PAT');
-    const baseUrl = updateMap.get('ATLASSIAN_BASE_URL') ?? resolveCredential(dataDir, 'ATLASSIAN_BASE_URL');
+    const jira = await getJiraSettings();
+    const pat = updateMap.get('ATLASSIAN_PAT') ?? jira.pat;
+    const baseUrl = updateMap.get('ATLASSIAN_BASE_URL') ?? jira.baseUrl;
 
     if (!pat || !baseUrl) {
       // Can't validate without both — mark updated keys as undetermined
@@ -202,46 +183,13 @@ export async function validateCredentials(
         results.push({ key, valid: false, error: 'Both Access Token and Base URL are required for validation' });
       }
     } else {
-      const url = `${baseUrl.replace(/\/$/, '')}/rest/api/latest/myself`;
       try {
-        const response = await fetch(url, {
-          headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
-        });
-        if (response.ok) {
-          for (const key of atlassianKeys) {
-            results.push({ key, valid: true });
-          }
-        } else if (response.status === 401 || response.status === 403) {
-          // Token is invalid
-          const patUpdated = updateMap.has('ATLASSIAN_PAT');
-          const urlUpdated = updateMap.has('ATLASSIAN_BASE_URL');
-          if (patUpdated) {
-            results.push({ key: 'ATLASSIAN_PAT', valid: false, error: 'Authentication failed — invalid token' });
-          }
-          if (urlUpdated) {
-            // URL might be fine, but we can't tell — don't save
-            results.push({ key: 'ATLASSIAN_BASE_URL', valid: false, error: 'Authentication failed — cannot verify URL' });
-          }
-        } else if (response.status === 404) {
-          // URL is wrong (API endpoint not found)
-          if (updateMap.has('ATLASSIAN_BASE_URL')) {
-            results.push({ key: 'ATLASSIAN_BASE_URL', valid: false, error: `API not found at this URL (HTTP ${response.status})` });
-          }
-          if (updateMap.has('ATLASSIAN_PAT')) {
-            results.push({ key: 'ATLASSIAN_PAT', valid: false, error: 'Cannot validate — Base URL appears incorrect' });
-          }
-        } else {
-          for (const key of atlassianKeys) {
-            results.push({ key, valid: false, error: `Unexpected response: HTTP ${response.status}` });
-          }
-        }
-      } catch (err: any) {
-        // Network error — likely bad URL
-        if (updateMap.has('ATLASSIAN_BASE_URL')) {
-          results.push({ key: 'ATLASSIAN_BASE_URL', valid: false, error: `Connection failed: ${err?.message ?? 'unknown error'}` });
-        }
-        if (updateMap.has('ATLASSIAN_PAT')) {
-          results.push({ key: 'ATLASSIAN_PAT', valid: false, error: 'Cannot validate — connection to server failed' });
+        await new JiraClient({ credentials: { pat, baseUrl } }).getCurrentUser();
+        for (const key of atlassianKeys) results.push({ key, valid: true });
+      } catch (error) {
+        const message = error instanceof JiraError ? error.message : 'Cannot validate Jira credentials';
+        for (const key of atlassianKeys) {
+          results.push({ key, valid: false, error: message });
         }
       }
     }
